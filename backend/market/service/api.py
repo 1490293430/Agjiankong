@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Query
 from typing import Optional, List, Dict, Any
+import math
+
 from market_collector.cn import fetch_a_stock_spot, fetch_a_stock_kline
 from market_collector.hk import fetch_hk_stock_spot, fetch_hk_stock_kline
 from common.redis import get_json
@@ -14,6 +16,31 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/market", tags=["行情"])
 
 
+def _sanitize_spot_data(data: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """
+    处理行情数据中的 NaN/Inf，避免 JSON 序列化报错：
+    "Out of range float values are not JSON compliant"
+    """
+    if not data:
+        return []
+
+    sanitized: List[Dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        new_item: Dict[str, Any] = {}
+        for k, v in item.items():
+            if isinstance(v, float):
+                if not math.isfinite(v):
+                    new_item[k] = None
+                else:
+                    new_item[k] = v
+            else:
+                new_item[k] = v
+        sanitized.append(new_item)
+    return sanitized
+
+
 @router.get("/a/spot")
 async def get_a_stock_spot():
     """获取A股实时行情"""
@@ -22,6 +49,7 @@ async def get_a_stock_spot():
         if not data:
             # 如果Redis没有，直接采集
             data = fetch_a_stock_spot()
+        data = _sanitize_spot_data(data)
         return {"code": 0, "data": data, "message": "success"}
     except Exception as e:
         logger.error(f"获取A股行情失败: {e}", exc_info=True)
@@ -35,6 +63,7 @@ async def get_hk_stock_spot():
         data = get_json("market:hk:spot")
         if not data:
             data = fetch_hk_stock_spot()
+        data = _sanitize_spot_data(data)
         return {"code": 0, "data": data, "message": "success"}
     except Exception as e:
         logger.error(f"获取港股行情失败: {e}", exc_info=True)
