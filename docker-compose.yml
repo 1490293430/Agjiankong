@@ -28,12 +28,10 @@ services:
 
   collector:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: stock_collector
     command: python -m market_collector.scheduler
-    volumes:
-      - ./backend:/app
     depends_on:
       - redis
     restart: always
@@ -43,14 +41,12 @@ services:
 
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: stock_api
     command: uvicorn gateway.app:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     depends_on:
       - redis
       - clickhouse
