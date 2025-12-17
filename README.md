@@ -1,3 +1,23 @@
+# 一键部署
+
+在服务器上执行以下命令即可一键部署到 /opt/Agjiankong 并自动启动 Docker 服务：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/1490293430/Agjiankong/main/install.sh)
+```
+
+# 手动快速部署
+
+如果你需要手动部署或更新项目，可以参考以下命令：
+
+```bash
+cd /opt/Agjiankong
+git pull
+docker compose build
+docker compose up -d
+```
+
+上述命令会进入项目目录，拉取最新代码，构建并以后台方式启动服务。
 # 量化交易终端
 
 一个功能完整的A股/港股行情分析系统，支持实时行情、技术分析、自动选股、模拟交易和AI分析。
