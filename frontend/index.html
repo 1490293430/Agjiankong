@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>量化交易终端</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 登录遮罩层 -->
+    <div id="login-overlay" style="position: fixed; inset: 0; background: rgba(15,23,42,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: #0f172a; padding: 24px 28px; border-radius: 12px; width: 320px; box-shadow: 0 20px 40px rgba(15,23,42,0.8); border: 1px solid #1e293b;">
+            <h2 style="margin: 0 0 16px; font-size: 20px; color: #e5e7eb; text-align: center;">管理员登录</h2>
+            <p style="margin: 0 0 16px; font-size: 12px; color: #9ca3af; text-align: center;">
+                默认账号 <code>admin</code> / 默认密码 <code>admin</code>，上线环境请修改环境变量。
+            </p>
+            <form id="login-form">
+                <div style="margin-bottom: 10px;">
+                    <label style="display:block; font-size: 13px; color:#cbd5f5; margin-bottom:4px;">用户名</label>
+                    <input id="login-username" type="text" value="admin" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #1f2937; background:#020617; color:#e5e7eb;">
+                </div>
+                <div style="margin-bottom: 14px;">
+                    <label style="display:block; font-size: 13px; color:#cbd5f5; margin-bottom:4px;">密码</label>
+                    <input id="login-password" type="password" value="admin" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #1f2937; background:#020617; color:#e5e7eb;">
+                </div>
+                <button type="submit" style="width:100%; padding:8px 0; border:none; border-radius:6px; background:#3b82f6; color:white; font-weight:600; cursor:pointer;">
+                    登录
+                </button>
+                <div id="login-message" style="margin-top:8px; font-size:12px; color:#f97316; min-height:16px;"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 头部导航 -->
+        <header class="header">
+            <h1>📈 量化交易终端</h1>
+            <div class="nav-tabs">
+                <button class="tab-btn active" data-tab="market">行情</button>
+                <button class="tab-btn" data-tab="chart">K线</button>
+                <button class="tab-btn" data-tab="strategy">选股</button>
+                <button class="tab-btn" data-tab="trading">交易</button>
+                <button class="tab-btn" data-tab="news">资讯</button>
+                <button class="tab-btn" data-tab="config">配置</button>
+            </div>
+        </header>
+
+        <!-- 行情面板 -->
+        <section id="market-tab" class="tab-content active">
+            <div class="market-controls">
+                <select id="market-select">
+                    <option value="a">A股</option>
+                    <option value="hk">港股</option>
+                </select>
+                <input type="text" id="search-input" placeholder="搜索股票代码或名称...">
+                <button id="refresh-btn">刷新</button>
+            </div>
+            <div class="stock-list-container">
+                <table class="stock-table">
+                    <thead>
+                        <tr>
+                            <th>代码</th>
+                            <th>名称</th>
+                            <th>最新价</th>
+                            <th>涨跌幅</th>
+                            <th>成交量</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stock-list">
+                        <tr><td colspan="6" class="loading">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- K线图面板 -->
+        <section id="chart-tab" class="tab-content">
+            <div class="chart-controls">
+                <input type="text" id="chart-code-input" placeholder="输入股票代码（如：600519）">
+                <button id="load-chart-btn">加载K线</button>
+                <select id="chart-period">
+                    <option value="daily">日线</option>
+                    <option value="weekly">周线</option>
+                    <option value="monthly">月线</option>
+                </select>
+            </div>
+            <div id="chart-container"></div>
+            <div id="indicators-info" class="indicators-info"></div>
+        </section>
+
+        <!-- 选股面板 -->
+        <section id="strategy-tab" class="tab-content">
+            <div class="strategy-controls">
+                <label>选股阈值：<input type="number" id="threshold-input" value="65" min="0" max="100"></label>
+                <label>最大数量：<input type="number" id="max-count-input" value="30" min="1" max="100"></label>
+                <button id="select-btn">开始选股</button>
+            </div>
+            <div id="selected-stocks" class="selected-stocks"></div>
+        </section>
+
+        <!-- 交易面板 -->
+        <section id="trading-tab" class="tab-content">
+            <div class="trading-layout">
+                <div class="account-info">
+                    <h3>账户信息</h3>
+                    <div id="account-info-content"></div>
+                    <button id="reset-account-btn">重置账户</button>
+                </div>
+                <div class="order-form">
+                    <h3>下单</h3>
+                    <div class="form-group">
+                        <label>股票代码：<input type="text" id="order-code"></label>
+                    </div>
+                    <div class="form-group">
+                        <label>操作：</label>
+                        <select id="order-action">
+                            <option value="BUY">买入</option>
+                            <option value="SELL">卖出</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>价格：<input type="number" id="order-price" step="0.01"></label>
+                    </div>
+                    <div class="form-group">
+                        <label>数量（手）：<input type="number" id="order-qty" min="1"></label>
+                    </div>
+                    <button id="submit-order-btn">提交订单</button>
+                </div>
+                <div class="positions">
+                    <h3>持仓</h3>
+                    <div id="positions-content"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 资讯面板 -->
+        <section id="news-tab" class="tab-content">
+            <div class="news-controls">
+                <button id="refresh-news-btn">刷新资讯</button>
+            </div>
+            <div id="news-list" class="news-list"></div>
+        </section>
+
+        <!-- 系统配置面板 -->
+        <section id="config-tab" class="tab-content">
+            <div class="strategy-controls">
+                <h3>系统配置</h3>
+                <div style="margin-bottom: 12px; color: #94a3b8; font-size: 13px;">
+                    这里的配置会保存在服务器（Redis）中，影响默认选股参数和行情采集频率。
+                </div>
+                <label>
+                    默认选股阈值：
+                    <input type="number" id="cfg-threshold" min="0" max="100">
+                </label>
+                <label>
+                    默认最大选股数量：
+                    <input type="number" id="cfg-max-count" min="1" max="200">
+                </label>
+                <label>
+                    行情采集间隔（秒）：
+                    <input type="number" id="cfg-collector-interval" min="1" max="3600">
+                </label>
+                <div style="margin-top: 10px;">
+                    <div style="margin-bottom: 4px;">默认通知渠道：</div>
+                    <label style="margin-right: 10px;">
+                        <input type="checkbox" id="cfg-notify-telegram"> Telegram
+                    </label>
+                    <label style="margin-right: 10px;">
+                        <input type="checkbox" id="cfg-notify-email"> 邮箱
+                    </label>
+                    <label>
+                        <input type="checkbox" id="cfg-notify-wechat"> 企业微信
+                    </label>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button id="cfg-save-btn">保存配置</button>
+                </div>
+                <div id="cfg-status" style="margin-top: 8px; font-size: 13px; color: #94a3b8;"></div>
+            </div>
+        </section>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
+

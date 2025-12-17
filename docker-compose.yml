@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: stock_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+    command: redis-server --appendonly yes
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: stock_clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: stock
+      CLICKHOUSE_USER: default
+      # 默认密码为弱口令，仅用于本地开发环境，生产环境务必通过环境变量覆盖
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
+    restart: always
+
+  collector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_collector
+    command: python -m market_collector.scheduler
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    restart: always
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_api
+    command: uvicorn gateway.app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - clickhouse
+    restart: always
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=9000
+      # 可选：限制允许的前端来源与接口访问 Token（生产环境建议配置）
+      # - API_ALLOWED_ORIGINS=https://your-domain.com
+      # - API_AUTH_TOKEN=please-change-me
+
+volumes:
+  redis_data:
+  clickhouse_data:
+
