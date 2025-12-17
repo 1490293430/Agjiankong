@@ -181,7 +181,9 @@
         </section>
     </div>
 
-    <script type="module" src="app.js"></script>
+    <!-- 先加载 K 线图依赖，再加载应用脚本 -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
 

@@ -1,4 +1,4 @@
-import { createChart, ColorType } from 'https://unpkg.com/lightweight-charts@4.1.2/dist/lightweight-charts.esm.production.js';
+const { createChart, ColorType } = window.LightweightCharts || {};
 
 const API_BASE = window.location.origin;
 let apiToken = null;
