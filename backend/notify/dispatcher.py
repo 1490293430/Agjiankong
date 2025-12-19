@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from notify.telegram import send_message as tg_send, send_selection_alert as tg_alert
 from notify.email import send_email, send_selection_alert_email
 from notify.wechat import send_message as wx_send, send_selection_alert as wx_alert
+from common.runtime_config import get_runtime_config
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,13 +16,14 @@ def notify(message: str, channels: List[str] = None) -> Dict[str, bool]:
     
     Args:
         message: 消息内容
-        channels: 通知渠道列表（telegram/email/wechat），None表示使用所有渠道
+        channels: 通知渠道列表（telegram/email/wechat），None表示使用运行时配置的渠道
     
     Returns:
         各渠道发送结果
     """
     if channels is None:
-        channels = ["telegram", "email", "wechat"]
+        runtime_config = get_runtime_config()
+        channels = runtime_config.notify_channels or []
     
     results = {}
     
@@ -42,13 +44,14 @@ def notify_selection(stocks: List[Dict[str, Any]], channels: List[str] = None) -
     
     Args:
         stocks: 选中的股票列表
-        channels: 通知渠道列表
+        channels: 通知渠道列表，None表示使用运行时配置的渠道
     
     Returns:
         各渠道发送结果
     """
     if channels is None:
-        channels = ["telegram", "email", "wechat"]
+        runtime_config = get_runtime_config()
+        channels = runtime_config.notify_channels or []
     
     results = {}
     

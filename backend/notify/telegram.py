@@ -4,6 +4,7 @@ Telegram通知服务
 import requests
 from typing import Optional
 from common.config import settings
+from common.runtime_config import get_runtime_config
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -19,15 +20,25 @@ def send_message(message: str, parse_mode: str = "HTML") -> bool:
     Returns:
         是否发送成功
     """
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+    # 优先使用运行时配置，如果没有则使用环境变量
+    runtime_config = get_runtime_config()
+    bot_token = runtime_config.notify_telegram_bot_token or settings.telegram_bot_token
+    chat_id = runtime_config.notify_telegram_chat_id or settings.telegram_chat_id
+    
+    # 检查是否启用
+    if not runtime_config.notify_telegram_enabled:
+        logger.debug("Telegram通知已禁用，跳过发送")
+        return False
+    
+    if not bot_token or not chat_id:
         logger.warning("Telegram配置未设置，跳过发送")
         return False
     
     try:
-        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         
         data = {
-            "chat_id": settings.telegram_chat_id,
+            "chat_id": chat_id,
             "text": message,
             "parse_mode": parse_mode
         }

@@ -137,6 +137,348 @@ body {
 }
 
 /* K线图 */
+/* 自选股样式 */
+.watchlist-controls {
+    background: #1e293b;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.watchlist-container {
+    background: #1e293b;
+    border-radius: 8px;
+    padding: 20px;
+    min-height: 400px;
+}
+
+.watchlist-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+}
+
+/* K线模态弹窗样式 */
+.kline-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+.kline-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.kline-modal-content {
+    position: relative;
+    background: #1e293b;
+    border-radius: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100vh;          /* 占满浏览器高度 */
+    max-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s ease;
+    z-index: 2001;
+}
+
+.kline-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 10px; /* 显示区域尽量小，占整体高度约1-2% */
+    border-bottom: 1px solid #334155;
+}
+
+.kline-modal-header h3 {
+    margin: 0;
+    color: #60a5fa;
+    font-size: 14px;  /* 标题字体缩小 */
+    font-weight: 600;
+}
+
+/* 标题左侧：标题 + 内联股票详情 */
+.kline-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.kline-modal-close {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 32px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.kline-modal-close:hover {
+    background: #334155;
+    color: #cbd5f5;
+}
+
+.kline-modal-body {
+    padding: 8px 10px;
+    overflow-y: hidden;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 日线/周线 + 成交量/EMA 控制排成一排（位于标题下方） */
+.kline-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;      /* 尽量保持在一排 */
+    font-size: 12px;
+    min-height: 32px;
+}
+
+.kline-indicators-inline {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.indicator-collapse {
+    background: #1e293b;
+    border-radius: 8px;
+    border: 1px solid #475569;
+    cursor: pointer;
+}
+
+.indicator-collapse-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #cbd5f5;
+    min-width: 80px;
+}
+
+.indicator-arrow {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.indicator-collapse-content {
+    background: #1e293b;
+    border-radius: 0 0 8px 8px;
+    border: 1px solid #475569;
+    border-top: none;
+    margin-top: -6px;
+    padding: 8px 10px;
+    display: none; /* 默认折叠 */
+}
+
+/* K线图容器，占据左侧大部分空间 */
+ .kline-chart-container {
+    position: relative;
+    width: 100%;
+    flex: 1; /* 让K线图占据绝大部分高度（约95%） */
+    min-height: 0;
+}
+
+/* 标题行中的紧凑股票详情 */
+.stock-detail-inline {
+    padding: 2px 8px;
+    background: rgba(15, 23, 42, 0.85);
+    border-radius: 999px;
+    border: 1px solid #475569;
+    font-size: 12px;
+    color: #e2e8f0;
+    max-width: 900px;           /* 尽量一到两行排下 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;        /* 允许换行 */
+    line-height: 1.4;
+    max-height: 40px;           /* 控制最多约两行高度，避免出现三行 */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.stock-detail-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    align-items: center;
+}
+
+.detail-item-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.detail-label-inline {
+    font-size: 12px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.detail-value-inline {
+    font-size: 14px;
+    color: #cbd5f5;
+    font-weight: 600;
+}
+
+/* 指标控制样式 */
+.indicators-controls-container {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.indicator-control-box {
+    background: #334155;
+    border-radius: 6px;
+    border: 1px solid #475569;
+    padding: 12px;
+    min-width: 200px;
+}
+
+.indicator-control-header {
+    margin-bottom: 8px;
+}
+
+.indicator-control-body {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #475569;
+}
+
+.indicator-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: #cbd5f5;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.indicator-switch input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.ema-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ema-inputs label {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-right: 4px;
+}
+
+.ema-inputs input[type="number"] {
+    background: #1e293b;
+    color: #cbd5f5;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    padding: 4px 8px;
+    width: 70px;
+    font-size: 13px;
+}
+
+.ema-inputs input[type="number"]:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.ema-inputs button {
+    padding: 4px 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+.ema-inputs button:hover {
+    background: #2563eb;
+}
+
+.kline-controls {
+    margin-bottom: 0; /* 放在一排时，不额外占空间 */
+}
+
+.kline-controls select {
+    padding: 8px 12px;
+    background: #334155;
+    color: #cbd5f5;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.kline-controls select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
 .chart-controls {
     display: flex;
     gap: 10px;
@@ -256,56 +598,227 @@ body {
 }
 
 /* 交易 */
-.trading-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+/* AI分析样式 */
+.ai-analysis-layout {
+    display: flex;
+    flex-direction: column;
     gap: 20px;
 }
 
-.account-info,
-.order-form,
-.positions {
+.ai-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     background: #1e293b;
-    padding: 20px;
+    padding: 16px;
     border-radius: 8px;
 }
 
-.account-info h3,
-.order-form h3,
-.positions h3 {
-    margin-bottom: 15px;
-    color: #60a5fa;
-}
-
-.form-group {
-    margin-bottom: 15px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    color: #94a3b8;
-}
-
-.form-group input,
-.form-group select {
-    width: 100%;
-    padding: 8px;
+.ai-controls input[type="text"] {
+    flex: 1;
+    padding: 10px 14px;
     background: #334155;
     color: #cbd5f5;
     border: 1px solid #475569;
-    border-radius: 4px;
+    border-radius: 6px;
+    font-size: 14px;
 }
 
-#submit-order-btn,
-#reset-account-btn {
-    width: 100%;
-    padding: 10px;
+.ai-controls button {
+    padding: 10px 24px;
     background: #3b82f6;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.ai-controls button:hover {
+    background: #2563eb;
+}
+
+.ai-controls label {
+    color: #cbd5f5;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.ai-controls input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.ai-analysis-result {
+    min-height: 400px;
+    background: #1e293b;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.ai-placeholder,
+.ai-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+}
+
+.ai-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+}
+
+.ai-loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #334155;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.ai-analysis-content {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.ai-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.ai-overview-item {
+    background: #334155;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid #475569;
+}
+
+.ai-overview-label {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 8px;
+}
+
+.ai-overview-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #cbd5f5;
+}
+
+.ai-section {
+    background: #334155;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #475569;
+}
+
+.ai-section-title {
+    font-size: 18px;
+    color: #60a5fa;
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
+.ai-advice {
+    padding: 16px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.6;
+}
+
+.ai-advice.buy {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    border-left: 4px solid #10b981;
+}
+
+.ai-advice.sell {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-left: 4px solid #ef4444;
+}
+
+.ai-advice.hold {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border-left: 4px solid #f59e0b;
+}
+
+.ai-factors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ai-factor-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #1e293b;
+    border-radius: 6px;
+}
+
+.ai-factor-icon {
+    font-size: 20px;
+}
+
+.ai-factor-text {
+    color: #cbd5f5;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.ai-summary {
+    color: #cbd5f5;
+    line-height: 1.8;
+    font-size: 14px;
+    padding: 16px;
+    background: #1e293b;
+    border-radius: 6px;
+}
+
+.ai-indicators {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.ai-indicator-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px;
+    background: #1e293b;
+    border-radius: 6px;
+}
+
+.ai-indicator-label {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.ai-indicator-value {
+    color: #cbd5f5;
+    font-size: 13px;
+    font-weight: 600;
     margin-top: 10px;
 }
 
@@ -350,6 +863,185 @@ body {
     color: #94a3b8;
     font-size: 12px;
     margin-top: 5px;
+}
+
+/* 配置布局 */
+.config-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+/* 保存配置容器（右下角） */
+.config-save-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-top: 20px;
+}
+
+.config-save-btn {
+    padding: 12px 32px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.config-save-btn:hover {
+    background: #2563eb;
+}
+
+.config-save-btn:active {
+    background: #1d4ed8;
+}
+
+/* 配置折叠样式 */
+.config-main-section {
+    background: #1e293b;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #334155;
+    flex: 1;
+}
+
+.config-data-section {
+    flex: 2; /* 数据配置占更多空间 */
+    min-width: 400px;
+}
+
+.config-notify-section {
+    flex: 1; /* 通知配置占较少空间 */
+    min-width: 250px;
+}
+
+.config-main-header {
+    padding: 12px 16px;
+    background: #334155;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.config-main-header:hover {
+    background: #475569;
+}
+
+.config-main-header h3 {
+    color: #60a5fa;
+    font-size: 16px;
+}
+
+.config-main-arrow {
+    color: #94a3b8;
+    font-size: 12px;
+    transition: transform 0.3s;
+}
+
+.config-main-content {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.config-main-content.hidden {
+    display: none;
+}
+
+.config-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.config-item label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #cbd5f5;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.config-item input[type="number"] {
+    padding: 6px 10px;
+    background: #0f172a;
+    color: #cbd5f5;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    width: 100px;
+    font-size: 13px;
+}
+
+.config-item input[type="checkbox"] {
+    margin-right: 4px;
+}
+
+.config-item input[type="text"],
+.config-item input[type="email"],
+.config-item input[type="url"] {
+    padding: 6px 10px;
+    background: #0f172a;
+    color: #cbd5f5;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* 通知渠道子折叠项 */
+.config-subsection-small {
+    background: #0f172a;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.config-subsection-small-header {
+    padding: 10px 12px;
+    background: #1e293b;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.config-subsection-small-header:hover {
+    background: #334155;
+}
+
+.config-subsection-small-header label {
+    color: #cbd5f5;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.config-subsection-small-content {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.config-subsection-small-content.hidden {
+    display: none;
+}
+
+.config-subsection-arrow {
+    color: #94a3b8;
+    font-size: 11px;
+    transition: transform 0.3s;
 }
 
 @media (max-width: 1024px) {

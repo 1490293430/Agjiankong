@@ -1,9 +1,15 @@
-"""
+；"""
 AI分析服务（可接入本地模型或API）
 """
 from typing import Dict, Any, Optional
+import json
+
+import requests
+
 from common.logger import get_logger
 from ai.prompt import build_stock_analysis_prompt
+from common.runtime_config import get_runtime_config
+from common.config import settings
 
 logger = get_logger(__name__)
 
@@ -100,23 +106,105 @@ def analyze_stock_simple(stock: dict, indicators: dict, news: list = None) -> Di
     }
 
 
+def _get_ai_runtime_config() -> Optional[Dict[str, Any]]:
+    """从运行时配置和环境变量获取 AI 配置"""
+    cfg = get_runtime_config()
+
+    api_key = cfg.openai_api_key or settings.openai_api_key
+    api_base = cfg.openai_api_base or settings.openai_api_base
+    model = cfg.openai_model or settings.openai_model
+
+    if not api_key:
+        return None
+
+    return {
+        "api_key": api_key,
+        "api_base": api_base.rstrip("/"),
+        "model": model,
+    }
+
+
 def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None) -> Dict[str, Any]:
-    """使用AI模型分析（需要接入实际模型）
-    
-    你可以在这里接入：
-    - OpenAI API
-    - 本地大模型（Qwen, DeepSeek等）
-    - 其他AI服务
-    """
-    
-    # 如果没有配置AI模型，使用简单分析
-    # 你可以在这里添加实际的AI调用代码
-    # 例如：
-    # prompt = build_stock_analysis_prompt(stock, indicators, news)
-    # result = call_ai_model(prompt)
-    # return parse_ai_response(result)
-    
-    return analyze_stock_simple(stock, indicators, news)
+    """使用 OpenAI 兼容接口进行 AI 分析"""
+
+    ai_cfg = _get_ai_runtime_config()
+    if not ai_cfg:
+        # 未配置 AI，退回规则分析
+        logger.warning("AI 配置缺失，使用简单规则分析")
+        return analyze_stock_simple(stock, indicators, news)
+
+    prompt = build_stock_analysis_prompt(stock, indicators, news)
+
+    # 要求模型直接输出 JSON，方便前端消费
+    json_instruction = """
+请严格使用以下 JSON 格式回答，不要输出任何多余文字或注释：
+{
+  "trend": "上涨/下跌/震荡/未知",
+  "risk": "低/中/高/未知",
+  "confidence": 0-100之间的整数,
+  "score": 一个整数评分（例如 -100 到 100，越高代表越看多）,
+  "key_factors": ["关键因素1", "关键因素2", "..."],
+  "advice": "一句话操作建议，如：短线可以逢低少量买入，控制仓位。",
+  "summary": "100字以内的综合总结。"
+}
+"""
+
+    full_prompt = prompt + "\n\n" + json_instruction
+
+    try:
+        url = f"{ai_cfg['api_base']}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {ai_cfg['api_key']}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": ai_cfg["model"],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是一名专业的中文股票分析师，请根据提供的数据给出客观理性的分析。",
+                },
+                {"role": "user", "content": full_prompt},
+            ],
+            "temperature": 0.2,
+        }
+
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+
+        parsed: Dict[str, Any]
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            # 如果模型没有返回合法 JSON，则退回简单分析
+            logger.warning("AI 返回内容不是合法 JSON，使用简单规则分析")
+            return analyze_stock_simple(stock, indicators, news)
+
+        # 与前端期望的结构对齐，缺失字段使用默认值补全
+        fallback = analyze_stock_simple(stock, indicators, news)
+
+        return {
+            "trend": parsed.get("trend") or fallback.get("trend", "未知"),
+            "risk": parsed.get("risk") or fallback.get("risk", "未知"),
+            "confidence": int(parsed.get("confidence", fallback.get("confidence", 0))),
+            "score": int(parsed.get("score", fallback.get("score", 0))),
+            "key_factors": parsed.get("key_factors") or fallback.get("key_factors", []),
+            "advice": parsed.get("advice") or fallback.get("advice", "暂无建议"),
+            "summary": parsed.get("summary") or fallback.get("summary", "暂无总结"),
+        }
+
+    except Exception as e:
+        logger.error(f"调用 AI 接口失败: {e}", exc_info=True)
+        # 出现异常时退回简单分析，保证功能可用
+        return analyze_stock_simple(stock, indicators, news)
 
 
 def analyze_stock(stock: dict, indicators: dict, news: list = None, use_ai: bool = False) -> Dict[str, Any]:

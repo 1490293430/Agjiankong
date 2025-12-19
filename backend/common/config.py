@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # 企业微信配置
     wechat_webhook_url: Optional[str] = os.getenv("WECHAT_WEBHOOK_URL", None)
     
+    # AI / OpenAI 配置（可被运行时配置覆盖）
+    openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY", None)
+    openai_api_base: str = os.getenv("OPENAI_API_BASE", "https://openai.qiniu.com/v1")
+    openai_model: str = os.getenv("OPENAI_MODEL", "deepseek/deepseek-v3.2-251201")
+    
     # 日志配置
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     

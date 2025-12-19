@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>量化交易终端</title>
+    <title>行情监控</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -34,12 +35,12 @@
     <div class="container">
         <!-- 头部导航 -->
         <header class="header">
-            <h1>📈 量化交易终端</h1>
+            <h1>📈 行情监控</h1>
             <div class="nav-tabs">
                 <button class="tab-btn active" data-tab="market">行情</button>
-                <button class="tab-btn" data-tab="chart">K线</button>
+                <button class="tab-btn" data-tab="watchlist">自选</button>
                 <button class="tab-btn" data-tab="strategy">选股</button>
-                <button class="tab-btn" data-tab="trading">交易</button>
+                <button class="tab-btn" data-tab="ai">AI分析</button>
                 <button class="tab-btn" data-tab="news">资讯</button>
                 <button class="tab-btn" data-tab="config">配置</button>
             </div>
@@ -55,7 +56,7 @@
                 <input type="text" id="search-input" placeholder="搜索股票代码或名称...">
                 <button id="refresh-btn">刷新</button>
             </div>
-            <div class="stock-list-container">
+            <div class="stock-list-container" style="max-height: 600px; overflow-y: auto;">
                 <table class="stock-table">
                     <thead>
                         <tr>
@@ -71,23 +72,72 @@
                         <tr><td colspan="6" class="loading">加载中...</td></tr>
                     </tbody>
                 </table>
+                <div style="color: #94a3b8; font-size: 12px; margin-top: 10px; text-align: center;">💡 单击股票行可查看K线和详情</div>
             </div>
         </section>
 
-        <!-- K线图面板 -->
-        <section id="chart-tab" class="tab-content">
-            <div class="chart-controls">
-                <input type="text" id="chart-code-input" placeholder="输入股票代码（如：600519）">
-                <button id="load-chart-btn">加载K线</button>
-                <select id="chart-period">
-                    <option value="daily">日线</option>
-                    <option value="weekly">周线</option>
-                    <option value="monthly">月线</option>
-                </select>
+        <!-- 自选股面板 -->
+        <section id="watchlist-tab" class="tab-content">
+            <div class="watchlist-controls">
+                <div style="color: #94a3b8; font-size: 14px;">自选股列表（单击股票查看K线和详情）</div>
             </div>
-            <div id="chart-container"></div>
-            <div id="indicators-info" class="indicators-info"></div>
+            <div id="watchlist-container" class="watchlist-container">
+                <div class="watchlist-placeholder">
+                    <div style="font-size: 48px; margin-bottom: 16px;">⭐</div>
+                    <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">暂无自选股</div>
+                    <div style="font-size: 14px; color: #64748b;">在行情页点击"加入自选"按钮添加股票</div>
+                </div>
+            </div>
         </section>
+        
+        <!-- K线模态弹窗 -->
+        <div id="kline-modal" class="kline-modal" style="display: none;">
+            <div class="kline-modal-overlay" onclick="closeKlineModal()"></div>
+            <div class="kline-modal-content">
+                <div class="kline-modal-header">
+                    <div class="kline-header-left">
+                        <h3 id="kline-modal-title">K线图</h3>
+                        <div id="stock-detail-info" class="stock-detail-inline"></div>
+                    </div>
+                    <button class="kline-modal-close" onclick="closeKlineModal()">×</button>
+                </div>
+                <div class="kline-modal-body">
+                    <!-- 标题下方：日线/周线/成交量/EMA 一排 -->
+                    <div class="kline-controls-row">
+                        <div class="kline-controls">
+                            <select id="chart-period">
+                                <option value="daily">日线</option>
+                                <option value="weekly">周线</option>
+                                <option value="monthly">月线</option>
+                            </select>
+                        </div>
+                        <div class="kline-indicators-inline">
+                            <div class="indicator-collapse" data-target="volume-controls">
+                                <div class="indicator-collapse-header">
+                                    <span>成交量</span>
+                                    <span class="indicator-arrow">▼</span>
+                                </div>
+                            </div>
+                            <div id="volume-controls" class="indicator-collapse-content">
+                                <!-- 成交量控制内容在 JS 中填充 -->
+                            </div>
+                            <div class="indicator-collapse" data-target="ema-controls">
+                                <div class="indicator-collapse-header">
+                                    <span>EMA</span>
+                                    <span class="indicator-arrow">▼</span>
+                                </div>
+                            </div>
+                            <div id="ema-controls" class="indicator-collapse-content">
+                                <!-- EMA 控制内容在 JS 中填充 -->
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 下方大面积：K线图 -->
+                    <div id="chart-container" class="kline-chart-container"></div>
+                    <div id="indicators-info" class="indicators-info"></div>
+                </div>
+            </div>
+        </div>
 
         <!-- 选股面板 -->
         <section id="strategy-tab" class="tab-content">
@@ -99,37 +149,22 @@
             <div id="selected-stocks" class="selected-stocks"></div>
         </section>
 
-        <!-- 交易面板 -->
-        <section id="trading-tab" class="tab-content">
-            <div class="trading-layout">
-                <div class="account-info">
-                    <h3>账户信息</h3>
-                    <div id="account-info-content"></div>
-                    <button id="reset-account-btn">重置账户</button>
+        <!-- AI分析面板 -->
+        <section id="ai-tab" class="tab-content">
+            <div class="ai-analysis-layout">
+                <div class="ai-controls">
+                    <input type="text" id="ai-code-input" placeholder="输入股票代码（如：600519）">
+                    <button id="analyze-btn">开始分析</button>
+                    <label style="display: flex; align-items: center; gap: 8px; margin-left: 12px;">
+                        <input type="checkbox" id="use-ai-checkbox"> 使用AI模型分析
+                    </label>
                 </div>
-                <div class="order-form">
-                    <h3>下单</h3>
-                    <div class="form-group">
-                        <label>股票代码：<input type="text" id="order-code"></label>
+                <div id="ai-analysis-result" class="ai-analysis-result">
+                    <div class="ai-placeholder">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🤖</div>
+                        <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">AI股票分析</div>
+                        <div style="font-size: 14px; color: #64748b;">输入股票代码，获取专业的AI分析报告</div>
                     </div>
-                    <div class="form-group">
-                        <label>操作：</label>
-                        <select id="order-action">
-                            <option value="BUY">买入</option>
-                            <option value="SELL">卖出</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>价格：<input type="number" id="order-price" step="0.01"></label>
-                    </div>
-                    <div class="form-group">
-                        <label>数量（手）：<input type="number" id="order-qty" min="1"></label>
-                    </div>
-                    <button id="submit-order-btn">提交订单</button>
-                </div>
-                <div class="positions">
-                    <h3>持仓</h3>
-                    <div id="positions-content"></div>
                 </div>
             </div>
         </section>
@@ -142,47 +177,197 @@
             <div id="news-list" class="news-list"></div>
         </section>
 
-        <!-- 系统配置面板 -->
+        <!-- 数据配置面板 -->
         <section id="config-tab" class="tab-content">
-            <div class="strategy-controls">
-                <h3>系统配置</h3>
-                <div style="margin-bottom: 12px; color: #94a3b8; font-size: 13px;">
-                    这里的配置会保存在服务器（Redis）中，影响默认选股参数和行情采集频率。
+            <div class="config-layout">
+                <!-- 数据配置（右侧，加长） -->
+                <div class="config-main-section config-data-section">
+                    <div class="config-main-header" onclick="toggleConfigSection('data')">
+                        <h3 style="margin: 0; display: inline-block;">数据配置</h3>
+                        <span class="config-main-arrow" id="arrow-data">▶</span>
+                    </div>
+                    <div class="config-main-content hidden" id="content-data">
+                        <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                            配置会保存在服务器（Redis）中，影响默认选股参数、行情采集频率和K线数据加载。
+                        </div>
+                        
+                        <!-- 选股配置 -->
+                        <div class="config-item">
+                            <label>
+                                默认选股阈值：
+                                <input type="number" id="cfg-threshold" min="0" max="100">
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                默认最大选股数量：
+                                <input type="number" id="cfg-max-count" min="1" max="200">
+                            </label>
+                        </div>
+                        
+                        <!-- 行情采集配置 -->
+                        <div class="config-item">
+                            <label>
+                                行情采集间隔（秒）：
+                                <input type="number" id="cfg-collector-interval" min="5" max="3600" value="60">
+                            </label>
+                        </div>
+                        
+                        <!-- K线数据配置 -->
+                        <div class="config-item">
+                            <label>
+                                K线数据加载年限（年）：
+                                <input type="number" id="cfg-kline-years" min="0.5" max="10" step="0.5" value="1">
+                            </label>
+                        </div>
+                    </div>
                 </div>
-                <label>
-                    默认选股阈值：
-                    <input type="number" id="cfg-threshold" min="0" max="100">
-                </label>
-                <label>
-                    默认最大选股数量：
-                    <input type="number" id="cfg-max-count" min="1" max="200">
-                </label>
-                <label>
-                    行情采集间隔（秒）：
-                    <input type="number" id="cfg-collector-interval" min="1" max="3600">
-                </label>
-                <div style="margin-top: 10px;">
-                    <div style="margin-bottom: 4px;">默认通知渠道：</div>
-                    <label style="margin-right: 10px;">
-                        <input type="checkbox" id="cfg-notify-telegram"> Telegram
-                    </label>
-                    <label style="margin-right: 10px;">
-                        <input type="checkbox" id="cfg-notify-email"> 邮箱
-                    </label>
-                    <label>
-                        <input type="checkbox" id="cfg-notify-wechat"> 企业微信
-                    </label>
+                
+                <!-- 通知配置（左侧，独立折叠项） -->
+                <div class="config-main-section config-notify-section">
+                    <div class="config-main-header" onclick="toggleConfigSection('notify')">
+                        <h3 style="margin: 0; display: inline-block;">通知配置</h3>
+                        <span class="config-main-arrow" id="arrow-notify">▶</span>
+                    </div>
+                    <div class="config-main-content hidden" id="content-notify">
+                        <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                            配置各通知渠道的发送对象。
+                        </div>
+                        
+                        <!-- Telegram配置 -->
+                        <div class="config-subsection-small">
+                            <div class="config-subsection-small-header" onclick="toggleConfigSubsection('telegram')">
+                                <label style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" id="cfg-notify-telegram" onclick="event.stopPropagation();"> 
+                                    <span>Telegram</span>
+                                </label>
+                                <span class="config-subsection-arrow" id="arrow-telegram">▶</span>
+                            </div>
+                            <div class="config-subsection-small-content hidden" id="content-telegram">
+                                <div class="config-item">
+                                    <label>
+                                        Bot Token：
+                                        <input type="text" id="cfg-telegram-bot-token" placeholder="例如：123456:ABC-DEF..." style="width: 300px;">
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        Chat ID：
+                                        <input type="text" id="cfg-telegram-chat-id" placeholder="例如：123456789" style="width: 300px;">
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 邮箱配置 -->
+                        <div class="config-subsection-small">
+                            <div class="config-subsection-small-header" onclick="toggleConfigSubsection('email')">
+                                <label style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" id="cfg-notify-email" onclick="event.stopPropagation();"> 
+                                    <span>邮箱</span>
+                                </label>
+                                <span class="config-subsection-arrow" id="arrow-email">▶</span>
+                            </div>
+                            <div class="config-subsection-small-content hidden" id="content-email">
+                                <div class="config-item">
+                                    <label>
+                                        SMTP 服务器：
+                                        <input type="text" id="cfg-email-smtp-host" placeholder="例如：smtp.qq.com" style="width: 300px;">
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        SMTP 端口：
+                                        <input type="number" id="cfg-email-smtp-port" placeholder="例如：587" style="width: 300px;">
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        邮箱账号：
+                                        <input type="email" id="cfg-email-user" placeholder="例如：172204206@qq.com" style="width: 300px;">
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        邮箱密码：
+                                        <input type="password" id="cfg-email-password" placeholder="如果需要更改请输入新密码" style="width: 300px;">
+                                        <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">🔒 已隐藏 - 如果需要更改请输入新密码</span>
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        接收邮箱：
+                                        <input type="email" id="cfg-email-to" placeholder="例如：user@example.com" style="width: 300px;">
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 企业微信配置 -->
+                        <div class="config-subsection-small">
+                            <div class="config-subsection-small-header" onclick="toggleConfigSubsection('wechat')">
+                                <label style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" id="cfg-notify-wechat" onclick="event.stopPropagation();"> 
+                                    <span>企业微信</span>
+                                </label>
+                                <span class="config-subsection-arrow" id="arrow-wechat">▶</span>
+                            </div>
+                            <div class="config-subsection-small-content hidden" id="content-wechat">
+                                <div class="config-item">
+                                    <label>
+                                        Webhook URL：
+                                        <input type="url" id="cfg-wechat-webhook-url" placeholder="例如：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." style="width: 400px;">
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div style="margin-top: 16px;">
-                    <button id="cfg-save-btn">保存配置</button>
+            </div>
+            
+            <!-- AI 配置（单独折叠项，位于数据配置下面） -->
+            <div class="config-main-section" style="margin-top: 16px;">
+                <div class="config-main-header" onclick="toggleConfigSection('ai')">
+                    <h3 style="margin: 0; display: inline-block;">AI 配置</h3>
+                    <span class="config-main-arrow" id="arrow-ai">▶</span>
                 </div>
-                <div id="cfg-status" style="margin-top: 8px; font-size: 13px; color: #94a3b8;"></div>
+                <div class="config-main-content hidden" id="content-ai">
+                    <div style="margin-bottom: 6px; color: #94a3b8; font-size: 12px;">
+                        使用 OpenAI / DeepSeek 等接口进行 AI 分析。
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            OpenAI API Key：
+                            <input type="password" id="cfg-ai-api-key" placeholder="如果需要更改请输入新值 (sk-...)">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">🔒 已隐藏 - 如果需要更改请输入新值 (sk-...)</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            API Base URL：
+                            <input type="text" id="cfg-ai-api-base" placeholder="https://openai.qiniu.com/v1">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">如使用代理或第三方服务，可修改此 URL</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            AI 模型：
+                            <input type="text" id="cfg-ai-model" placeholder="deepseek/deepseek-v3.2-251201">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 保存配置按钮（右下角） -->
+            <div class="config-save-container">
+                <div id="cfg-status" style="margin-bottom: 8px; font-size: 13px; color: #94a3b8; text-align: right;"></div>
+                <button id="cfg-save-btn" class="config-save-btn">保存配置</button>
             </div>
         </section>
     </div>
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

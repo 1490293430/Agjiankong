@@ -42,29 +42,80 @@ def _sanitize_spot_data(data: Optional[List[Dict[str, Any]]]) -> List[Dict[str, 
 
 
 @router.get("/a/spot")
-async def get_a_stock_spot():
-    """获取A股实时行情"""
+async def get_a_stock_spot(
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500")
+):
+    """获取A股实时行情（支持分页）"""
     try:
         data = get_json("market:a:spot")
         if not data:
-            # 如果Redis没有，直接采集
-            data = fetch_a_stock_spot()
+            # 如果Redis没有数据，返回提示而不是阻塞等待采集
+            return {
+                "code": 0,
+                "data": [],
+                "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
+                "message": "数据正在采集中，请稍后刷新..."
+            }
         data = _sanitize_spot_data(data)
-        return {"code": 0, "data": data, "message": "success"}
+        
+        # 分页处理
+        total = len(data)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_data = data[start:end]
+        
+        return {
+            "code": 0,
+            "data": paginated_data,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": (total + page_size - 1) // page_size
+            },
+            "message": "success"
+        }
     except Exception as e:
         logger.error(f"获取A股行情失败: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
 
 
 @router.get("/hk/spot")
-async def get_hk_stock_spot():
-    """获取港股实时行情"""
+async def get_hk_stock_spot(
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500")
+):
+    """获取港股实时行情（支持分页）"""
     try:
         data = get_json("market:hk:spot")
         if not data:
-            data = fetch_hk_stock_spot()
+            # 如果Redis没有数据，返回提示而不是阻塞等待采集
+            return {
+                "code": 0,
+                "data": [],
+                "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
+                "message": "数据正在采集中，请稍后刷新..."
+            }
         data = _sanitize_spot_data(data)
-        return {"code": 0, "data": data, "message": "success"}
+        
+        # 分页处理
+        total = len(data)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_data = data[start:end]
+        
+        return {
+            "code": 0,
+            "data": paginated_data,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": (total + page_size - 1) // page_size
+            },
+            "message": "success"
+        }
     except Exception as e:
         logger.error(f"获取港股行情失败: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
@@ -74,11 +125,13 @@ async def get_hk_stock_spot():
 async def get_a_stock_kline(
     code: str = Query(..., description="股票代码"),
     period: str = Query("daily", description="周期: daily, weekly, monthly"),
-    adjust: str = Query("", description="复权: '', qfq, hfq")
+    adjust: str = Query("", description="复权: '', qfq, hfq"),
+    start_date: str | None = Query(None, description="开始日期 YYYYMMDD，可选"),
+    end_date: str | None = Query(None, description="结束日期 YYYYMMDD，可选")
 ):
     """获取A股K线数据"""
     try:
-        kline_data = fetch_a_stock_kline(code, period, adjust)
+        kline_data = fetch_a_stock_kline(code, period, adjust, start_date, end_date)
         return {"code": 0, "data": kline_data, "message": "success"}
     except Exception as e:
         logger.error(f"获取A股K线失败 {code}: {e}", exc_info=True)

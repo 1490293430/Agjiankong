@@ -4,6 +4,7 @@
 import requests
 from typing import Optional
 from common.config import settings
+from common.runtime_config import get_runtime_config
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +20,16 @@ def send_message(message: str, msg_type: str = "text") -> bool:
     Returns:
         是否发送成功
     """
-    if not settings.wechat_webhook_url:
+    # 优先使用运行时配置
+    runtime_config = get_runtime_config()
+    webhook_url = runtime_config.notify_wechat_webhook_url or settings.wechat_webhook_url
+    
+    # 检查是否启用
+    if not runtime_config.notify_wechat_enabled:
+        logger.debug("企业微信通知已禁用，跳过发送")
+        return False
+    
+    if not webhook_url:
         logger.warning("企业微信配置未设置，跳过发送")
         return False
     
@@ -31,7 +41,7 @@ def send_message(message: str, msg_type: str = "text") -> bool:
             }
         }
         
-        response = requests.post(settings.wechat_webhook_url, json=data, timeout=10)
+        response = requests.post(webhook_url, json=data, timeout=10)
         response.raise_for_status()
         
         result = response.json()
