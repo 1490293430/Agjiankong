@@ -1805,16 +1805,25 @@ async def collect_batch_single_stock_kline_api(
             
             try:
                 logger.info("从akshare获取A股代码列表...")
-                a_df = ak.stock_info_a_code_name()
-                a_codes = a_df['code'].tolist()
-                logger.info(f"A股代码列表获取成功：{len(a_codes)}只")
+                # 先尝试使用 stock_info_a_code_name，如果失败则使用 stock_zh_a_spot_em 作为备选
+                try:
+                    a_df = ak.stock_info_a_code_name()
+                    a_codes = a_df['code'].tolist()
+                    logger.info(f"A股代码列表获取成功（stock_info_a_code_name）：{len(a_codes)}只")
+                except Exception as e1:
+                    logger.warning(f"stock_info_a_code_name失败，尝试使用stock_zh_a_spot_em: {e1}")
+                    # 备选方案：使用实时行情接口获取代码列表
+                    a_df = ak.stock_zh_a_spot_em()
+                    a_codes = a_df['代码'].tolist()  # stock_zh_a_spot_em 返回的列名是"代码"
+                    logger.info(f"A股代码列表获取成功（stock_zh_a_spot_em）：{len(a_codes)}只")
             except Exception as e:
                 logger.error(f"获取A股代码列表失败: {e}", exc_info=True)
             
             try:
                 logger.info("从akshare获取港股代码列表...")
-                hk_df = ak.stock_info_hk_name_code()
-                hk_codes = hk_df['code'].tolist()
+                # 使用 stock_hk_spot_em 获取港股代码列表（此接口已在代码中使用）
+                hk_df = ak.stock_hk_spot_em()
+                hk_codes = hk_df['代码'].tolist()  # stock_hk_spot_em 返回的列名是"代码"
                 logger.info(f"港股代码列表获取成功：{len(hk_codes)}只")
             except Exception as e:
                 logger.error(f"获取港股代码列表失败: {e}", exc_info=True)
