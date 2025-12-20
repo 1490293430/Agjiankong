@@ -62,6 +62,27 @@
             display: block !important;
         }
     </style>
+    <script>
+        // 在页面渲染前检查登录状态，如果有登录标记则立即隐藏登录界面，避免闪烁
+        (function() {
+            try {
+                const isLoggedIn = localStorage.getItem('isLoggedIn');
+                const savedApiToken = localStorage.getItem('apiToken');
+                // 如果有登录标记或token，立即隐藏登录界面
+                if (isLoggedIn === 'true' || savedApiToken) {
+                    // 将隐藏逻辑保存到全局变量，供DOMContentLoaded时使用
+                    window.__shouldHideLoginOverlay = true;
+                    // 立即尝试隐藏（如果DOM已存在）
+                    const overlay = document.getElementById('login-overlay');
+                    if (overlay) {
+                        overlay.style.display = 'none';
+                    }
+                }
+            } catch (e) {
+                console.warn('检查登录状态失败:', e);
+            }
+        })();
+    </script>
 </head>
 <body>
     <!-- 登录遮罩层 -->

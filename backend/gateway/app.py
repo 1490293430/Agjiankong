@@ -1503,10 +1503,186 @@ async def check_trade_plans_spot_api():
         return {"code": 1, "data": {}, "message": str(e)}
 
 
+@api_router.post("/market/spot/collect")
+async def collect_spot_data_api(
+    background_tasks: BackgroundTasks,
+):
+    """手动触发行情数据采集（实时行情）
+    
+    说明：
+    - 采集A股和港股的实时行情数据到Redis
+    - 后台异步执行，避免阻塞
+    - 主要用于新部署环境初始化或手动刷新数据
+    """
+    try:
+        from market_collector.scheduler import collect_job
+        
+        def run_collect():
+            try:
+                collect_job()
+            except Exception as e:
+                logger.error(f"行情数据采集失败: {e}", exc_info=True)
+        
+        # 后台异步执行
+        background_tasks.add_task(run_collect)
+        
+        return {
+            "code": 0,
+            "data": {"status": "started"},
+            "message": "行情数据采集任务已启动，请稍后查看结果"
+        }
+    except Exception as e:
+        logger.error(f"触发行情数据采集失败: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": str(e)}
+
+
+def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kline_func, max_count: int):
+    """内部函数：采集单个市场的K线数据
+    
+    Args:
+        market: 市场类型 "A" 或 "HK"
+        all_stocks: 股票列表
+        fetch_kline_func: 采集K线数据的函数
+        max_count: 最多采集的股票数量
+    """
+    from common.db import get_stock_list_from_db
+    from market.service.ws import kline_collect_progress
+    from datetime import datetime
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # 按成交额排序，优先采集活跃股票
+    sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
+    
+    # 检查哪些股票在数据库中还没有数据，优先采集这些股票
+    try:
+        db_stocks = get_stock_list_from_db(market.upper())
+        db_codes = {s.get("code") for s in db_stocks} if db_stocks else set()
+        
+        # 分离：有数据的股票和没有数据的股票
+        stocks_with_data = [s for s in sorted_stocks if s.get("code") in db_codes]
+        stocks_without_data = [s for s in sorted_stocks if s.get("code") not in db_codes]
+        
+        # 优先采集没有数据的股票，然后是有数据的股票（用于增量更新）
+        target_stocks = stocks_without_data[:max_count]
+        remaining_slots = max_count - len(target_stocks)
+        if remaining_slots > 0:
+            target_stocks.extend(stocks_with_data[:remaining_slots])
+        
+        logger.info(f"[{market}]采集策略：无数据股票={len(stocks_without_data)}只，已有数据股票={len(stocks_with_data)}只，目标采集={len(target_stocks)}只")
+    except Exception as e:
+        logger.warning(f"[{market}]检查数据库股票列表失败，使用默认策略: {e}")
+        target_stocks = sorted_stocks[:max_count]
+    
+    if not target_stocks:
+        logger.warning(f"[{market}]没有需要采集的股票")
+        return
+    
+    logger.info(f"[{market}]开始批量采集K线数据，目标股票数={len(target_stocks)}")
+    
+    # 生成任务ID
+    task_id = f"{market}_{str(uuid.uuid4())}"
+    start_time = datetime.now().isoformat()
+    success_count = 0
+    failed_count = 0
+    
+    # 初始化进度
+    kline_collect_progress[task_id] = {
+        "status": "running",
+        "total": len(target_stocks),
+        "success": 0,
+        "failed": 0,
+        "current": 0,
+        "message": f"[{market}]开始采集K线数据...",
+        "start_time": start_time,
+        "progress": 0,
+        "market": market
+    }
+    
+    def collect_kline_for_stock(stock):
+        nonlocal success_count, failed_count
+        code = str(stock.get("code", ""))
+        if not code:
+            return
+        
+        try:
+            kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+            if kline_data and len(kline_data) > 0:
+                success_count += 1
+                if success_count % 50 == 0:
+                    logger.info(f"[{market}]K线数据采集进度：成功={success_count}，失败={failed_count}，当前={code}")
+            else:
+                failed_count += 1
+        except Exception as e:
+            failed_count += 1
+            logger.debug(f"[{market}]采集K线数据失败 {code}: {e}")
+        finally:
+            current = success_count + failed_count
+            progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
+            if task_id in kline_collect_progress:
+                kline_collect_progress[task_id].update({
+                    "success": success_count,
+                    "failed": failed_count,
+                    "current": current,
+                    "progress": progress_pct,
+                    "message": f"[{market}]采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
+                })
+    
+    def batch_collect():
+        """同步批量采集函数"""
+        executor = ThreadPoolExecutor(max_workers=50)
+        try:
+            # 使用线程池并发执行采集任务
+            futures = [executor.submit(collect_kline_for_stock, stock) for stock in target_stocks]
+            # 等待所有任务完成
+            for future in futures:
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.debug(f"[{market}]采集任务异常: {e}")
+        except Exception as e:
+            end_time = datetime.now().isoformat()
+            kline_collect_progress[task_id] = {
+                "status": "failed",
+                "total": len(target_stocks),
+                "success": success_count,
+                "failed": failed_count,
+                "current": success_count + failed_count,
+                "message": f"[{market}]采集异常终止: {e}",
+                "start_time": start_time,
+                "end_time": end_time,
+                "progress": int(((success_count + failed_count) / len(target_stocks)) * 100) if target_stocks else 0,
+                "market": market
+            }
+            logger.error(f"[{market}]K线采集异常终止: {e}", exc_info=True)
+            raise
+        finally:
+            executor.shutdown(wait=True)
+        
+        # 更新最终进度
+        end_time = datetime.now().isoformat()
+        kline_collect_progress[task_id] = {
+            "status": "completed",
+            "total": len(target_stocks),
+            "success": success_count,
+            "failed": failed_count,
+            "current": len(target_stocks),
+            "message": f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
+            "start_time": start_time,
+            "end_time": end_time,
+            "progress": 100,
+            "market": market
+        }
+        logger.info(f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
+    
+    # 运行批量采集
+    batch_collect()
+
+
 @api_router.post("/market/kline/collect")
 async def collect_kline_data_api(
     background_tasks: BackgroundTasks,
-    market: str = Query("A", description="市场类型：A（A股）或HK（港股）"),
+    market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（同时采集A股和港股）"),
     max_count: int = Query(6000, ge=1, le=10000, description="最多采集的股票数量，默认6000（可覆盖全部A股）"),
 ):
     """批量采集K线数据到ClickHouse（手动触发）
@@ -1515,25 +1691,72 @@ async def collect_kline_data_api(
     - 从Redis获取股票列表
     - 批量采集每只股票的K线数据并保存到ClickHouse
     - 后台异步执行，避免阻塞
+    - market参数支持"A"、"HK"或"ALL"（同时采集A股和港股）
     """
     try:
         from common.redis import get_json
-        from market_collector.cn import fetch_a_stock_kline
+        from market_collector.cn import fetch_a_stock_kline, fetch_a_stock_spot
         from market_collector.hk import fetch_hk_stock_kline
         
-        # 获取股票列表
+        # 支持同时采集A股和港股
+        if market.upper() == "ALL":
+            # 同时采集A股和港股，创建两个后台任务
+            def collect_all_markets():
+                # 先采集A股
+                try:
+                    a_stocks = get_json("market:a:spot") or []
+                    if not a_stocks:
+                        logger.info("检测到A股行情数据为空，先执行一次行情采集...")
+                        fetch_a_stock_spot()
+                        a_stocks = get_json("market:a:spot") or []
+                    
+                    if a_stocks:
+                        logger.info(f"开始采集A股K线数据，共{len(a_stocks)}只股票")
+                        _collect_market_kline_internal("A", a_stocks, fetch_a_stock_kline, max_count)
+                except Exception as e:
+                    logger.error(f"A股K线采集失败: {e}", exc_info=True)
+                
+                # 再采集港股
+                try:
+                    hk_stocks = get_json("market:hk:spot") or []
+                    if hk_stocks:
+                        logger.info(f"开始采集港股K线数据，共{len(hk_stocks)}只股票")
+                        _collect_market_kline_internal("HK", hk_stocks, fetch_hk_stock_kline, max_count)
+                except Exception as e:
+                    logger.error(f"港股K线采集失败: {e}", exc_info=True)
+            
+            background_tasks.add_task(collect_all_markets)
+            return {
+                "code": 0,
+                "data": {"status": "started", "market": "ALL"},
+                "message": "已开始后台同时采集A股和港股的K线数据，请稍后查看结果"
+            }
+        
+        # 获取股票列表（单个市场）
         if market.upper() == "HK":
             all_stocks = get_json("market:hk:spot") or []
             fetch_kline_func = fetch_hk_stock_kline
+            fetch_spot_func = None  # 港股暂时不自动采集
         else:
             all_stocks = get_json("market:a:spot") or []
             fetch_kline_func = fetch_a_stock_kline
+            fetch_spot_func = fetch_a_stock_spot
+        
+        # 如果没有数据，尝试先采集一次行情数据（仅A股）
+        if not all_stocks and fetch_spot_func:
+            logger.info(f"检测到{market}股行情数据为空，先执行一次行情采集...")
+            try:
+                fetch_spot_func()
+                # 重新获取数据
+                all_stocks = get_json("market:a:spot") or []
+            except Exception as e:
+                logger.warning(f"自动采集行情数据失败: {e}")
         
         if not all_stocks:
             return {
                 "code": 1,
                 "data": {},
-                "message": f"未获取到{market}股行情数据，请先运行行情采集程序"
+                "message": f"未获取到{market}股行情数据。请先调用 /api/market/spot/collect 接口采集行情数据，或等待行情采集程序自动采集"
             }
         
         # 按成交额排序，优先采集活跃股票

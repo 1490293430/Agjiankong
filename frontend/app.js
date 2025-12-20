@@ -2379,7 +2379,8 @@ function initStrategy() {
     }
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
-            const market = document.getElementById('selection-market-select')?.value || 'A';
+            // 默认同时采集A股和港股
+            const market = 'ALL';
             const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
             collectKlineData(market, maxCount);
         });
@@ -2542,8 +2543,9 @@ async function runSelection() {
                 const collectBtn = document.getElementById('collect-kline-btn');
                 if (collectBtn) {
                     collectBtn.addEventListener('click', () => {
+                        // 默认同时采集A股和港股
                         const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
-                        collectKlineData(market, maxCount);
+                        collectKlineData('ALL', maxCount);
                     });
                 }
             }, 0);
@@ -4089,12 +4091,30 @@ async function changePassword() {
         const data = await res.json();
         
         if (data.success) {
-            if (statusEl) statusEl.textContent = '密码修改成功';
-            showToast('密码修改成功', 'success');
+            if (statusEl) statusEl.textContent = '密码修改成功，需要重新登录';
+            showToast('密码修改成功，请重新登录', 'success');
+            
+            // 清除登录状态（修改密码后登录状态失效）
+            localStorage.removeItem('isLoggedIn');
+            localStorage.removeItem('apiToken');
+            localStorage.removeItem('adminToken');
+            apiToken = null;
+            adminToken = null;
+            
             // 清空输入框
             document.getElementById('cfg-old-password').value = '';
             document.getElementById('cfg-new-password').value = '';
             document.getElementById('cfg-confirm-password').value = '';
+            
+            // 延迟一下再显示登录界面，让用户看到成功提示
+            setTimeout(() => {
+                const loginOverlay = document.getElementById('login-overlay');
+                if (loginOverlay) {
+                    loginOverlay.style.display = 'flex';
+                    // 刷新页面以确保所有状态都被清除
+                    window.location.reload();
+                }
+            }, 1500);
         } else {
             throw new Error(data.message || '密码修改失败');
         }
@@ -4352,6 +4372,11 @@ async function initAuth() {
         return;
     }
 
+    // 如果页面渲染前已经隐藏了登录界面（通过head中的脚本），确保保持隐藏状态
+    if (window.__shouldHideLoginOverlay && overlay.style.display !== 'none') {
+        overlay.style.display = 'none';
+    }
+
     // 检查本地存储的登录状态（永久有效）
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     let savedApiToken = localStorage.getItem('apiToken');
@@ -4366,6 +4391,9 @@ async function initAuth() {
         apiToken = savedApiToken;
         adminToken = savedAdminToken;
         
+        // 确保登录界面已隐藏（在验证之前）
+        overlay.style.display = 'none';
+        
         // 验证token是否有效（通过尝试访问一个需要认证的接口）
         try {
             const testRes = await apiFetch(`${API_BASE}/api/config`);
@@ -4374,7 +4402,6 @@ async function initAuth() {
                 if (isLoggedIn !== 'true') {
                     localStorage.setItem('isLoggedIn', 'true');
                 }
-                overlay.style.display = 'none';
                 startApp();
                 return;
             } else if (testRes.status === 401) {
@@ -4385,17 +4412,23 @@ async function initAuth() {
                 localStorage.removeItem('adminToken');
                 apiToken = null;
                 adminToken = null;
+                overlay.style.display = 'flex'; // 显示登录界面
             }
         } catch (error) {
             // 网络错误或其他错误，可能是API未启动，先尝试使用token
             console.warn('验证token时出错，尝试使用保存的token:', error);
             if (isLoggedIn === 'true') {
                 // 如果之前标记为已登录，先尝试使用
-                overlay.style.display = 'none';
                 startApp();
                 return;
+            } else {
+                // 如果没有登录标记，显示登录界面
+                overlay.style.display = 'flex';
             }
         }
+    } else {
+        // 没有登录状态，确保显示登录界面
+        overlay.style.display = 'flex';
     }
 
     form.addEventListener('submit', async (e) => {
