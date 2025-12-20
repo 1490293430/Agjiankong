@@ -2371,7 +2371,7 @@ function initStrategy() {
     const selectBtn = document.getElementById('select-btn');
     const loadSelectedBtn = document.getElementById('load-selected-btn');
     const collectKlineBtn = document.getElementById('collect-kline-btn');
-    const singleCollectBtn = document.getElementById('single-collect-kline-btn');
+    const singleBatchCollectBtn = document.getElementById('single-batch-collect-kline-btn');
     
     if (selectBtn) {
         selectBtn.addEventListener('click', runSelection);
@@ -2387,12 +2387,12 @@ function initStrategy() {
             collectKlineData(market, maxCount);
         });
     }
-    if (singleCollectBtn) {
-        singleCollectBtn.addEventListener('click', (e) => {
+    if (singleBatchCollectBtn) {
+        singleBatchCollectBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            collectSingleStockKline().catch(err => {
-                console.error('单个采集失败:', err);
+            collectSingleBatchKline().catch(err => {
+                console.error('单个批量采集失败:', err);
                 showToast(`采集失败: ${err.message || '未知错误'}`, 'error');
             });
         });
@@ -2560,10 +2560,15 @@ async function runSelection() {
                         collectKlineData('ALL', maxCount);
                     });
                 }
-                // 绑定单个采集按钮事件
-                const singleCollectBtn = document.getElementById('single-collect-kline-btn');
-                if (singleCollectBtn) {
-                    singleCollectBtn.addEventListener('click', collectSingleStockKline);
+                // 绑定单个批量采集按钮事件
+                const singleBatchCollectBtn = document.getElementById('single-batch-collect-kline-btn');
+                if (singleBatchCollectBtn) {
+                    singleBatchCollectBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        collectSingleBatchKline().catch(err => {
+                            console.error('单个批量采集失败:', err);
+                        });
+                    });
                 }
             }, 0);
         }
@@ -2666,6 +2671,93 @@ async function collectSingleStockKline() {
     } finally {
         btn.disabled = false;
         btn.textContent = '📥 单个采集';
+    }
+}
+
+// 单个批量采集K线数据（从akshare获取列表，循环采集）
+async function collectSingleBatchKline() {
+    const batchSizeInput = document.getElementById('single-batch-size-input');
+    const marketSelect = document.getElementById('single-batch-market-select');
+    const periodSelect = document.getElementById('single-batch-period-select');
+    const statusEl = document.getElementById('collect-kline-status');
+    const btn = document.getElementById('single-batch-collect-kline-btn');
+    
+    if (!batchSizeInput || !btn) {
+        console.error('单个批量采集：缺少必要的DOM元素');
+        showToast('页面元素加载失败，请刷新页面重试', 'error');
+        return;
+    }
+    
+    const batchSize = parseInt(batchSizeInput.value) || 10;
+    const market = marketSelect?.value || 'ALL';
+    const period = periodSelect?.value || 'daily';
+    
+    if (batchSize < 1 || batchSize > 100) {
+        if (statusEl) {
+            statusEl.innerHTML = '<div style="color: #ef4444; margin-top: 10px;">❌ 单个数量应在1-100之间</div>';
+        }
+        showToast('单个数量应在1-100之间', 'error');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = '采集中...';
+    if (statusEl) {
+        statusEl.innerHTML = `
+            <div style="margin-top: 10px;">
+                <div style="color: #60a5fa; margin-bottom: 5px; font-weight: 500;">正在启动单个批量采集...</div>
+                <div style="color: #94a3b8; font-size: 11px;">正在从akshare获取股票列表，请稍候</div>
+            </div>
+        `;
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect/batch-single?batch_size=${batchSize}&market=${market}&period=${period}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 0) {
+            // 使用和批量采集一样的进度显示
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="margin-top: 10px;">
+                        <div style="color: #10b981; margin-bottom: 5px; font-weight: 500;">✅ 采集任务已启动</div>
+                        <div style="color: #60a5fa; font-size: 11px; margin-bottom: 5px;">正在连接进度监控...</div>
+                        <div style="color: #94a3b8; font-size: 11px;">数据正在后台采集中，每次${batchSize}只股票</div>
+                    </div>
+                `;
+            }
+            btn.textContent = '采集中...';
+            
+            // 连接WebSocket监听进度（使用latest监听最新任务）
+            connectKlineCollectProgress(null, statusEl, btn);
+        } else {
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="margin-top: 10px;">
+                        <div style="color: #ef4444; margin-bottom: 5px;">❌ 启动失败</div>
+                        <div style="color: #94a3b8; font-size: 11px;">${result.message || '未知错误'}</div>
+                    </div>
+                `;
+            }
+            showToast(`启动失败: ${result.message || '未知错误'}`, 'error');
+            btn.disabled = false;
+            btn.textContent = '📥 单个批量采集';
+        }
+    } catch (error) {
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <div style="margin-top: 10px;">
+                    <div style="color: #ef4444; margin-bottom: 5px;">❌ 启动失败</div>
+                    <div style="color: #94a3b8; font-size: 11px;">${error.message || '网络错误'}</div>
+                </div>
+            `;
+        }
+        showToast(`启动失败: ${error.message || '网络错误'}`, 'error');
+        btn.disabled = false;
+        btn.textContent = '📥 单个批量采集';
     }
 }
 

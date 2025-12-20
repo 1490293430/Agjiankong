@@ -1729,6 +1729,189 @@ async def collect_single_stock_kline_api(
         return {"code": 1, "data": {}, "message": f"采集失败: {str(e)}"}
 
 
+@api_router.post("/market/kline/collect/batch-single")
+async def collect_batch_single_stock_kline_api(
+    background_tasks: BackgroundTasks,
+    batch_size: int = Query(10, ge=1, le=100, description="每次采集的股票数量"),
+    market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（同时采集A股和港股）"),
+    period: str = Query("daily", description="周期：daily, weekly, monthly"),
+):
+    """单个批量采集K线数据（从akshare获取股票列表，循环采集）
+    
+    说明：
+    - 从akshare获取股票代码列表（不依赖Redis）
+    - 每次采集指定数量的股票
+    - 先采集A股，再采集港股
+    - 后台异步执行，避免阻塞
+    """
+    try:
+        import akshare as ak
+        from market_collector.cn import fetch_a_stock_kline
+        from market_collector.hk import fetch_hk_stock_kline
+        from common.redis import set_json
+        import uuid
+        from datetime import datetime
+        from market.service.ws import kline_collect_progress
+        
+        logger.info(f"开始单个批量采集，每次{batch_size}只，市场={market}")
+        
+        def collect_batch_internal():
+            task_id = f"batch_single_{str(uuid.uuid4())}"
+            start_time = datetime.now().isoformat()
+            total_success = 0
+            total_failed = 0
+            total_processed = 0
+            
+            # 获取股票代码列表
+            a_codes = []
+            hk_codes = []
+            
+            try:
+                logger.info("从akshare获取A股代码列表...")
+                a_df = ak.stock_info_a_code_name()
+                a_codes = a_df['code'].tolist()
+                logger.info(f"A股代码列表获取成功：{len(a_codes)}只")
+            except Exception as e:
+                logger.error(f"获取A股代码列表失败: {e}", exc_info=True)
+            
+            try:
+                logger.info("从akshare获取港股代码列表...")
+                hk_df = ak.stock_info_hk_name_code()
+                hk_codes = hk_df['code'].tolist()
+                logger.info(f"港股代码列表获取成功：{len(hk_codes)}只")
+            except Exception as e:
+                logger.error(f"获取港股代码列表失败: {e}", exc_info=True)
+            
+            total_stocks = len(a_codes) + len(hk_codes)
+            
+            if total_stocks == 0:
+                logger.error("未获取到任何股票代码列表")
+                kline_collect_progress[task_id] = {
+                    "status": "failed",
+                    "total": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "current": 0,
+                    "message": "未获取到股票代码列表",
+                    "start_time": start_time,
+                    "end_time": datetime.now().isoformat(),
+                    "progress": 0
+                }
+                return
+            
+            # 初始化进度
+            kline_collect_progress[task_id] = {
+                "status": "running",
+                "total": total_stocks,
+                "success": 0,
+                "failed": 0,
+                "current": 0,
+                "message": f"开始采集，A股{len(a_codes)}只，港股{len(hk_codes)}只",
+                "start_time": start_time,
+                "progress": 0
+            }
+            
+            # 采集A股
+            if market.upper() in ["A", "ALL"] and a_codes:
+                logger.info(f"开始采集A股，共{len(a_codes)}只，每次{batch_size}只")
+                for i in range(0, len(a_codes), batch_size):
+                    batch = a_codes[i:i+batch_size]
+                    logger.info(f"采集A股批次 {i//batch_size + 1}/{(len(a_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
+                    
+                    for code in batch:
+                        try:
+                            result = fetch_a_stock_kline(code, period, "", None, None, False, False)
+                            if result and len(result) > 0:
+                                total_success += 1
+                            else:
+                                total_failed += 1
+                        except Exception as e:
+                            total_failed += 1
+                            logger.debug(f"A股采集失败 {code}: {e}")
+                        
+                        total_processed += 1
+                        
+                        # 更新进度
+                        progress_pct = int((total_processed / total_stocks) * 100)
+                        kline_collect_progress[task_id].update({
+                            "success": total_success,
+                            "failed": total_failed,
+                            "current": total_processed,
+                            "progress": progress_pct,
+                            "message": f"A股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                        })
+                    
+                    # 批次间延迟，避免请求过快
+                    import time
+                    time.sleep(1)
+            
+            # 采集港股
+            if market.upper() in ["HK", "ALL"] and hk_codes:
+                logger.info(f"开始采集港股，共{len(hk_codes)}只，每次{batch_size}只")
+                for i in range(0, len(hk_codes), batch_size):
+                    batch = hk_codes[i:i+batch_size]
+                    logger.info(f"采集港股批次 {i//batch_size + 1}/{(len(hk_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
+                    
+                    for code in batch:
+                        try:
+                            result = fetch_hk_stock_kline(code, period, "", None, None, False, False)
+                            if result and len(result) > 0:
+                                total_success += 1
+                            else:
+                                total_failed += 1
+                        except Exception as e:
+                            total_failed += 1
+                            logger.debug(f"港股采集失败 {code}: {e}")
+                        
+                        total_processed += 1
+                        
+                        # 更新进度
+                        progress_pct = int((total_processed / total_stocks) * 100)
+                        kline_collect_progress[task_id].update({
+                            "success": total_success,
+                            "failed": total_failed,
+                            "current": total_processed,
+                            "progress": progress_pct,
+                            "message": f"港股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                        })
+                    
+                    # 批次间延迟
+                    import time
+                    time.sleep(1)
+            
+            # 完成
+            end_time = datetime.now().isoformat()
+            kline_collect_progress[task_id] = {
+                "status": "completed",
+                "total": total_stocks,
+                "success": total_success,
+                "failed": total_failed,
+                "current": total_processed,
+                "message": f"采集完成！成功{total_success}，失败{total_failed}，总计{total_processed}",
+                "start_time": start_time,
+                "end_time": end_time,
+                "progress": 100
+            }
+            logger.info(f"单个批量采集完成：成功{total_success}，失败{total_failed}，总计{total_processed}")
+        
+        # 后台执行
+        background_tasks.add_task(collect_batch_internal)
+        
+        return {
+            "code": 0,
+            "data": {
+                "status": "started",
+                "market": market.upper(),
+                "batch_size": batch_size
+            },
+            "message": f"已开始单个批量采集任务，每次采集{batch_size}只股票"
+        }
+        
+    except Exception as e:
+        logger.error(f"单个批量采集失败: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": f"启动失败: {str(e)}"}
+
+
 @api_router.post("/market/kline/collect")
 async def collect_kline_data_api(
     background_tasks: BackgroundTasks,
