@@ -2388,7 +2388,14 @@ function initStrategy() {
         });
     }
     if (singleCollectBtn) {
-        singleCollectBtn.addEventListener('click', collectSingleStockKline);
+        singleCollectBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            collectSingleStockKline().catch(err => {
+                console.error('单个采集失败:', err);
+                showToast(`采集失败: ${err.message || '未知错误'}`, 'error');
+            });
+        });
     }
 }
 
@@ -2584,7 +2591,11 @@ async function collectSingleStockKline() {
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('single-collect-kline-btn');
     
-    if (!codeInput || !btn) return;
+    if (!codeInput || !btn) {
+        console.error('单个采集：缺少必要的DOM元素');
+        showToast('页面元素加载失败，请刷新页面重试', 'error');
+        return;
+    }
     
     const code = codeInput.value.trim();
     const market = marketSelect?.value || 'A';
