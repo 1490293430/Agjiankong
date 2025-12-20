@@ -2415,6 +2415,98 @@ function initStrategy() {
     if (stopCollectBtn) {
         stopCollectBtn.addEventListener('click', stopKlineCollect);
     }
+    
+    // 页面加载时检查是否有运行中的采集任务
+    checkRunningCollectionTask();
+}
+
+// 检查是否有运行中的采集任务
+function checkRunningCollectionTask() {
+    const statusEl = document.getElementById('collect-kline-status');
+    const collectBtn = document.getElementById('collect-kline-btn');
+    const singleBatchBtn = document.getElementById('single-batch-collect-kline-btn');
+    
+    if (!statusEl) return;
+    
+    // 直接连接WebSocket检查最新任务状态，如果发现运行中的任务，就继续使用这个连接
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsBase = wsProtocol + '//' + window.location.host;
+    const ws = new WebSocket(`${wsBase}/ws/kline/collect/progress`);
+    
+    let hasRunningTask = false;
+    let checkTimeout = null;
+    
+    ws.onopen = () => {
+        // 监听最新任务（不指定task_id）
+        ws.send(JSON.stringify({}));
+        
+        // 设置超时，3秒后如果还没有收到运行中的任务，就关闭连接
+        checkTimeout = setTimeout(() => {
+            if (!hasRunningTask && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                ws.close();
+            }
+        }, 3000);
+    };
+    
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'kline_collect_progress' && data.progress) {
+                const progress = data.progress;
+                
+                if (progress.status === 'running') {
+                    hasRunningTask = true;
+                    // 清除超时
+                    if (checkTimeout) {
+                        clearTimeout(checkTimeout);
+                        checkTimeout = null;
+                    }
+                    
+                    // 发现有运行中的任务，启用停止按钮并恢复进度显示
+                    const stopBtn = document.getElementById('stop-collect-kline-btn');
+                    if (stopBtn) {
+                        stopBtn.disabled = false;
+                        stopBtn.style.opacity = '1';
+                        stopBtn.style.cursor = 'pointer';
+                    }
+                    
+                    // 恢复按钮状态
+                    if (collectBtn) {
+                        collectBtn.disabled = true;
+                        collectBtn.textContent = '采集中...';
+                    }
+                    if (singleBatchBtn) {
+                        singleBatchBtn.disabled = true;
+                        singleBatchBtn.textContent = '采集中...';
+                    }
+                    
+                    // 将这个WebSocket连接传递给connectKlineCollectProgress的逻辑
+                    // 但由于connectKlineCollectProgress会创建新连接，我们直接在这里处理
+                    // 实际上，我们可以直接复用这个连接，但为了保持代码一致性，还是关闭它并调用connectKlineCollectProgress
+                    ws.close();
+                    
+                    // 使用collectBtn或singleBatchBtn来显示进度（优先使用collectBtn）
+                    connectKlineCollectProgress(null, statusEl, collectBtn || singleBatchBtn);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('解析任务状态失败:', error);
+        }
+    };
+    
+    ws.onerror = () => {
+        if (checkTimeout) {
+            clearTimeout(checkTimeout);
+        }
+        ws.close();
+    };
+    
+    ws.onclose = () => {
+        if (checkTimeout) {
+            clearTimeout(checkTimeout);
+        }
+    };
 }
 
 async function runSelection() {
@@ -2963,6 +3055,15 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                         </div>
                     `;
                     btn.textContent = `采集中 ${current}/${total}`;
+                    
+                    // 确保停止按钮启用
+                    const stopBtn = document.getElementById('stop-collect-kline-btn');
+                    if (stopBtn) {
+                        stopBtn.disabled = false;
+                        stopBtn.style.opacity = '1';
+                        stopBtn.style.cursor = 'pointer';
+                        stopBtn.textContent = '🛑 停止采集';
+                    }
                 } else if (progress.status === 'completed') {
                     const success = progress.success || 0;
                     const failed = progress.failed || 0;
