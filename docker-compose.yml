@@ -7,18 +7,25 @@ services:
     volumes:
       - redis_data:/data
     restart: always
+    env_file:
+      - .env
+    environment:
+      # 将 REDIS_PASSWORD 传递给 Redis 容器，用于配置 requirepass
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     # 启用 AOF 和 RDB 双重持久化，确保数据不丢失
     # --appendonly yes: 启用 AOF（Append Only File）持久化
     # --save 60 1000: 如果60秒内至少有1000个key发生变化，则保存RDB快照
     # --save 300 100: 如果300秒内至少有100个key发生变化，则保存RDB快照
     # --save 900 1: 如果900秒内至少有1个key发生变化，则保存RDB快照
+    # --requirepass: 如果设置了 REDIS_PASSWORD 环境变量，则启用密码认证
     command: >
-      redis-server
-      --appendonly yes
-      --appendfsync everysec
-      --save 60 1000
-      --save 300 100
-      --save 900 1
+      sh -c "
+      if [ -n \"$$REDIS_PASSWORD\" ]; then
+        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\"
+      else
+        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1
+      fi
+      "
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest

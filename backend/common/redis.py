@@ -19,11 +19,14 @@ def get_redis() -> redis.Redis:
     global _pool, _r
     
     if _r is None:
+        # 如果密码为空字符串或None，则不传递password参数（避免Redis认证错误）
+        password = settings.redis_password if settings.redis_password and settings.redis_password.strip() else None
+        
         _pool = redis.ConnectionPool(
             host=settings.redis_host,
             port=settings.redis_port,
             db=settings.redis_db,
-            password=settings.redis_password,
+            password=password,
             decode_responses=True,
             max_connections=50
         )
