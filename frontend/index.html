@@ -250,18 +250,29 @@
         <section id="strategy-tab" class="tab-content">
             <div class="strategy-controls">
                 <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                    <button id="select-btn">开始选股</button>
+                    <button id="load-selected-btn" style="background: #64748b;">加载上次结果</button>
+                    <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
+                    <label>股票代码：<input type="text" id="single-collect-code-input" placeholder="如：600519" style="width: 100px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></label>
                     <label>
                         市场：
-                        <select id="selection-market-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                        <select id="single-collect-market-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
                             <option value="A">A股</option>
                             <option value="HK">港股</option>
                         </select>
                     </label>
-                    <label>最大数量：<input type="number" id="max-count-input" value="30" min="1" max="200" style="width: 80px;"></label>
-                    <button id="select-btn">开始选股</button>
-                    <button id="load-selected-btn" style="background: #64748b;">加载上次结果</button>
+                    <label>
+                        周期：
+                        <select id="single-collect-period-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                            <option value="daily">日线</option>
+                            <option value="weekly">周线</option>
+                            <option value="monthly">月线</option>
+                        </select>
+                    </label>
+                    <button id="single-collect-kline-btn" style="background: #3b82f6; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 单个采集</button>
+                    <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
                     <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 100px;"></label>
-                    <button id="collect-kline-btn" style="background: #10b981; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 采集K线数据</button>
+                    <button id="collect-kline-btn" style="background: #10b981; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 批量采集</button>
                 </div>
                 <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8; min-height: 20px;"></div>
             </div>

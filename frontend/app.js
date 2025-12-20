@@ -2371,6 +2371,7 @@ function initStrategy() {
     const selectBtn = document.getElementById('select-btn');
     const loadSelectedBtn = document.getElementById('load-selected-btn');
     const collectKlineBtn = document.getElementById('collect-kline-btn');
+    const singleCollectBtn = document.getElementById('single-collect-kline-btn');
     
     if (selectBtn) {
         selectBtn.addEventListener('click', runSelection);
@@ -2386,11 +2387,14 @@ function initStrategy() {
             collectKlineData(market, maxCount);
         });
     }
+    if (singleCollectBtn) {
+        singleCollectBtn.addEventListener('click', collectSingleStockKline);
+    }
 }
 
 async function runSelection() {
-    const market = document.getElementById('selection-market-select')?.value || 'A';
-    const maxCount = parseInt(document.getElementById('max-count-input')?.value || 30);
+    const market = 'A'; // 默认A股
+    const maxCount = 30; // 默认30只
     const container = document.getElementById('selected-stocks');
     
     // 生成任务ID
@@ -2531,7 +2535,7 @@ async function runSelection() {
                             font-size: 14px;
                             font-weight: 500;
                             transition: background 0.2s;
-                        ">📥 采集K线数据</button>
+                        ">📥 批量采集</button>
                         <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8;"></div>
                     </div>
                 `;
@@ -2548,6 +2552,11 @@ async function runSelection() {
                         const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
                         collectKlineData('ALL', maxCount);
                     });
+                }
+                // 绑定单个采集按钮事件
+                const singleCollectBtn = document.getElementById('single-collect-kline-btn');
+                if (singleCollectBtn) {
+                    singleCollectBtn.addEventListener('click', collectSingleStockKline);
                 }
             }, 0);
         }
@@ -2567,7 +2576,89 @@ async function runSelection() {
     }
 }
 
-// 采集K线数据
+// 单个股票采集K线数据
+async function collectSingleStockKline() {
+    const codeInput = document.getElementById('single-collect-code-input');
+    const marketSelect = document.getElementById('single-collect-market-select');
+    const periodSelect = document.getElementById('single-collect-period-select');
+    const statusEl = document.getElementById('collect-kline-status');
+    const btn = document.getElementById('single-collect-kline-btn');
+    
+    if (!codeInput || !btn) return;
+    
+    const code = codeInput.value.trim();
+    const market = marketSelect?.value || 'A';
+    const period = periodSelect?.value || 'daily';
+    
+    if (!code) {
+        if (statusEl) {
+            statusEl.innerHTML = '<div style="color: #ef4444; margin-top: 10px;">❌ 请输入股票代码</div>';
+        }
+        showToast('请输入股票代码', 'error');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = '采集中...';
+    if (statusEl) {
+        statusEl.innerHTML = `
+            <div style="margin-top: 10px;">
+                <div style="color: #60a5fa; margin-bottom: 5px; font-weight: 500;">正在采集 ${code} 的K线数据...</div>
+                <div style="color: #94a3b8; font-size: 11px;">请稍候，数据正在采集中</div>
+            </div>
+        `;
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect/single?code=${code}&market=${market}&period=${period}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 0) {
+            const data = result.data || {};
+            const count = data.count || 0;
+            const latestDate = data.latest_date || '';
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="margin-top: 10px;">
+                        <div style="color: #10b981; margin-bottom: 5px; font-weight: bold;">✅ 采集成功！</div>
+                        <div style="color: #10b981; font-size: 12px; margin-bottom: 2px;">股票代码: ${code}</div>
+                        <div style="color: #10b981; font-size: 12px; margin-bottom: 2px;">数据条数: ${count} 条</div>
+                        ${latestDate ? `<div style="color: #94a3b8; font-size: 11px;">最新日期: ${latestDate}</div>` : ''}
+                    </div>
+                `;
+            }
+            showToast(`成功采集 ${code}，共 ${count} 条`, 'success');
+        } else {
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="margin-top: 10px;">
+                        <div style="color: #ef4444; margin-bottom: 5px;">❌ 采集失败</div>
+                        <div style="color: #94a3b8; font-size: 11px;">${result.message || '未知错误'}</div>
+                    </div>
+                `;
+            }
+            showToast(`采集失败: ${result.message || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <div style="margin-top: 10px;">
+                    <div style="color: #ef4444; margin-bottom: 5px;">❌ 采集失败</div>
+                    <div style="color: #94a3b8; font-size: 11px;">${error.message || '网络错误'}</div>
+                </div>
+            `;
+        }
+        showToast(`采集失败: ${error.message || '网络错误'}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📥 单个采集';
+    }
+}
+
+// 批量采集K线数据
 async function collectKlineData(market = 'A', maxCount = 6000) {
     // 优先使用选股页面的状态显示区域
     let statusEl = document.getElementById('collect-kline-status');
@@ -2619,13 +2710,13 @@ async function collectKlineData(market = 'A', maxCount = 6000) {
             statusEl.textContent = `❌ 采集失败: ${result.message || '未知错误'}`;
             statusEl.style.color = '#ef4444';
             btn.disabled = false;
-            btn.textContent = '📥 采集K线数据';
+            btn.textContent = '📥 批量采集';
         }
     } catch (error) {
         statusEl.textContent = `❌ 采集失败: ${error.message || '网络错误'}`;
         statusEl.style.color = '#ef4444';
         btn.disabled = false;
-        btn.textContent = '📥 采集K线数据';
+        btn.textContent = '📥 批量采集';
     }
 }
 
@@ -2770,10 +2861,6 @@ async function loadSelectedStocks() {
         if (result.code === 0 && result.data) {
             const data = result.data;
             if (data.stocks && data.stocks.length > 0) {
-                // 更新市场选择器
-                if (document.getElementById('selection-market-select')) {
-                    document.getElementById('selection-market-select').value = data.market || 'A';
-                }
                 renderSelectedStocks(data.stocks);
                 showToast(`已加载上次选股结果（${data.market}股，${data.count}只）`, 'success');
             } else {
@@ -3930,11 +4017,7 @@ async function loadConfig() {
         document.getElementById('cfg-notify-wechat').checked = wechatEnabled;
         document.getElementById('cfg-wechat-webhook-url').value = data.notify_wechat_webhook_url || '';
 
-        // 同步选股面板默认值
-        const maxCountInput = document.getElementById('max-count-input');
-        const marketSelect = document.getElementById('selection-market-select');
-        if (marketSelect) marketSelect.value = data.selection_market ?? 'A';
-        if (maxCountInput) maxCountInput.value = data.selection_max_count ?? 30;
+        // 选股面板默认值已移除，使用固定值
 
         if (statusEl) statusEl.textContent = '配置已从服务器加载。';
     } catch (error) {
@@ -4018,11 +4101,7 @@ async function saveConfig() {
 
         const data = await res.json();
 
-        // 同步选股面板默认值
-        const maxCountInput = document.getElementById('max-count-input');
-        const marketSelect = document.getElementById('selection-market-select');
-        if (marketSelect) marketSelect.value = data.selection_market ?? 'A';
-        if (maxCountInput) maxCountInput.value = data.selection_max_count ?? maxCount;
+        // 选股面板默认值已移除，使用固定值
 
         if (statusEl) statusEl.textContent = '配置已保存。若修改了采集间隔，新设置会在下一轮采集后生效。';
         showToast('配置已保存', 'success');

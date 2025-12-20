@@ -1679,6 +1679,56 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     batch_collect()
 
 
+@api_router.post("/market/kline/collect/single")
+async def collect_single_stock_kline_api(
+    code: str = Query(..., description="股票代码（如：600519）"),
+    market: str = Query("A", description="市场类型：A（A股）或HK（港股）"),
+    period: str = Query("daily", description="周期：daily, weekly, monthly"),
+):
+    """采集单个股票的K线数据到ClickHouse
+    
+    说明：
+    - 只采集指定股票代码的K线数据
+    - 同步执行，立即返回结果
+    - 用于测试或单独更新某只股票的数据
+    """
+    try:
+        from market_collector.cn import fetch_a_stock_kline
+        from market_collector.hk import fetch_hk_stock_kline
+        
+        if market.upper() == "HK":
+            fetch_kline_func = fetch_hk_stock_kline
+        else:
+            fetch_kline_func = fetch_a_stock_kline
+        
+        logger.info(f"开始采集单个股票K线数据：{code}，市场={market}，周期={period}")
+        
+        # 同步采集（不跳过数据库，保存数据）
+        kline_data = fetch_kline_func(code, period, "", None, None, False, False)
+        
+        if kline_data and len(kline_data) > 0:
+            return {
+                "code": 0,
+                "data": {
+                    "stock_code": code,
+                    "market": market.upper(),
+                    "period": period,
+                    "count": len(kline_data),
+                    "latest_date": kline_data[-1].get("date") if kline_data else None
+                },
+                "message": f"成功采集{code}的K线数据，共{len(kline_data)}条"
+            }
+        else:
+            return {
+                "code": 1,
+                "data": {},
+                "message": f"采集{code}的K线数据失败或数据为空"
+            }
+    except Exception as e:
+        logger.error(f"采集单个股票K线数据失败 {code}: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": f"采集失败: {str(e)}"}
+
+
 @api_router.post("/market/kline/collect")
 async def collect_kline_data_api(
     background_tasks: BackgroundTasks,
