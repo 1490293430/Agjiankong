@@ -20,7 +20,14 @@ def fetch_hk_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
     """
     for attempt in range(max_retries):
         try:
-            df = ak.stock_hk_spot_em()
+            # 使用线程池包装，增加总体超时时间（5分钟），给网络更多时间
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(ak.stock_hk_spot_em)
+                try:
+                    df = future.result(timeout=300)  # 5分钟超时，给网络更多时间
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError("akshare API调用超时（5分钟）")
             
             # 标准化字段名
             df = df.rename(columns={
