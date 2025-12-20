@@ -59,6 +59,12 @@ def get_json(key: str) -> Optional[Any]:
         if value:
             return json.loads(value)
         return None
+    except redis.ConnectionError as e:
+        logger.error(f"Redis连接失败 {key}: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"Redis数据解析失败 {key}: {e}")
+        return None
     except Exception as e:
         logger.error(f"Redis获取失败 {key}: {e}")
         return None

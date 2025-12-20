@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 禁用系统日志表以降低CPU占用 -->
+    <!-- 这些日志表主要用于ClickHouse性能分析，对业务运行非必需 -->
+    <!-- 使用remove="1"来移除配置，防止日志表被创建 -->
+    
+    <!-- 禁用查询日志 -->
+    <query_log remove="1"/>
+    
+    <!-- 禁用跟踪日志 -->
+    <trace_log remove="1"/>
+    
+    <!-- 禁用文本日志 -->
+    <text_log remove="1"/>
+    
+    <!-- 禁用指标日志 -->
+    <metric_log remove="1"/>
+    
+    <!-- 禁用异步指标日志 -->
+    <asynchronous_metric_log remove="1"/>
+    
+    <!-- 禁用查询指标日志 -->
+    <query_metric_log remove="1"/>
+    
+    <!-- 禁用查询线程日志 -->
+    <query_thread_log remove="1"/>
+    
+    <!-- 禁用查询视图日志 -->
+    <query_views_log remove="1"/>
+    
+    <!-- 禁用part日志 -->
+    <part_log remove="1"/>
+    
+    <!-- 禁用处理器性能日志 -->
+    <processors_profile_log remove="1"/>
+</clickhouse>

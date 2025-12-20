@@ -13,11 +13,11 @@ logger = get_logger(__name__)
 class Account:
     """模拟交易账户"""
     
-    def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000):
+    def __init__(self, account_id: str = "default", initial_cash: float = 10_000):
         """
         Args:
             account_id: 账户ID
-            initial_cash: 初始资金（默认100万）
+            initial_cash: 初始资金（默认1万）
         """
         self.account_id = account_id
         self.initial_cash = initial_cash

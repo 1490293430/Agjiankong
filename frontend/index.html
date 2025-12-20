@@ -6,15 +6,68 @@
     <title>行情监控</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
     <link rel="stylesheet" href="style.css">
+    <script>
+        // 在页面渲染前就设置正确的tab，避免闪烁
+        // 使用立即执行的函数，尽可能早地执行
+        (function() {
+            try {
+                const savedTab = localStorage.getItem('currentTab') || 'market';
+                const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
+                const targetTab = validTabs.includes(savedTab) ? savedTab : 'market';
+                
+                // 保存目标tab到全局变量，供DOMContentLoaded时使用
+                window.__initialTab = targetTab;
+                
+                // 立即尝试设置（如果DOM已存在）
+                function setInitialTab() {
+                    // 移除所有active类
+                    const allTabs = document.querySelectorAll('.tab-btn');
+                    const allContents = document.querySelectorAll('.tab-content');
+                    
+                    allTabs.forEach(btn => btn.classList.remove('active'));
+                    allContents.forEach(content => content.classList.remove('active'));
+                    
+                    // 设置正确的active类
+                    const targetBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
+                    const targetContent = document.getElementById(`${targetTab}-tab`);
+                    
+                    if (targetBtn) targetBtn.classList.add('active');
+                    if (targetContent) targetContent.classList.add('active');
+                }
+                
+                // 如果DOM已经存在，立即执行
+                if (document.body) {
+                    setInitialTab();
+                } else {
+                    // 否则等待DOMContentLoaded
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', setInitialTab, false);
+                    } else {
+                        // 如果readyState不是loading，说明可能已经加载完成
+                        setTimeout(setInitialTab, 0);
+                    }
+                }
+            } catch (e) {
+                console.warn('设置初始tab失败:', e);
+            }
+        })();
+    </script>
+    <style>
+        /* 在CSS加载前先隐藏所有tab-content，避免闪烁 */
+        /* 使用!important确保优先级，避免被外部CSS覆盖 */
+        .tab-content {
+            display: none !important;
+        }
+        .tab-content.active {
+            display: block !important;
+        }
+    </style>
 </head>
 <body>
     <!-- 登录遮罩层 -->
     <div id="login-overlay" style="position: fixed; inset: 0; background: rgba(15,23,42,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000;">
         <div style="background: #0f172a; padding: 24px 28px; border-radius: 12px; width: 320px; box-shadow: 0 20px 40px rgba(15,23,42,0.8); border: 1px solid #1e293b;">
             <h2 style="margin: 0 0 16px; font-size: 20px; color: #e5e7eb; text-align: center;">管理员登录</h2>
-            <p style="margin: 0 0 16px; font-size: 12px; color: #9ca3af; text-align: center;">
-                默认账号 <code>admin</code> / 默认密码 <code>admin</code>，上线环境请修改环境变量。
-            </p>
             <form id="login-form">
                 <div style="margin-bottom: 10px;">
                     <label style="display:block; font-size: 13px; color:#cbd5f5; margin-bottom:4px;">用户名</label>
@@ -37,17 +90,30 @@
         <header class="header">
             <h1>📈 行情监控</h1>
             <div class="nav-tabs">
-                <button class="tab-btn active" data-tab="market">行情</button>
+                <button class="tab-btn" data-tab="market">行情</button>
                 <button class="tab-btn" data-tab="watchlist">自选</button>
                 <button class="tab-btn" data-tab="strategy">选股</button>
                 <button class="tab-btn" data-tab="ai">AI分析</button>
                 <button class="tab-btn" data-tab="news">资讯</button>
                 <button class="tab-btn" data-tab="config">配置</button>
             </div>
+            <div class="header-actions">
+                <div class="market-status">
+                    <div class="market-status-item">
+                        <span class="market-status-label">A股:</span>
+                        <span id="market-status-a" class="market-status-value">加载中...</span>
+                    </div>
+                    <div class="market-status-item">
+                        <span class="market-status-label">港股:</span>
+                        <span id="market-status-hk" class="market-status-value">加载中...</span>
+                    </div>
+                </div>
+                <button id="theme-toggle" class="theme-toggle-btn" type="button">🌙 夜间</button>
+            </div>
         </header>
 
         <!-- 行情面板 -->
-        <section id="market-tab" class="tab-content active">
+        <section id="market-tab" class="tab-content">
             <div class="market-controls">
                 <select id="market-select">
                     <option value="a">A股</option>
@@ -80,6 +146,7 @@
         <section id="watchlist-tab" class="tab-content">
             <div class="watchlist-controls">
                 <div style="color: #94a3b8; font-size: 14px;">自选股列表（单击股票查看K线和详情）</div>
+                <button id="refresh-watchlist-btn" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">刷新</button>
             </div>
             <div id="watchlist-container" class="watchlist-container">
                 <div class="watchlist-placeholder">
@@ -99,13 +166,17 @@
                         <h3 id="kline-modal-title">K线图</h3>
                         <div id="stock-detail-info" class="stock-detail-inline"></div>
                     </div>
-                    <button class="kline-modal-close" onclick="closeKlineModal()">×</button>
+                    <div class="kline-header-right">
+                        <button id="kline-refresh-btn" class="kline-refresh-btn" title="刷新K线数据">🔄 刷新</button>
+                        <button class="kline-modal-close" onclick="closeKlineModal()">×</button>
+                    </div>
                 </div>
                 <div class="kline-modal-body">
                     <!-- 标题下方：日线/周线/成交量/EMA 一排 -->
                     <div class="kline-controls-row">
                         <div class="kline-controls">
                             <select id="chart-period">
+                                <option value="1h">1小时</option>
                                 <option value="daily">日线</option>
                                 <option value="weekly">周线</option>
                                 <option value="monthly">月线</option>
@@ -117,18 +188,18 @@
                                     <span>成交量</span>
                                     <span class="indicator-arrow">▼</span>
                                 </div>
-                            </div>
-                            <div id="volume-controls" class="indicator-collapse-content">
-                                <!-- 成交量控制内容在 JS 中填充 -->
+                                <div id="volume-controls" class="indicator-collapse-content">
+                                    <!-- 成交量控制内容在 JS 中填充 -->
+                                </div>
                             </div>
                             <div class="indicator-collapse" data-target="ema-controls">
                                 <div class="indicator-collapse-header">
                                     <span>EMA</span>
                                     <span class="indicator-arrow">▼</span>
                                 </div>
-                            </div>
-                            <div id="ema-controls" class="indicator-collapse-content">
-                                <!-- EMA 控制内容在 JS 中填充 -->
+                                <div id="ema-controls" class="indicator-collapse-content">
+                                    <!-- EMA 控制内容在 JS 中填充 -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -142,9 +213,21 @@
         <!-- 选股面板 -->
         <section id="strategy-tab" class="tab-content">
             <div class="strategy-controls">
-                <label>选股阈值：<input type="number" id="threshold-input" value="65" min="0" max="100"></label>
-                <label>最大数量：<input type="number" id="max-count-input" value="30" min="1" max="100"></label>
-                <button id="select-btn">开始选股</button>
+                <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                    <label>
+                        市场：
+                        <select id="selection-market-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                            <option value="A">A股</option>
+                            <option value="HK">港股</option>
+                        </select>
+                    </label>
+                    <label>最大数量：<input type="number" id="max-count-input" value="30" min="1" max="200" style="width: 80px;"></label>
+                    <button id="select-btn">开始选股</button>
+                    <button id="load-selected-btn" style="background: #64748b;">加载上次结果</button>
+                    <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 100px;"></label>
+                    <button id="collect-kline-btn" style="background: #10b981; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 采集K线数据</button>
+                </div>
+                <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8; min-height: 20px;"></div>
             </div>
             <div id="selected-stocks" class="selected-stocks"></div>
         </section>
@@ -155,9 +238,12 @@
                 <div class="ai-controls">
                     <input type="text" id="ai-code-input" placeholder="输入股票代码（如：600519）">
                     <button id="analyze-btn">开始分析</button>
-                    <label style="display: flex; align-items: center; gap: 8px; margin-left: 12px;">
-                        <input type="checkbox" id="use-ai-checkbox"> 使用AI模型分析
-                    </label>
+                    <button id="ai-stats-btn" style="margin-left: 12px; padding: 8px 16px; background:#3b82f6; border:none; border-radius:6px; color:white; cursor:pointer;">
+                        查看胜率统计
+                    </button>
+                    <button id="ai-clear-btn" style="margin-left: 12px; padding: 8px 16px; background:#6b7280; border:none; border-radius:6px; color:white; cursor:pointer;">
+                        清除AI分析结果
+                    </button>
                 </div>
                 <div id="ai-analysis-result" class="ai-analysis-result">
                     <div class="ai-placeholder">
@@ -192,17 +278,71 @@
                         </div>
                         
                         <!-- 选股配置 -->
-                        <div class="config-item">
-                            <label>
-                                默认选股阈值：
-                                <input type="number" id="cfg-threshold" min="0" max="100">
-                            </label>
-                        </div>
-                        <div class="config-item">
-                            <label>
-                                默认最大选股数量：
-                                <input type="number" id="cfg-max-count" min="1" max="200">
-                            </label>
+                        <div class="config-section">
+                            <h3>选股配置</h3>
+                            <div class="config-item">
+                                <label>
+                                    默认市场：
+                                    <select id="cfg-selection-market" style="width: 120px; margin-left: 8px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                                        <option value="A">A股</option>
+                                        <option value="HK">港股</option>
+                                    </select>
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">默认选股市场</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    默认最大选股数量：
+                                    <input type="number" id="cfg-selection-max-count" min="1" max="200" value="30" style="width: 100px; margin-left: 8px;">
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">每次选股最多选出的股票数量（1-200）</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    量比最小值：
+                                    <input type="number" id="cfg-filter-volume-ratio-min" min="0.5" max="10" step="0.1" value="1.2" style="width: 100px; margin-left: 8px;">
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">当日成交量/过去5日平均成交量</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    量比最大值：
+                                    <input type="number" id="cfg-filter-volume-ratio-max" min="1" max="20" step="0.1" value="5.0" style="width: 100px; margin-left: 8px;">
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">量比上限，避免异常放量</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    RSI最小值：
+                                    <input type="number" id="cfg-filter-rsi-min" min="0" max="100" value="40" style="width: 100px; margin-left: 8px;">
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">RSI下限（0-100）</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    RSI最大值：
+                                    <input type="number" id="cfg-filter-rsi-max" min="0" max="100" value="65" style="width: 100px; margin-left: 8px;">
+                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">RSI上限，避免超买</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    <input type="checkbox" id="cfg-filter-williams-r-enable" checked>
+                                    <span style="margin-left: 8px;">启用威廉指标筛选（从超卖区上穿）</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    <input type="checkbox" id="cfg-filter-break-high-enable" checked>
+                                    <span style="margin-left: 8px;">启用突破高点筛选（20日新高）</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    <input type="checkbox" id="cfg-filter-boll-enable" checked>
+                                    <span style="margin-left: 8px;">启用布林带筛选（收口后突破）</span>
+                                </label>
+                            </div>
                         </div>
                         
                         <!-- 行情采集配置 -->
@@ -231,7 +371,7 @@
                     </div>
                     <div class="config-main-content hidden" id="content-notify">
                         <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
-                            配置各通知渠道的发送对象。
+                            配置各通知渠道的发送对象，并可发送测试通知验证是否配置正确。
                         </div>
                         
                         <!-- Telegram配置 -->
@@ -321,6 +461,51 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- 测试通知按钮 -->
+                        <div class="config-item" style="margin-top: 8px;">
+                            <button id="cfg-notify-test-btn" class="config-save-btn" style="padding: 6px 16px; font-size: 14px;">
+                                测试通知（发送到已勾选渠道）
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 账户安全配置（单独折叠项，位于数据配置下面） -->
+            <div class="config-main-section" style="margin-top: 16px;">
+                <div class="config-main-header" onclick="toggleConfigSection('security')">
+                    <h3 style="margin: 0; display: inline-block;">账户安全</h3>
+                    <span class="config-main-arrow" id="arrow-security">▶</span>
+                </div>
+                <div class="config-main-content hidden" id="content-security">
+                    <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                        修改管理员登录密码。密码将保存在服务器（Redis）中，优先于环境变量。
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            当前密码：
+                            <input type="password" id="cfg-old-password" placeholder="请输入当前密码" style="width: 300px; margin-left: 8px;">
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            新密码：
+                            <input type="password" id="cfg-new-password" placeholder="请输入新密码（至少6个字符）" style="width: 300px; margin-left: 8px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">至少6个字符</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            确认新密码：
+                            <input type="password" id="cfg-confirm-password" placeholder="请再次输入新密码" style="width: 300px; margin-left: 8px;">
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <button id="cfg-change-password-btn" class="config-save-btn" style="padding: 6px 16px; font-size: 14px;">
+                            修改密码
+                        </button>
+                        <span id="cfg-password-status" style="margin-left: 12px; font-size: 13px; color: #94a3b8;"></span>
                     </div>
                 </div>
             </div>
@@ -338,21 +523,64 @@
                     <div class="config-item">
                         <label>
                             OpenAI API Key：
-                            <input type="password" id="cfg-ai-api-key" placeholder="如果需要更改请输入新值 (sk-...)">
+                            <input type="password" id="cfg-ai-api-key" placeholder="如果需要更改请输入新值 (sk-...)" style="width: 300px;">
                             <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">🔒 已隐藏 - 如果需要更改请输入新值 (sk-...)</span>
                         </label>
                     </div>
                     <div class="config-item">
                         <label>
                             API Base URL：
-                            <input type="text" id="cfg-ai-api-base" placeholder="https://openai.qiniu.com/v1">
+                            <input type="text" id="cfg-ai-api-base" placeholder="https://openai.qiniu.com/v1" style="width: 300px;">
                             <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">如使用代理或第三方服务，可修改此 URL</span>
                         </label>
                     </div>
                     <div class="config-item">
                         <label>
                             AI 模型：
-                            <input type="text" id="cfg-ai-model" placeholder="deepseek/deepseek-v3.2-251201">
+                            <input type="text" id="cfg-ai-model" placeholder="deepseek/deepseek-v3.2-251201" style="width: 300px;">
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            自动分析时间（每天）：
+                            <input type="time" id="cfg-ai-auto-analyze-time" style="width: 160px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">格式 HH:MM，留空则不自动分析</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label style="margin-right: 16px;">
+                            <input type="radio" name="cfg-ai-data-period" id="cfg-ai-data-period-daily" value="daily" checked>
+                            <span style="margin-left: 4px;">日线</span>
+                        </label>
+                        <label style="margin-right: 16px;">
+                            <input type="radio" name="cfg-ai-data-period" id="cfg-ai-data-period-hourly" value="1h">
+                            <span style="margin-left: 4px;">小时线</span>
+                        </label>
+                        <label>
+                            K线根数：
+                            <input type="number" id="cfg-ai-data-count" min="50" max="1000" step="10" value="500" style="width: 100px; margin-left: 8px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">提交给AI的K线数量</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            每次分析的股票数：
+                            <input type="number" id="cfg-ai-batch-size" min="1" max="1000" step="1" value="5" style="width: 100px; margin-left: 8px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">批量分析时，每批合并分析的股票数量（1-1000）</span>
+                        </label>
+                    </div>
+                    <div class="config-item">
+                        <label style="margin-right: 16px;">
+                            <input type="checkbox" id="cfg-ai-notify-telegram">
+                            AI 分析结果通过 Telegram 通知
+                        </label>
+                        <label style="margin-right: 16px;">
+                            <input type="checkbox" id="cfg-ai-notify-email">
+                            AI 分析结果通过 邮箱 通知
+                        </label>
+                        <label>
+                            <input type="checkbox" id="cfg-ai-notify-wechat">
+                            AI 分析结果通过 企业微信 通知
                         </label>
                     </div>
                 </div>
@@ -365,6 +593,9 @@
             </div>
         </section>
     </div>
+
+    <!-- 全局悬浮提示框 -->
+    <div id="global-toast" class="toast" style="display: none;"></div>
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>

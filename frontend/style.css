@@ -4,6 +4,17 @@
     box-sizing: border-box;
 }
 
+/* 确保K线图相关的所有元素都没有边距 */
+.kline-modal,
+.kline-modal-content,
+.kline-modal-body,
+.kline-chart-container,
+.kline-controls-row,
+.kline-modal-header {
+    margin: 0 !important;
+    box-sizing: border-box;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
     background: #0f172a;
@@ -36,6 +47,100 @@ body {
 .nav-tabs {
     display: flex;
     gap: 10px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.market-status {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+}
+
+.market-status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.market-status-label {
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.market-status-value {
+    color: #cbd5f5;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.market-status-value.trading {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.market-status-value.closed {
+    background: rgba(148, 163, 184, 0.2);
+    color: #94a3b8;
+}
+
+.market-status-value.loading {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+body.light-mode .market-status {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .market-status-label {
+    color: #64748b;
+}
+
+body.light-mode .market-status-value {
+    color: #1f2937;
+}
+
+body.light-mode .market-status-value.trading {
+    background: rgba(16, 185, 129, 0.15);
+    color: #059669;
+}
+
+body.light-mode .market-status-value.closed {
+    background: rgba(148, 163, 184, 0.15);
+    color: #64748b;
+}
+
+body.light-mode .market-status-value.loading {
+    background: rgba(59, 130, 246, 0.15);
+    color: #2563eb;
+}
+
+.theme-toggle-btn {
+    padding: 10px 16px;
+    background: #334155;
+    color: #cbd5f5;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+    background: #475569;
 }
 
 .tab-btn {
@@ -136,6 +241,175 @@ body {
     color: #94a3b8;
 }
 
+/* -------------- 主题：亮色模式覆盖 -------------- */
+body.light-mode {
+    background: #f5f7fb;
+    color: #1f2937;
+}
+
+body.light-mode .header {
+    background: #e2e8f0;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .header h1 {
+    color: #1d4ed8;
+}
+
+body.light-mode .theme-toggle-btn {
+    background: #e2e8f0;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .theme-toggle-btn:hover {
+    background: #d9e2ec;
+}
+
+body.light-mode .tab-btn {
+    background: #e5e7eb;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .tab-btn:hover {
+    background: #e2e8f0;
+}
+
+body.light-mode .tab-btn.active {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+body.light-mode .market-controls select,
+body.light-mode .market-controls input {
+    background: #f8fafc;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .market-controls button {
+    background: #2563eb;
+    color: #fff;
+}
+
+body.light-mode .stock-list-container,
+body.light-mode .watchlist-controls,
+body.light-mode .watchlist-container,
+body.light-mode .config-main-section,
+body.light-mode .config-main-content,
+body.light-mode .config-subsection-small-content {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+body.light-mode .stock-table thead {
+    background: #e2e8f0;
+}
+
+body.light-mode .stock-table th {
+    color: #475569;
+}
+
+body.light-mode .stock-table th,
+body.light-mode .stock-table td {
+    border-bottom: 1px solid #e2e8f0;
+}
+
+body.light-mode .stock-table tr:hover {
+    background: #f1f5f9;
+}
+
+body.light-mode .watchlist-placeholder {
+    color: #475569;
+}
+
+body.light-mode .config-main-header {
+    color: #0f172a;
+    background: #e5e7eb;
+}
+
+body.light-mode .config-main-content {
+    color: #1f2937;
+}
+
+/* 选股区在白天模式的浅色样式 */
+body.light-mode .strategy-controls {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+body.light-mode .strategy-controls input {
+    background: #ffffff;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .selected-stocks {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+body.light-mode .stock-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+/* AI 分析区在白天模式的浅色样式 */
+body.light-mode .ai-controls {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+body.light-mode .ai-controls input[type="text"] {
+    background: #f8fafc;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
+}
+
+body.light-mode .ai-controls label {
+    color: #1f2937;
+}
+
+body.light-mode .ai-analysis-result {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+/* 资讯列表在白天模式的浅色样式 */
+body.light-mode .news-list {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+body.light-mode .news-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #2563eb;
+}
+
+body.light-mode .news-item h4 {
+    color: #1d4ed8;
+}
+
+body.light-mode .news-item .meta {
+    color: #475569;
+}
+
+body.light-mode .news-item .news-content {
+    color: #000000; /* 白天模式也是黑色 */
+}
+
+body.light-mode input,
+body.light-mode select,
+body.light-mode textarea {
+    color: #1f2937;
+}
+
 /* K线图 */
 /* 自选股样式 */
 .watchlist-controls {
@@ -198,6 +472,9 @@ body {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     animation: slideUp 0.3s ease;
     z-index: 2001;
+    margin: 0 !important; /* 移除margin */
+    padding: 0 !important; /* 移除padding */
+    border: none !important; /* 移除边框 */
 }
 
 .kline-modal-header {
@@ -206,6 +483,8 @@ body {
     align-items: center;
     padding: 4px 10px; /* 显示区域尽量小，占整体高度约1-2% */
     border-bottom: 1px solid #334155;
+    flex-shrink: 0; /* 不收缩，保持固定高度 */
+    margin: 0 !important;
 }
 
 .kline-modal-header h3 {
@@ -221,6 +500,31 @@ body {
     align-items: center;
     gap: 10px;
     min-width: 0;
+}
+
+.kline-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.kline-refresh-btn {
+    background: #3b82f6;
+    border: none;
+    color: white;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.kline-refresh-btn:hover {
+    background: #2563eb;
+}
+
+.kline-refresh-btn:active {
+    background: #1d4ed8;
 }
 
 .kline-modal-close {
@@ -246,22 +550,29 @@ body {
 }
 
 .kline-modal-body {
-    padding: 8px 10px;
-    overflow-y: hidden;
+    padding: 0 !important; /* 移除所有padding */
+    overflow: visible; /* 改为visible，确保成交量区域不被遮挡 */
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0 !important; /* 移除gap */
+    min-height: 0; /* 重要：允许flex子元素缩小 */
+    margin: 0 !important; /* 移除margin */
+    border: none !important; /* 移除边框 */
 }
 
 /* 日线/周线 + 成交量/EMA 控制排成一排（位于标题下方） */
 .kline-controls-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
     gap: 10px;
     flex-wrap: nowrap;      /* 尽量保持在一排 */
     font-size: 12px;
     min-height: 32px;
+    padding: 4px 10px; /* 添加最小padding，保持控制按钮可见 */
+    flex-shrink: 0; /* 不收缩，保持固定高度 */
+    margin: 0 !important;
+    position: relative; /* 为绝对定位的content提供定位上下文 */
 }
 
 .kline-indicators-inline {
@@ -269,6 +580,7 @@ body {
     align-items: flex-start;
     gap: 8px;
     font-size: 12px;
+    position: relative; /* 为绝对定位的子元素提供定位上下文 */
 }
 
 .indicator-collapse {
@@ -276,6 +588,7 @@ body {
     border-radius: 8px;
     border: 1px solid #475569;
     cursor: pointer;
+    position: relative; /* 为content提供定位上下文 */
 }
 
 .indicator-collapse-header {
@@ -294,21 +607,45 @@ body {
 }
 
 .indicator-collapse-content {
+    position: absolute; /* 绝对定位，浮在K线图上方 */
+    top: 100%; /* 位于按钮下方 */
+    left: 0;
+    z-index: 1000; /* 确保在K线图上方 */
     background: #1e293b;
     border-radius: 0 0 8px 8px;
     border: 1px solid #475569;
     border-top: none;
-    margin-top: -6px;
     padding: 8px 10px;
     display: none; /* 默认折叠 */
+    min-width: 150px; /* 设置最小宽度 */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); /* 添加阴影，更明显 */
+    margin-top: 2px; /* 与按钮之间的小间距 */
+    white-space: nowrap; /* 防止内容换行 */
 }
 
-/* K线图容器，占据左侧大部分空间 */
- .kline-chart-container {
+/* EMA控制内容需要更宽的宽度 */
+#ema-controls.indicator-collapse-content {
+    min-width: 200px;
+}
+
+/* K线图容器，占据剩余所有空间 */
+.kline-chart-container {
     position: relative;
     width: 100%;
-    flex: 1; /* 让K线图占据绝大部分高度（约95%） */
+    flex: 1 1 auto; /* 占据剩余所有空间 */
     min-height: 0;
+    overflow: visible; /* 确保成交量区域可见 */
+    margin: 0 !important; /* 移除所有margin */
+    padding: 0 !important; /* 移除所有padding */
+    border: none !important; /* 移除边框 */
+    z-index: 1; /* 确保下拉内容可以显示在上方 */
+}
+
+/* 确保图表内部元素也没有边距 */
+.kline-chart-container > div,
+.kline-chart-container canvas {
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* 标题行中的紧凑股票详情 */
@@ -446,17 +783,34 @@ body {
 
 .kline-controls select {
     padding: 8px 12px;
-    background: #334155;
-    color: #cbd5f5;
+    background: #1e293b; /* 改成和成交量一样的颜色 */
+    color: #ffffff !important; /* 使用纯白色，确保可见，优先级最高 */
     border: 1px solid #475569;
     border-radius: 6px;
     font-size: 14px;
     cursor: pointer;
 }
 
+.kline-controls select option {
+    background: #1e293b;
+    color: #ffffff; /* 下拉选项也是白色文字 */
+}
+
 .kline-controls select:focus {
     outline: none;
     border-color: #3b82f6;
+}
+
+/* 白天模式下的日线选项框样式 */
+body.light-mode .kline-controls select {
+    background: #1e293b;
+    color: #ffffff !important;
+    border-color: #475569;
+}
+
+body.light-mode .kline-controls select option {
+    background: #1e293b;
+    color: #ffffff;
 }
 
 @keyframes fadeIn {
@@ -511,12 +865,7 @@ body {
 }
 
 .indicators-info {
-    background: #1e293b;
-    padding: 20px;
-    border-radius: 8px;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
+    display: none; /* 隐藏指标信息区域，让K线图占据全部空间 */
 }
 
 .indicator-item {
@@ -865,6 +1214,29 @@ body {
     margin-top: 5px;
 }
 
+.news-item .news-content {
+    color: #000000; /* 改成黑色 */
+    line-height: 1.6;
+    margin: 10px 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.news-expand-btn {
+    padding: 4px 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.news-expand-btn:hover {
+    background: #2563eb;
+}
+
 /* 配置布局 */
 .config-layout {
     display: flex;
@@ -911,13 +1283,13 @@ body {
 }
 
 .config-data-section {
-    flex: 2; /* 数据配置占更多空间 */
-    min-width: 400px;
+    flex: 1;
+    min-width: 320px;
 }
 
 .config-notify-section {
-    flex: 1; /* 通知配置占较少空间 */
-    min-width: 250px;
+    flex: 1;
+    min-width: 320px;
 }
 
 .config-main-header {
@@ -988,13 +1360,25 @@ body {
 
 .config-item input[type="text"],
 .config-item input[type="email"],
-.config-item input[type="url"] {
+.config-item input[type="url"],
+.config-item input[type="password"] {
     padding: 6px 10px;
     background: #0f172a;
     color: #cbd5f5;
     border: 1px solid #334155;
     border-radius: 4px;
     font-size: 13px;
+}
+
+/* 配置输入框在亮色模式下的样式 */
+body.light-mode .config-item input[type="number"],
+body.light-mode .config-item input[type="text"],
+body.light-mode .config-item input[type="email"],
+body.light-mode .config-item input[type="url"],
+body.light-mode .config-item input[type="password"] {
+    background: #ffffff;
+    color: #1f2937;
+    border: 1px solid #cbd5e1;
 }
 
 /* 通知渠道子折叠项 */
@@ -1044,9 +1428,137 @@ body {
     transition: transform 0.3s;
 }
 
+body.light-mode .config-subsection-small {
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .config-subsection-small-header {
+    background: #e5e7eb;
+}
+
+body.light-mode .config-subsection-small-header:hover {
+    background: #e2e8f0;
+}
+
+body.light-mode .config-subsection-small-header label {
+    color: #1f2937;
+}
+
+/* 全局悬浮提示框（Toast） */
+.toast {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    background: rgba(15, 23, 42, 0.95);
+    color: #e5e7eb;
+    padding: 16px 24px;
+    border-radius: 8px;
+    font-size: 15px;
+    min-width: 300px;
+    max-width: 500px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 3000;
+    border-left: 4px solid transparent;
+    word-wrap: break-word;
+    line-height: 1.5;
+}
+
+.toast.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.toast.success {
+    background: rgba(16, 185, 129, 0.95);
+    color: #ffffff;
+    border-left-color: #10b981;
+    box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+}
+
+.toast.error {
+    background: rgba(239, 68, 68, 0.95);
+    color: #ffffff;
+    border-left-color: #ef4444;
+    box-shadow: 0 10px 30px rgba(239, 68, 68, 0.3);
+}
+
+body.light-mode .toast {
+    background: rgba(15, 23, 42, 0.95);
+    color: #f9fafb;
+}
+
+body.light-mode .toast.success {
+    background: rgba(16, 185, 129, 0.95);
+    color: #ffffff;
+}
+
+body.light-mode .toast.error {
+    background: rgba(239, 68, 68, 0.95);
+    color: #ffffff;
+}
+
+/* AI分析表格样式 */
+.ai-analysis-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ai-analysis-table thead {
+    background: #334155;
+}
+
+.ai-analysis-table th {
+    padding: 8px;
+    text-align: left;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 12px;
+    border-bottom: 2px solid #475569;
+    white-space: nowrap;
+}
+
+.ai-analysis-table td {
+    padding: 8px;
+    border-bottom: 1px solid #334155;
+    color: #cbd5f5;
+    vertical-align: top;
+}
+
+.ai-analysis-table tbody tr:hover {
+    background: #334155;
+}
+
+.ai-analysis-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+body.light-mode .ai-analysis-table thead {
+    background: #e2e8f0;
+}
+
+body.light-mode .ai-analysis-table th {
+    color: #475569;
+    border-bottom-color: #cbd5e1;
+}
+
+body.light-mode .ai-analysis-table td {
+    border-bottom-color: #e2e8f0;
+    color: #1f2937;
+}
+
+body.light-mode .ai-analysis-table tbody tr:hover {
+    background: #f1f5f9;
+}
+
 @media (max-width: 1024px) {
     .trading-layout {
         grid-template-columns: 1fr;
     }
 }
-

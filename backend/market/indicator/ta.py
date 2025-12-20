@@ -6,6 +6,40 @@ import numpy as np
 from typing import Dict, Any, Optional
 
 
+def calculate_trend_direction(current_value: float, previous_value: float, threshold: Optional[float] = None) -> str:
+    """更稳健的趋势判断，避免微小波动干扰
+    
+    Args:
+        current_value: 当前值
+        previous_value: 前一个值
+        threshold: 变化阈值（如果为None，尝试从动态参数获取，默认0.1%）
+    
+    Returns:
+        "up" - 向上趋势
+        "down" - 向下趋势
+        "flat" - 持平
+    """
+    if previous_value is None or previous_value == 0:
+        return "flat"
+    
+    # 如果未提供阈值，尝试从动态参数获取
+    if threshold is None:
+        try:
+            from ai.parameter_optimizer import get_parameter_optimizer
+            optimizer = get_parameter_optimizer()
+            threshold = optimizer.get_trend_threshold()
+        except Exception:
+            threshold = 0.001  # 默认0.1%
+    
+    change = (current_value - previous_value) / previous_value
+    if change > threshold:
+        return "up"
+    elif change < -threshold:
+        return "down"
+    else:
+        return "flat"
+
+
 def ma(df: pd.DataFrame, n: int = 20, column: str = "close") -> pd.Series:
     """计算移动平均线
     
@@ -110,6 +144,68 @@ def kdj(df: pd.DataFrame, n: int = 9, m1: int = 3, m2: int = 3) -> Dict[str, pd.
     }
 
 
+def williams_r(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """计算威廉指标 %R
+    
+    Args:
+        df: 包含high、low、close的DataFrame
+        period: 计算周期（默认14）
+    
+    Returns:
+        威廉指标Series，值域为 [-100, 0]
+        负值越大（接近-100），表示超卖
+        负值越小（接近0），表示超买
+    """
+    high_high = df["high"].rolling(window=period, min_periods=1).max()
+    low_low = df["low"].rolling(window=period, min_periods=1).min()
+    
+    wr = -100 * (high_high - df["close"]) / (high_high - low_low + 1e-10)
+    return wr
+
+
+def calculate_ma60_only(df: pd.DataFrame) -> Dict[str, Any] | None:
+    """仅计算MA60（用于低成本的第一层筛选）
+    
+    Args:
+        df: 包含OHLCV数据的DataFrame
+    
+    Returns:
+        包含ma60和ma60_trend的字典，如果数据不足返回None
+    """
+    if df.empty or len(df) < 2:
+        return None
+    
+    required_columns = ["close"]
+    if "close" not in df.columns:
+        return None
+    
+    df["close"] = pd.to_numeric(df["close"], errors='coerce')
+    latest = df.iloc[-1]
+    current_price = float(latest["close"])
+    
+    # 只计算MA60
+    ma60_series = ma(df, 60, "close")
+    
+    if len(df) < 60:
+        return None
+    
+    result = {
+        "ma60": float(ma60_series.iloc[-1]),
+        "current_price": current_price,
+        "current_close": current_price
+    }
+    
+    # 计算MA60趋势（需要至少61根K线）
+    if len(df) >= 61:
+        ma60_prev = float(ma60_series.iloc[-2])
+        trend = calculate_trend_direction(result["ma60"], ma60_prev)
+        result["ma60_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+    else:
+        result["ma60_trend"] = "未知"
+    
+    return result
+
+
 def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     """计算所有技术指标
     
@@ -137,11 +233,49 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     
     result = {}
     
-    # MA均线
-    result["ma5"] = float(ma(df, 5).iloc[-1]) if len(df) >= 5 else None
-    result["ma10"] = float(ma(df, 10).iloc[-1]) if len(df) >= 10 else None
-    result["ma20"] = float(ma(df, 20).iloc[-1]) if len(df) >= 20 else None
-    result["ma60"] = float(ma(df, 60).iloc[-1]) if len(df) >= 60 else None
+    # MA均线（当前值）
+    ma5_series = ma(df, 5)
+    ma10_series = ma(df, 10)
+    ma20_series = ma(df, 20)
+    ma60_series = ma(df, 60)
+    
+    result["ma5"] = float(ma5_series.iloc[-1]) if len(df) >= 5 else None
+    result["ma10"] = float(ma10_series.iloc[-1]) if len(df) >= 10 else None
+    result["ma20"] = float(ma20_series.iloc[-1]) if len(df) >= 20 else None
+    result["ma60"] = float(ma60_series.iloc[-1]) if len(df) >= 60 else None
+    
+    # 均线趋势方向（使用稳健的趋势判断函数）
+    if len(df) >= 5:
+        ma5_prev = float(ma5_series.iloc[-2]) if len(df) >= 6 else None
+        if ma5_prev:
+            trend = calculate_trend_direction(result["ma5"], ma5_prev)
+            result["ma5_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+        else:
+            result["ma5_trend"] = "未知"
+    
+    if len(df) >= 10:
+        ma10_prev = float(ma10_series.iloc[-2]) if len(df) >= 11 else None
+        if ma10_prev:
+            trend = calculate_trend_direction(result["ma10"], ma10_prev)
+            result["ma10_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+        else:
+            result["ma10_trend"] = "未知"
+    
+    if len(df) >= 20:
+        ma20_prev = float(ma20_series.iloc[-2]) if len(df) >= 21 else None
+        if ma20_prev:
+            trend = calculate_trend_direction(result["ma20"], ma20_prev)
+            result["ma20_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+        else:
+            result["ma20_trend"] = "未知"
+    
+    if len(df) >= 60:
+        ma60_prev = float(ma60_series.iloc[-2]) if len(df) >= 61 else None
+        if ma60_prev:
+            trend = calculate_trend_direction(result["ma60"], ma60_prev)
+            result["ma60_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+        else:
+            result["ma60_trend"] = "未知"
     
     # MACD
     if len(df) >= 26:
@@ -149,6 +283,13 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["macd_dif"] = float(macd_data["dif"].iloc[-1])
         result["macd_dea"] = float(macd_data["dea"].iloc[-1])
         result["macd"] = float(macd_data["macd"].iloc[-1])
+        
+        # MACD趋势方向（使用稳健的趋势判断）
+        if len(df) >= 27:
+            macd_dif_prev = float(macd_data["dif"].iloc[-2])
+            trend = calculate_trend_direction(result["macd_dif"], macd_dif_prev)
+            result["macd_dif_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
+            result["macd_prev"] = float(macd_data["macd"].iloc[-2])  # 前一天的MACD柱，用于判断绿柱是否缩短
     
     # RSI
     if len(df) >= 14:
@@ -169,11 +310,47 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["kdj_d"] = float(kdj_data["d"].iloc[-1])
         result["kdj_j"] = float(kdj_data["j"].iloc[-1])
     
+    # 威廉指标
+    if len(df) >= 14:
+        wr_series = williams_r(df, 14)
+        result["williams_r"] = float(wr_series.iloc[-1])
+        # 前一天的威廉指标，用于判断是否从超卖区上穿
+        if len(df) >= 15:
+            result["williams_r_prev"] = float(wr_series.iloc[-2])
+    
     # 成交量相关
     if "volume" in df.columns and len(df) >= 5:
         avg_volume_5 = df["volume"].tail(5).mean()
         current_volume = latest["volume"]
         result["vol_ratio"] = float(current_volume / (avg_volume_5 + 1e-10))
+    
+    # K线数据（用于止损计算）
+    if len(df) >= 5:
+        # 最近5天的最低点（用于止损参考）
+        recent_lows = df["low"].tail(5)
+        result["recent_low"] = float(recent_lows.min())
+        result["current_low"] = float(latest["low"])
+        result["current_high"] = float(latest["high"])
+        result["current_open"] = float(latest["open"])
+        result["current_close"] = float(latest["close"])
+    
+    # 价格突破判断（20日新高）
+    if len(df) >= 20:
+        high_20d = df["high"].tail(20).max()
+        result["high_20d"] = float(high_20d)
+        result["break_high_20d"] = float(latest["close"]) >= high_20d
+    
+    # 布林带状态判断
+    if len(df) >= 20:
+        boll_data = boll(df)
+        # 计算布林带宽度（上轨-下轨）的变化来判断收口/开口
+        boll_width = boll_data["upper"] - boll_data["lower"]
+        current_width = float(boll_width.iloc[-1])
+        prev_width = float(boll_width.iloc[-2]) if len(df) >= 21 else current_width
+        result["boll_width"] = current_width
+        result["boll_width_prev"] = prev_width
+        result["boll_expanding"] = current_width > prev_width  # 开口
+        result["boll_contracting"] = current_width < prev_width  # 收口
     
     return result
 

@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 限制线程数，避免创建过多线程 -->
+    <!-- 注意：max_threads等需要在profiles中设置 -->
+    <profiles>
+        <default>
+            <!-- 每个查询的最大线程数（默认auto，会根据CPU核心数自动设置，可能导致线程过多） -->
+            <!-- 设置为4，进一步减少每个查询的线程数，30并发×4线程=120个查询线程 -->
+            <max_threads>4</max_threads>
+            <max_final_threads>2</max_final_threads>
+            <max_parsing_threads>2</max_parsing_threads>
+            <max_download_threads>1</max_download_threads>
+        </default>
+    </profiles>
+    
+    <!-- 限制后台任务线程池大小（这些是服务器级别的配置） -->
+    <!-- 进一步减少后台线程池大小，避免创建过多线程 -->
+    <background_pool_size>4</background_pool_size>
+    <background_schedule_pool_size>8</background_schedule_pool_size>
+    <background_move_pool_size>2</background_move_pool_size>
+    <background_fetches_pool_size>2</background_fetches_pool_size>
+    <background_common_pool_size>2</background_common_pool_size>
+    <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+    
+    <!-- 限制其他线程池 -->
+    <async_insert_threads>2</async_insert_threads>
+    <backup_threads>2</backup_threads>
+    <restore_threads>2</restore_threads>
+    <cache_warmer_threads>1</cache_warmer_threads>
+</clickhouse>
+
+

@@ -41,6 +41,34 @@ def _sanitize_spot_data(data: Optional[List[Dict[str, Any]]]) -> List[Dict[str, 
     return sanitized
 
 
+def _calculate_stock_heat(stock: Dict[str, Any]) -> float:
+    """计算股票热度值
+    
+    热度计算方式：
+    - 成交量（volume）
+    - 成交额（amount）
+    - 换手率（turnover）
+    - 综合热度 = 成交量 * 成交额 / 1000000 + 换手率 * 100
+    
+    Args:
+        stock: 股票数据字典
+    
+    Returns:
+        热度值（数值越大越热）
+    """
+    volume = float(stock.get('volume', 0) or 0)
+    amount = float(stock.get('amount', 0) or 0)
+    turnover = float(stock.get('turnover', 0) or 0)  # 换手率（百分比）
+    
+    # 综合热度计算：
+    # 1. 成交额权重（成交额越大说明资金关注度高）
+    # 2. 成交量权重（成交量越大说明交易活跃）
+    # 3. 换手率权重（换手率高说明交易活跃）
+    heat = (amount / 1000000) * 0.5 + (volume / 10000) * 0.3 + (turnover * 10) * 0.2
+    
+    return heat
+
+
 @router.get("/a/spot")
 async def get_a_stock_spot(
     page: int = Query(1, ge=1, description="页码，从1开始"),
@@ -57,7 +85,27 @@ async def get_a_stock_spot(
                 "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
                 "message": "数据正在采集中，请稍后刷新..."
             }
+        if not isinstance(data, list):
+            logger.warning(f"A股行情数据格式错误: {type(data)}")
+            return {
+                "code": 1,
+                "data": [],
+                "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
+                "message": "数据格式错误，请稍后刷新"
+            }
         data = _sanitize_spot_data(data)
+        
+        # 按热度排序（最热的排最前）
+        # 为每只股票计算热度值
+        for stock in data:
+            stock['_heat'] = _calculate_stock_heat(stock)
+        
+        # 按热度值降序排序
+        data.sort(key=lambda x: x.get('_heat', 0), reverse=True)
+        
+        # 移除临时热度字段（不返回给前端）
+        for stock in data:
+            stock.pop('_heat', None)
         
         # 分页处理
         total = len(data)
@@ -97,7 +145,27 @@ async def get_hk_stock_spot(
                 "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
                 "message": "数据正在采集中，请稍后刷新..."
             }
+        if not isinstance(data, list):
+            logger.warning(f"港股行情数据格式错误: {type(data)}")
+            return {
+                "code": 1,
+                "data": [],
+                "pagination": {"page": 1, "page_size": page_size, "total": 0, "total_pages": 0},
+                "message": "数据格式错误，请稍后刷新"
+            }
         data = _sanitize_spot_data(data)
+        
+        # 按热度排序（最热的排最前）
+        # 为每只股票计算热度值
+        for stock in data:
+            stock['_heat'] = _calculate_stock_heat(stock)
+        
+        # 按热度值降序排序
+        data.sort(key=lambda x: x.get('_heat', 0), reverse=True)
+        
+        # 移除临时热度字段（不返回给前端）
+        for stock in data:
+            stock.pop('_heat', None)
         
         # 分页处理
         total = len(data)
@@ -124,14 +192,30 @@ async def get_hk_stock_spot(
 @router.get("/a/kline")
 async def get_a_stock_kline(
     code: str = Query(..., description="股票代码"),
-    period: str = Query("daily", description="周期: daily, weekly, monthly"),
+    period: str = Query("daily", description="周期: daily, weekly, monthly, 1h/hourly(1小时K线)"),
     adjust: str = Query("", description="复权: '', qfq, hfq"),
     start_date: str | None = Query(None, description="开始日期 YYYYMMDD，可选"),
     end_date: str | None = Query(None, description="结束日期 YYYYMMDD，可选")
 ):
     """获取A股K线数据"""
     try:
+        import numpy as np
         kline_data = fetch_a_stock_kline(code, period, adjust, start_date, end_date)
+        # 将numpy类型转换为Python原生类型，避免序列化错误
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            return obj
+        
+        kline_data = convert_numpy_types(kline_data)
         return {"code": 0, "data": kline_data, "message": "success"}
     except Exception as e:
         logger.error(f"获取A股K线失败 {code}: {e}", exc_info=True)
@@ -141,11 +225,29 @@ async def get_a_stock_kline(
 @router.get("/hk/kline")
 async def get_hk_stock_kline(
     code: str = Query(..., description="股票代码"),
-    period: str = Query("daily", description="周期")
+    period: str = Query("daily", description="周期"),
+    start_date: str | None = Query(None, description="开始日期 YYYYMMDD，可选"),
+    end_date: str | None = Query(None, description="结束日期 YYYYMMDD，可选")
 ):
-    """获取港股K线数据"""
+    """获取港股K线数据（支持增量更新）"""
     try:
-        kline_data = fetch_hk_stock_kline(code, period)
+        import numpy as np
+        kline_data = fetch_hk_stock_kline(code, period, "", start_date, end_date)
+        # 将numpy类型转换为Python原生类型，避免序列化错误
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            return obj
+        
+        kline_data = convert_numpy_types(kline_data)
         return {"code": 0, "data": kline_data, "message": "success"}
     except Exception as e:
         logger.error(f"获取港股K线失败 {code}: {e}", exc_info=True)

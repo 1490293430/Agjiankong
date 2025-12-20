@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 监听所有网络接口，允许Docker容器间连接 -->
+    <listen_host>0.0.0.0</listen_host>
+</clickhouse>
+

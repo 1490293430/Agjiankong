@@ -51,6 +51,127 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# 选股进度管理器（使用字典存储每个任务的进度）
+selection_progress: dict = {}
+
+# K线采集进度管理器（使用字典存储每个任务的进度）
+kline_collect_progress: dict = {}
+
+# K线采集进度管理器（使用字典存储每个任务的进度）
+kline_collect_progress: dict = {}
+
+
+@router.websocket("/ws/selection/progress")
+async def websocket_selection_progress(websocket: WebSocket):
+    """选股进度WebSocket"""
+    await manager.connect(websocket)
+    
+    try:
+        # 等待客户端发送任务ID
+        data = await websocket.receive_json()
+        task_id = data.get("task_id")
+        
+        if not task_id:
+            await websocket.close(code=1008, reason="缺少task_id")
+            return
+        
+        logger.info(f"选股进度WebSocket连接：task_id={task_id}")
+        
+        # 定期推送进度（每0.5秒检查一次）
+        last_progress = None
+        while True:
+            await asyncio.sleep(0.5)  # 每0.5秒检查一次
+            
+            # 从全局字典获取进度
+            progress = selection_progress.get(task_id)
+            
+            # 如果有新进度，推送
+            if progress and progress != last_progress:
+                try:
+                    await websocket.send_json({
+                        "type": "selection_progress",
+                        "task_id": task_id,
+                        "progress": progress
+                    })
+                    last_progress = progress
+                except Exception as e:
+                    logger.error(f"推送选股进度失败: {e}")
+                    break
+            
+            # 如果进度完成或失败，推送最终消息后断开
+            if progress and progress.get("status") in ["completed", "failed"]:
+                await asyncio.sleep(1)  # 等待1秒确保最终消息送达
+                # 清理进度数据
+                if task_id in selection_progress:
+                    del selection_progress[task_id]
+                break
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info("选股进度WebSocket客户端断开连接")
+    except Exception as e:
+        logger.error(f"选股进度WebSocket错误: {e}", exc_info=True)
+        manager.disconnect(websocket)
+
+
+@router.websocket("/ws/kline/collect/progress")
+async def websocket_kline_collect_progress(websocket: WebSocket):
+    """K线采集进度WebSocket"""
+    await manager.connect(websocket)
+    
+    try:
+        # 等待客户端发送任务ID（可选，如果没有则监听所有任务）
+        try:
+            data = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
+            task_id = data.get("task_id")
+        except asyncio.TimeoutError:
+            # 如果没有收到task_id，监听最新的任务
+            task_id = None
+        
+        logger.info(f"K线采集进度WebSocket连接：task_id={task_id or 'latest'}")
+        
+        # 定期推送进度（每1秒检查一次）
+        last_progress = None
+        while True:
+            await asyncio.sleep(1)  # 每1秒检查一次
+            
+            # 如果没有指定task_id，获取最新的任务
+            if not task_id:
+                # 获取最新的任务ID（按时间戳排序）
+                if kline_collect_progress:
+                    task_id = max(kline_collect_progress.keys(), key=lambda k: kline_collect_progress[k].get("start_time", 0))
+            
+            # 从全局字典获取进度
+            progress = kline_collect_progress.get(task_id) if task_id else None
+            
+            # 如果有新进度，推送
+            if progress and progress != last_progress:
+                try:
+                    await websocket.send_json({
+                        "type": "kline_collect_progress",
+                        "task_id": task_id,
+                        "progress": progress
+                    })
+                    last_progress = progress.copy() if progress else None
+                except Exception as e:
+                    logger.error(f"推送K线采集进度失败: {e}")
+                    break
+            
+            # 如果进度完成或失败，推送最终消息后断开
+            if progress and progress.get("status") in ["completed", "failed"]:
+                await asyncio.sleep(1)  # 等待1秒确保最终消息送达
+                # 清理进度数据（可选，保留一段时间以便查看）
+                # if task_id and task_id in kline_collect_progress:
+                #     del kline_collect_progress[task_id]
+                break
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info("K线采集进度WebSocket客户端断开连接")
+    except Exception as e:
+        logger.error(f"K线采集进度WebSocket异常: {e}", exc_info=True)
+        manager.disconnect(websocket)
+
 
 @router.websocket("/ws/market")
 async def websocket_market(websocket: WebSocket):

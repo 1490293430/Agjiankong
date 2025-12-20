@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 移除连接数限制，允许高并发采集 -->
+    <!-- 设置为1000，足够支持400并发线程（每个线程需要2个连接） -->
+    <max_connections>1000</max_connections>
+    <max_concurrent_queries>1000</max_concurrent_queries>
+    <keep_alive_timeout>3</keep_alive_timeout>
+</clickhouse>
+

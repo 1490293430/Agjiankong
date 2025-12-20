@@ -19,11 +19,34 @@ class RuntimeConfig(BaseModel):
     """系统运行时配置（可通过前端修改）"""
 
     # 选股相关
-    selection_threshold: int = Field(
-        default=65, ge=0, le=100, description="选股阈值，0-100"
-    )
     selection_max_count: int = Field(
         default=30, ge=1, le=200, description="每次最多选出的股票数量"
+    )
+    selection_market: str = Field(
+        default="A", description="选股市场：A（A股）或HK（港股）"
+    )
+    
+    # 筛选策略配置
+    filter_volume_ratio_min: float = Field(
+        default=1.2, ge=0.5, le=10.0, description="量比最小值"
+    )
+    filter_volume_ratio_max: float = Field(
+        default=5.0, ge=1.0, le=20.0, description="量比最大值"
+    )
+    filter_rsi_min: int = Field(
+        default=40, ge=0, le=100, description="RSI最小值"
+    )
+    filter_rsi_max: int = Field(
+        default=65, ge=0, le=100, description="RSI最大值"
+    )
+    filter_williams_r_enable: bool = Field(
+        default=True, description="是否启用威廉指标筛选"
+    )
+    filter_break_high_enable: bool = Field(
+        default=True, description="是否启用突破高点筛选"
+    )
+    filter_boll_enable: bool = Field(
+        default=True, description="是否启用布林带筛选"
     )
 
     # 行情采集相关
@@ -71,12 +94,65 @@ class RuntimeConfig(BaseModel):
         description="用于 AI 分析的模型名称，例如：deepseek/deepseek-v3.2-251201",
     )
 
+    # AI 自动分析相关
+    ai_auto_analyze_time: Optional[str] = Field(
+        default=None,
+        description="每日自动分析自选股票的时间，格式为HH:MM（24小时制），例如09:30",
+    )
+    
+    # AI 分析使用的K线数据配置
+    ai_data_period: str = Field(
+        default="daily",
+        description="AI分析使用的K线周期：daily（日线）或 1h（小时线）"
+    )
+    ai_data_count: int = Field(
+        default=500,
+        ge=50,
+        le=1000,
+        description="提交给AI的K线根数，范围50-1000"
+    )
+    ai_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=1000,
+        description="批量分析时，每批合并分析的股票数量，范围1-1000"
+    )
+
+    # AI 分析结果通知渠道开关（独立于全局通知开关）
+    ai_notify_telegram: bool = Field(
+        default=False,
+        description="是否通过 Telegram 发送 AI 分析结果通知",
+    )
+    ai_notify_email: bool = Field(
+        default=False,
+        description="是否通过 邮箱 发送 AI 分析结果通知",
+    )
+    ai_notify_wechat: bool = Field(
+        default=False,
+        description="是否通过 企业微信 发送 AI 分析结果通知",
+    )
+    
+    # 管理员密码（存储在Redis中，优先于环境变量）
+    admin_password: Optional[str] = Field(
+        default=None,
+        description="管理员登录密码（如果设置，将覆盖环境变量ADMIN_PASSWORD）",
+    )
+
 
 class RuntimeConfigUpdate(BaseModel):
     """前端更新配置时使用的部分更新模型"""
 
-    selection_threshold: Optional[int] = Field(default=None, ge=0, le=100)
     selection_max_count: Optional[int] = Field(default=None, ge=1, le=200)
+    selection_market: Optional[str] = Field(default=None, description="选股市场：A或HK")
+    
+    # 筛选策略配置
+    filter_volume_ratio_min: Optional[float] = Field(default=None, ge=0.5, le=10.0)
+    filter_volume_ratio_max: Optional[float] = Field(default=None, ge=1.0, le=20.0)
+    filter_rsi_min: Optional[int] = Field(default=None, ge=0, le=100)
+    filter_rsi_max: Optional[int] = Field(default=None, ge=0, le=100)
+    filter_williams_r_enable: Optional[bool] = None
+    filter_break_high_enable: Optional[bool] = None
+    filter_boll_enable: Optional[bool] = None
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
@@ -100,6 +176,16 @@ class RuntimeConfigUpdate(BaseModel):
     openai_api_key: Optional[str] = None
     openai_api_base: Optional[str] = None
     openai_model: Optional[str] = None
+    ai_auto_analyze_time: Optional[str] = None
+    ai_data_period: Optional[str] = Field(default=None, description="AI分析使用的K线周期：daily 或 1h")
+    ai_data_count: Optional[int] = Field(default=None, ge=50, le=1000)
+    ai_batch_size: Optional[int] = Field(default=None, ge=1, le=1000)
+    ai_notify_telegram: Optional[bool] = None
+    ai_notify_email: Optional[bool] = None
+    ai_notify_wechat: Optional[bool] = None
+    
+    # 管理员密码
+    admin_password: Optional[str] = None
 
 
 def get_runtime_config() -> RuntimeConfig:
@@ -132,7 +218,7 @@ def update_runtime_config(patch: RuntimeConfigUpdate) -> RuntimeConfig:
 
     for field, value in update_data.items():
         # 如果密码或 API Key 为空字符串，则不更新（保持原值）
-        if field in ("notify_email_password", "openai_api_key") and value == "":
+        if field in ("notify_email_password", "openai_api_key", "admin_password") and value == "":
             continue
         setattr(current, field, value)
 
