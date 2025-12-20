@@ -1795,6 +1795,7 @@ async def collect_batch_single_stock_kline_api(
             from common.redis import get_json
             import time
             import concurrent.futures
+            from concurrent.futures import ThreadPoolExecutor
             
             task_id = f"batch_single_{str(uuid.uuid4())}"
             start_time = datetime.now().isoformat()
@@ -1931,91 +1932,165 @@ async def collect_batch_single_stock_kline_api(
                 "progress": 0
             }
             
-            # 采集A股
+            # 采集A股（使用线程池并发处理，避免单只股票阻塞）
             if market.upper() in ["A", "ALL"] and a_codes:
                 logger.info(f"开始采集A股，共{len(a_codes)}只，每次{batch_size}只")
-                for i in range(0, len(a_codes), batch_size):
-                    # 检查停止标志
-                    if kline_collect_stop_flags.get(task_id, False):
-                        logger.info(f"收到停止信号，中断A股采集")
-                        break
-                    
-                    batch = a_codes[i:i+batch_size]
-                    logger.info(f"采集A股批次 {i//batch_size + 1}/{(len(a_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
-                    
-                    for code in batch:
+                
+                # 使用线程池并发处理，避免单只股票阻塞整个流程
+                # batch_size=1时使用较小的并发数（2-3个），避免ClickHouse连接过多
+                max_workers = max(2, min(batch_size, 5)) if batch_size == 1 else min(batch_size, 10)
+                executor = ThreadPoolExecutor(max_workers=max_workers)
+                
+                def collect_a_stock(code):
+                    """采集单只A股（带超时控制）"""
+                    nonlocal total_success, total_failed, total_processed
+                    try:
+                        # 使用线程池包装，添加超时控制（每只股票最多120秒）
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
+                            future = single_executor.submit(
+                                fetch_a_stock_kline, code, period, "", None, None, False, False
+                            )
+                            try:
+                                result = future.result(timeout=120)  # 120秒超时
+                                if result and len(result) > 0:
+                                    total_success += 1
+                                else:
+                                    total_failed += 1
+                            except concurrent.futures.TimeoutError:
+                                logger.warning(f"A股采集超时 {code}（120秒），跳过")
+                                total_failed += 1
+                            except Exception as e:
+                                total_failed += 1
+                                logger.debug(f"A股采集失败 {code}: {e}")
+                    except Exception as e:
+                        total_failed += 1
+                        logger.debug(f"A股采集异常 {code}: {e}")
+                    finally:
+                        total_processed += 1
+                
+                try:
+                    for i in range(0, len(a_codes), batch_size):
                         # 检查停止标志
                         if kline_collect_stop_flags.get(task_id, False):
                             logger.info(f"收到停止信号，中断A股采集")
                             break
-                        try:
-                            result = fetch_a_stock_kline(code, period, "", None, None, False, False)
-                            if result and len(result) > 0:
-                                total_success += 1
-                            else:
-                                total_failed += 1
-                        except Exception as e:
-                            total_failed += 1
-                            logger.debug(f"A股采集失败 {code}: {e}")
                         
-                        total_processed += 1
+                        batch = a_codes[i:i+batch_size]
+                        logger.info(f"采集A股批次 {i//batch_size + 1}/{(len(a_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
                         
-                        # 更新进度
-                        progress_pct = int((total_processed / total_stocks) * 100)
-                        kline_collect_progress[task_id].update({
-                            "success": total_success,
-                            "failed": total_failed,
-                            "current": total_processed,
-                            "progress": progress_pct,
-                            "message": f"A股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
-                        })
-                    
-                    # 批次间延迟，避免请求过快
-                    import time
-                    time.sleep(1)
+                        # 提交批次任务到线程池
+                        futures = [executor.submit(collect_a_stock, code) for code in batch]
+                        
+                        # 等待批次完成，并更新进度
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result()  # 获取结果（异常已在函数内处理）
+                            except Exception as e:
+                                logger.debug(f"A股批次任务异常: {e}")
+                            
+                            # 检查停止标志
+                            if kline_collect_stop_flags.get(task_id, False):
+                                logger.info(f"收到停止信号，中断A股采集")
+                                # 取消未完成的任务
+                                for f in futures:
+                                    f.cancel()
+                                break
+                            
+                            # 更新进度（每完成一只股票更新一次）
+                            progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
+                            kline_collect_progress[task_id].update({
+                                "success": total_success,
+                                "failed": total_failed,
+                                "current": total_processed,
+                                "progress": progress_pct,
+                                "message": f"A股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                            })
+                        
+                        # 批次间延迟，避免请求过快
+                        if not kline_collect_stop_flags.get(task_id, False):
+                            time.sleep(1)
+                finally:
+                    executor.shutdown(wait=True, cancel_futures=True)
             
-            # 采集港股（只在A股采集完成且未停止时进行）
+            # 采集港股（只在A股采集完成且未停止时进行，使用线程池并发处理）
             if not kline_collect_stop_flags.get(task_id, False) and market.upper() in ["HK", "ALL"] and hk_codes:
                 logger.info(f"开始采集港股，共{len(hk_codes)}只，每次{batch_size}只")
-                for i in range(0, len(hk_codes), batch_size):
-                    # 检查停止标志
-                    if kline_collect_stop_flags.get(task_id, False):
-                        logger.info(f"收到停止信号，中断港股采集")
-                        break
-                    
-                    batch = hk_codes[i:i+batch_size]
-                    logger.info(f"采集港股批次 {i//batch_size + 1}/{(len(hk_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
-                    
-                    for code in batch:
+                
+                # 使用线程池并发处理，避免单只股票阻塞整个流程
+                # batch_size=1时使用较小的并发数（2-3个），避免ClickHouse连接过多
+                max_workers = max(2, min(batch_size, 5)) if batch_size == 1 else min(batch_size, 10)
+                executor = ThreadPoolExecutor(max_workers=max_workers)
+                
+                def collect_hk_stock(code):
+                    """采集单只港股（带超时控制）"""
+                    nonlocal total_success, total_failed, total_processed
+                    try:
+                        # 使用线程池包装，添加超时控制（每只股票最多120秒）
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
+                            future = single_executor.submit(
+                                fetch_hk_stock_kline, code, period, "", None, None, False, False
+                            )
+                            try:
+                                result = future.result(timeout=120)  # 120秒超时
+                                if result and len(result) > 0:
+                                    total_success += 1
+                                else:
+                                    total_failed += 1
+                            except concurrent.futures.TimeoutError:
+                                logger.warning(f"港股采集超时 {code}（120秒），跳过")
+                                total_failed += 1
+                            except Exception as e:
+                                total_failed += 1
+                                logger.debug(f"港股采集失败 {code}: {e}")
+                    except Exception as e:
+                        total_failed += 1
+                        logger.debug(f"港股采集异常 {code}: {e}")
+                    finally:
+                        total_processed += 1
+                
+                try:
+                    for i in range(0, len(hk_codes), batch_size):
                         # 检查停止标志
                         if kline_collect_stop_flags.get(task_id, False):
                             logger.info(f"收到停止信号，中断港股采集")
                             break
-                        try:
-                            result = fetch_hk_stock_kline(code, period, "", None, None, False, False)
-                            if result and len(result) > 0:
-                                total_success += 1
-                            else:
-                                total_failed += 1
-                        except Exception as e:
-                            total_failed += 1
-                            logger.debug(f"港股采集失败 {code}: {e}")
                         
-                        total_processed += 1
+                        batch = hk_codes[i:i+batch_size]
+                        logger.info(f"采集港股批次 {i//batch_size + 1}/{(len(hk_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
                         
-                        # 更新进度
-                        progress_pct = int((total_processed / total_stocks) * 100)
-                        kline_collect_progress[task_id].update({
-                            "success": total_success,
-                            "failed": total_failed,
-                            "current": total_processed,
-                            "progress": progress_pct,
-                            "message": f"港股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
-                        })
-                    
-                    # 批次间延迟
-                    import time
-                    time.sleep(1)
+                        # 提交批次任务到线程池
+                        futures = [executor.submit(collect_hk_stock, code) for code in batch]
+                        
+                        # 等待批次完成，并更新进度
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result()  # 获取结果（异常已在函数内处理）
+                            except Exception as e:
+                                logger.debug(f"港股批次任务异常: {e}")
+                            
+                            # 检查停止标志
+                            if kline_collect_stop_flags.get(task_id, False):
+                                logger.info(f"收到停止信号，中断港股采集")
+                                # 取消未完成的任务
+                                for f in futures:
+                                    f.cancel()
+                                break
+                            
+                            # 更新进度（每完成一只股票更新一次）
+                            progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
+                            kline_collect_progress[task_id].update({
+                                "success": total_success,
+                                "failed": total_failed,
+                                "current": total_processed,
+                                "progress": progress_pct,
+                                "message": f"港股采集中... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                            })
+                        
+                        # 批次间延迟
+                        if not kline_collect_stop_flags.get(task_id, False):
+                            time.sleep(1)
+                finally:
+                    executor.shutdown(wait=True, cancel_futures=True)
             
             # 完成（检查是否被停止）
             end_time = datetime.now().isoformat()
