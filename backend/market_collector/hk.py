@@ -22,16 +22,17 @@ except ImportError:
 
 def _convert_hk_code_to_yahoo(code: str) -> str:
     """将港股代码转换为yahoo格式
-    例如: 00700 -> 0700.HK, 00001 -> 0001.HK
+    例如: 00700 -> 00700.HK, 03690 -> 03690.HK, 3690 -> 03690.HK, 0700 -> 00700.HK
+    注意：Yahoo Finance要求港股代码保持5位数字格式（保留前导0）
     """
     code_str = str(code).strip()
-    # 去掉前导0，但保留至少4位数字
+    # 去掉前导0，获取纯数字部分
     code_num = code_str.lstrip('0')
     if not code_num:
         code_num = '0'
-    # 确保至少4位数字
-    while len(code_num) < 4:
-        code_num = '0' + code_num
+    # 统一补到5位数字（Yahoo Finance要求5位格式）
+    # 使用zfill方法确保是5位数字，不足的用0补齐
+    code_num = code_num.zfill(5)
     return f"{code_num}.HK"
 
 
