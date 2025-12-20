@@ -2152,23 +2152,23 @@ async def collect_kline_data_api(
         success_count = 0
         failed_count = 0
         
-    def collect_kline_for_stock(stock):
-        nonlocal success_count, failed_count
-        from market.service.ws import kline_collect_progress, kline_collect_stop_flags
-        from datetime import datetime
-        
-        # 检查停止标志
-        if kline_collect_stop_flags.get(task_id, False):
-            return
-        
-        code = str(stock.get("code", ""))
-        if not code:
-            return
-        
-        try:
-            # 优化：直接调用fetch_kline_func，它内部会检查数据库并跳过已是最新的数据
-            # 减少重复的数据库查询
-            kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+        def collect_kline_for_stock(stock):
+            nonlocal success_count, failed_count
+            from market.service.ws import kline_collect_progress, kline_collect_stop_flags
+            from datetime import datetime
+            
+            # 检查停止标志
+            if kline_collect_stop_flags.get(task_id, False):
+                return
+            
+            code = str(stock.get("code", ""))
+            if not code:
+                return
+            
+            try:
+                # 优化：直接调用fetch_kline_func，它内部会检查数据库并跳过已是最新的数据
+                # 减少重复的数据库查询
+                kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
                 
                 # 如果获取到数据，说明采集成功（fetch_kline_func内部已处理增量逻辑）
                 if kline_data and len(kline_data) > 0:
@@ -2192,6 +2192,7 @@ async def collect_kline_data_api(
                         "progress": progress_pct,
                         "message": f"采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
                     })
+        
         
         # 使用后台任务异步执行（减少并发数，避免ClickHouse连接冲突）
         import asyncio
