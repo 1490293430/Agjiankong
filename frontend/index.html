@@ -253,7 +253,7 @@
                     <button id="select-btn">开始选股</button>
                     <button id="load-selected-btn" style="background: #64748b;">加载上次结果</button>
                     <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
-                    <label>单个数量：<input type="number" id="single-batch-size-input" value="10" min="1" max="100" style="width: 80px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></label>
+                    <label>单个数量：<input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 80px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></label>
                     <label>
                         市场：
                         <select id="single-batch-market-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
@@ -266,15 +266,14 @@
                         周期：
                         <select id="single-batch-period-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
                             <option value="daily">日线</option>
-                            <option value="weekly">周线</option>
-                            <option value="monthly">月线</option>
+                            <option value="1h">小时</option>
                         </select>
                     </label>
                     <button id="single-batch-collect-kline-btn" style="background: #3b82f6; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 单个批量采集</button>
+                    <button id="stop-collect-kline-btn" style="background: #ef4444; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px; opacity: 0.5; cursor: not-allowed;" disabled>🛑 停止采集</button>
                     <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
                     <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 100px;"></label>
                     <button id="collect-kline-btn" style="background: #10b981; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 批量采集</button>
-                    <button id="stop-collect-kline-btn" style="background: #ef4444; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px; display: none;">🛑 停止采集</button>
                 </div>
                 <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8; min-height: 20px;"></div>
             </div>

@@ -1792,6 +1792,9 @@ async def collect_batch_single_stock_kline_api(
         
         def collect_batch_internal():
             from market.service.ws import kline_collect_stop_flags
+            from common.redis import get_json
+            import time
+            import concurrent.futures
             
             task_id = f"batch_single_{str(uuid.uuid4())}"
             start_time = datetime.now().isoformat()
@@ -1802,31 +1805,102 @@ async def collect_batch_single_stock_kline_api(
             # 获取股票代码列表
             a_codes = []
             hk_codes = []
-            
             try:
-                logger.info("从akshare获取A股代码列表...")
-                # 先尝试使用 stock_info_a_code_name，如果失败则使用 stock_zh_a_spot_em 作为备选
-                try:
-                    a_df = ak.stock_info_a_code_name()
-                    a_codes = a_df['code'].tolist()
-                    logger.info(f"A股代码列表获取成功（stock_info_a_code_name）：{len(a_codes)}只")
-                except Exception as e1:
-                    logger.warning(f"stock_info_a_code_name失败，尝试使用stock_zh_a_spot_em: {e1}")
-                    # 备选方案：使用实时行情接口获取代码列表
-                    a_df = ak.stock_zh_a_spot_em()
-                    a_codes = a_df['代码'].tolist()  # stock_zh_a_spot_em 返回的列名是"代码"
-                    logger.info(f"A股代码列表获取成功（stock_zh_a_spot_em）：{len(a_codes)}只")
+                a_stocks_redis = get_json("market:a:spot") or []
+                if a_stocks_redis:
+                    a_codes = [s.get("code") for s in a_stocks_redis if s.get("code")]
+                    logger.info(f"从Redis获取A股代码列表：{len(a_codes)}只")
             except Exception as e:
-                logger.error(f"获取A股代码列表失败: {e}", exc_info=True)
+                logger.debug(f"从Redis获取A股代码列表失败: {e}")
             
+            # 如果Redis中没有A股代码，尝试从akshare获取（带重试）
+            if not a_codes and market.upper() in ["A", "ALL"]:
+                max_retries = 5  # 最大重试5次
+                
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"从akshare获取A股代码列表（第{attempt + 1}次尝试）...")
+                        # 先尝试使用 stock_info_a_code_name，如果失败则使用 stock_zh_a_spot_em 作为备选
+                        try:
+                            # 使用线程池包装，增加超时控制（60秒）
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                future = executor.submit(ak.stock_info_a_code_name)
+                                try:
+                                    a_df = future.result(timeout=60)
+                                except concurrent.futures.TimeoutError:
+                                    raise TimeoutError("akshare API调用超时（60秒）")
+                            
+                            a_codes = a_df['code'].tolist()
+                            logger.info(f"A股代码列表获取成功（stock_info_a_code_name）：{len(a_codes)}只")
+                            break  # 成功则跳出重试循环
+                        except Exception as e1:
+                            logger.warning(f"stock_info_a_code_name失败，尝试使用stock_zh_a_spot_em: {e1}")
+                            # 备选方案：使用实时行情接口获取代码列表
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                future = executor.submit(ak.stock_zh_a_spot_em)
+                                try:
+                                    a_df = future.result(timeout=60)
+                                except concurrent.futures.TimeoutError:
+                                    raise TimeoutError("akshare API调用超时（60秒）")
+                            
+                            a_codes = a_df['代码'].tolist()  # stock_zh_a_spot_em 返回的列名是"代码"
+                            logger.info(f"A股代码列表获取成功（stock_zh_a_spot_em）：{len(a_codes)}只")
+                            break  # 成功则跳出重试循环
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 3  # 递增等待时间：3s, 6s, 9s, 12s
+                            error_msg = str(e)
+                            if "SSL" in error_msg or "SSLError" in error_msg or "handshake" in error_msg.lower():
+                                logger.warning(f"获取A股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: SSL连接错误")
+                            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                                logger.warning(f"获取A股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: 网络超时")
+                            else:
+                                logger.warning(f"获取A股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {error_msg[:100]}")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"获取A股代码列表失败（已重试{max_retries}次）: {str(e)[:200]}", exc_info=True)
+            
+            # 优先尝试从Redis获取港股代码
             try:
-                logger.info("从akshare获取港股代码列表...")
-                # 使用 stock_hk_spot_em 获取港股代码列表（此接口已在代码中使用）
-                hk_df = ak.stock_hk_spot_em()
-                hk_codes = hk_df['代码'].tolist()  # stock_hk_spot_em 返回的列名是"代码"
-                logger.info(f"港股代码列表获取成功：{len(hk_codes)}只")
+                hk_stocks_redis = get_json("market:hk:spot") or []
+                if hk_stocks_redis:
+                    hk_codes = [s.get("code") for s in hk_stocks_redis if s.get("code")]
+                    logger.info(f"从Redis获取港股代码列表：{len(hk_codes)}只")
             except Exception as e:
-                logger.error(f"获取港股代码列表失败: {e}", exc_info=True)
+                logger.debug(f"从Redis获取港股代码列表失败: {e}")
+            
+            # 如果Redis中没有港股代码，尝试从akshare获取（带重试）
+            if not hk_codes and market.upper() in ["HK", "ALL"]:
+                max_retries = 5  # 最大重试5次
+                
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"从akshare获取港股代码列表（第{attempt + 1}次尝试）...")
+                        # 使用 stock_hk_spot_em 获取港股代码列表（此接口已在代码中使用）
+                        # 使用线程池包装，增加超时控制（60秒）
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(ak.stock_hk_spot_em)
+                            try:
+                                hk_df = future.result(timeout=60)
+                            except concurrent.futures.TimeoutError:
+                                raise TimeoutError("akshare API调用超时（60秒）")
+                        
+                        hk_codes = hk_df['代码'].tolist()  # stock_hk_spot_em 返回的列名是"代码"
+                        logger.info(f"港股代码列表获取成功：{len(hk_codes)}只")
+                        break  # 成功则跳出重试循环
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 3  # 递增等待时间：3s, 6s, 9s, 12s
+                            error_msg = str(e)
+                            if "SSL" in error_msg or "SSLError" in error_msg or "handshake" in error_msg.lower():
+                                logger.warning(f"获取港股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: SSL连接错误")
+                            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                                logger.warning(f"获取港股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: 网络超时")
+                            else:
+                                logger.warning(f"获取港股代码列表失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {error_msg[:100]}")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"获取港股代码列表失败（已重试{max_retries}次）: {str(e)[:200]}", exc_info=True)
             
             total_stocks = len(a_codes) + len(hk_codes)
             

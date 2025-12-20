@@ -88,22 +88,6 @@ def batch_compute_indicators_job(market: str = "A"):
 def main():
     """主函数"""
     logger.info("行情采集调度器启动（实时判断交易时间）...")
-    
-    # 启动时检查Redis中是否有数据，如果没有数据则立即采集一次（即使不在交易时间内）
-    # 这样可以确保新部署的环境能立即有数据用于K线采集等功能
-    from common.redis import get_json
-    a_stocks = get_json("market:a:spot") or []
-    hk_stocks = get_json("market:hk:spot") or []
-    
-    if not a_stocks and not hk_stocks:
-        logger.info("检测到Redis中没有行情数据，执行首次采集（确保新部署环境有数据）...")
-        collect_job()
-    else:
-        # 如果有数据，检查是否在交易时间内，在交易时间内则立即采集
-        is_a_trading, is_hk_trading = is_a_stock_trading_time(), is_hk_stock_trading_time()
-        if is_a_trading or is_hk_trading:
-            logger.info("检测到交易时间，开始首次采集...")
-            collect_job()
 
     # 简单循环调度，根据运行时配置动态调整采集间隔
     while True:

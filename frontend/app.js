@@ -2385,9 +2385,13 @@ function initStrategy() {
             const market = 'ALL';
             const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
             collectKlineData(market, maxCount);
-            // 显示停止按钮
+            // 启用停止按钮
             const stopBtn = document.getElementById('stop-collect-kline-btn');
-            if (stopBtn) stopBtn.style.display = 'inline-block';
+            if (stopBtn) {
+                stopBtn.disabled = false;
+                stopBtn.style.opacity = '1';
+                stopBtn.style.cursor = 'pointer';
+            }
         });
     }
     if (singleBatchCollectBtn) {
@@ -2398,9 +2402,13 @@ function initStrategy() {
                 console.error('单个批量采集失败:', err);
                 showToast(`采集失败: ${err.message || '未知错误'}`, 'error');
             });
-            // 显示停止按钮
+            // 启用停止按钮
             const stopBtn = document.getElementById('stop-collect-kline-btn');
-            if (stopBtn) stopBtn.style.display = 'inline-block';
+            if (stopBtn) {
+                stopBtn.disabled = false;
+                stopBtn.style.opacity = '1';
+                stopBtn.style.cursor = 'pointer';
+            }
         });
     }
     const stopCollectBtn = document.getElementById('stop-collect-kline-btn');
@@ -2755,6 +2763,14 @@ async function collectSingleBatchKline() {
             showToast(`启动失败: ${result.message || '未知错误'}`, 'error');
             btn.disabled = false;
             btn.textContent = '📥 单个批量采集';
+            // 禁用停止按钮
+            const stopBtn = document.getElementById('stop-collect-kline-btn');
+            if (stopBtn) {
+                stopBtn.disabled = true;
+                stopBtn.style.opacity = '0.5';
+                stopBtn.style.cursor = 'not-allowed';
+                stopBtn.textContent = '🛑 停止采集';
+            }
         }
     } catch (error) {
         if (statusEl) {
@@ -2768,6 +2784,14 @@ async function collectSingleBatchKline() {
         showToast(`启动失败: ${error.message || '网络错误'}`, 'error');
         btn.disabled = false;
         btn.textContent = '📥 单个批量采集';
+        // 禁用停止按钮
+        const stopBtn = document.getElementById('stop-collect-kline-btn');
+        if (stopBtn) {
+            stopBtn.disabled = true;
+            stopBtn.style.opacity = '0.5';
+            stopBtn.style.cursor = 'not-allowed';
+            stopBtn.textContent = '🛑 停止采集';
+        }
     }
 }
 
@@ -2824,12 +2848,28 @@ async function collectKlineData(market = 'A', maxCount = 6000) {
             statusEl.style.color = '#ef4444';
             btn.disabled = false;
             btn.textContent = '📥 批量采集';
+            // 禁用停止按钮
+            const stopBtn = document.getElementById('stop-collect-kline-btn');
+            if (stopBtn) {
+                stopBtn.disabled = true;
+                stopBtn.style.opacity = '0.5';
+                stopBtn.style.cursor = 'not-allowed';
+                stopBtn.textContent = '🛑 停止采集';
+            }
         }
     } catch (error) {
         statusEl.textContent = `❌ 采集失败: ${error.message || '网络错误'}`;
         statusEl.style.color = '#ef4444';
         btn.disabled = false;
         btn.textContent = '📥 批量采集';
+        // 禁用停止按钮
+        const stopBtn = document.getElementById('stop-collect-kline-btn');
+        if (stopBtn) {
+            stopBtn.disabled = true;
+            stopBtn.style.opacity = '0.5';
+            stopBtn.style.cursor = 'not-allowed';
+            stopBtn.textContent = '🛑 停止采集';
+        }
     }
 }
 
@@ -2947,9 +2987,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     btn.disabled = false;
                     btn.textContent = '✅ 采集完成';
                     btn.style.background = '#10b981';
-                    // 隐藏停止按钮
+                    // 禁用停止按钮
                     const stopBtn = document.getElementById('stop-collect-kline-btn');
-                    if (stopBtn) stopBtn.style.display = 'none';
+                    if (stopBtn) {
+                        stopBtn.disabled = true;
+                        stopBtn.style.opacity = '0.5';
+                        stopBtn.style.cursor = 'not-allowed';
+                        stopBtn.textContent = '🛑 停止采集';
+                    }
                     ws.close();
                 } else if (progress.status === 'cancelled') {
                     const success = progress.success || 0;
@@ -2981,9 +3026,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                         singleBatchBtn.disabled = false;
                         singleBatchBtn.textContent = '📥 单个批量采集';
                     }
-                    // 隐藏停止按钮
+                    // 禁用停止按钮
                     const stopBtn = document.getElementById('stop-collect-kline-btn');
-                    if (stopBtn) stopBtn.style.display = 'none';
+                    if (stopBtn) {
+                        stopBtn.disabled = true;
+                        stopBtn.style.opacity = '0.5';
+                        stopBtn.style.cursor = 'not-allowed';
+                        stopBtn.textContent = '🛑 停止采集';
+                    }
                     ws.close();
                 } else if (progress.status === 'failed') {
                     statusEl.innerHTML = `
@@ -3004,9 +3054,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                         singleBatchBtn.disabled = false;
                         singleBatchBtn.textContent = '📥 单个批量采集';
                     }
-                    // 隐藏停止按钮
+                    // 禁用停止按钮
                     const stopBtn = document.getElementById('stop-collect-kline-btn');
-                    if (stopBtn) stopBtn.style.display = 'none';
+                    if (stopBtn) {
+                        stopBtn.disabled = true;
+                        stopBtn.style.opacity = '0.5';
+                        stopBtn.style.cursor = 'not-allowed';
+                        stopBtn.textContent = '🛑 停止采集';
+                    }
                     ws.close();
                 }
             }
