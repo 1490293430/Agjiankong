@@ -56,7 +56,8 @@ function initTheme() {
     const body = document.body;
     const btn = document.getElementById('theme-toggle');
     const saved = localStorage.getItem('theme');
-    if (saved === 'light') {
+    // 如果主题已在页面加载前设置（通过head中的脚本），这里只是确保应用（不会重复添加）
+    if (saved === 'light' && !body.classList.contains('light-mode')) {
         body.classList.add('light-mode');
     }
     updateThemeButtonText(btn, body);

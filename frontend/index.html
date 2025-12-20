@@ -63,9 +63,24 @@
         }
     </style>
     <script>
-        // 在页面渲染前检查登录状态，如果有登录标记则立即隐藏登录界面，避免闪烁
+        // 在页面渲染前检查登录状态和主题，避免闪烁
         (function() {
             try {
+                // 1. 检查并应用主题（在CSS加载前设置，避免主题闪烁）
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme === 'light') {
+                    // 立即尝试应用主题（如果DOM已存在）
+                    if (document.body) {
+                        document.body.classList.add('light-mode');
+                    } else {
+                        // 如果body还不存在，等待DOMContentLoaded
+                        document.addEventListener('DOMContentLoaded', function() {
+                            document.body.classList.add('light-mode');
+                        }, false);
+                    }
+                }
+                
+                // 2. 检查登录状态，如果有登录标记则立即隐藏登录界面
                 const isLoggedIn = localStorage.getItem('isLoggedIn');
                 const savedApiToken = localStorage.getItem('apiToken');
                 // 如果有登录标记或token，立即隐藏登录界面
@@ -79,7 +94,7 @@
                     }
                 }
             } catch (e) {
-                console.warn('检查登录状态失败:', e);
+                console.warn('初始化失败:', e);
             }
         })();
     </script>
