@@ -149,6 +149,49 @@ async def login(data: Dict[str, Any] = Body(...)):
     raise HTTPException(status_code=401, detail="用户名或密码错误")
 
 
+@auth_router.post("/change-password", dependencies=admin_dependencies)
+async def change_password(data: Dict[str, Any] = Body(...)):
+    """修改管理员密码
+    
+    需要提供旧密码和新密码，密码会保存到运行时配置（Redis）中
+    """
+    from common.runtime_config import get_runtime_config, update_runtime_config
+    
+    old_password = str(data.get("old_password", "")).strip()
+    new_password = str(data.get("new_password", "")).strip()
+    
+    if not old_password:
+        raise HTTPException(status_code=400, detail="请输入旧密码")
+    
+    if not new_password:
+        raise HTTPException(status_code=400, detail="请输入新密码")
+    
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码长度至少6位")
+    
+    # 验证旧密码
+    runtime_config = get_runtime_config()
+    effective_password = runtime_config.admin_password or settings.admin_password
+    
+    if old_password != effective_password:
+        raise HTTPException(status_code=401, detail="旧密码错误")
+    
+    # 更新密码到运行时配置
+    try:
+        from common.runtime_config import RuntimeConfigUpdate
+        update_data = RuntimeConfigUpdate(admin_password=new_password)
+        update_runtime_config(update_data)
+        
+        logger.info("管理员密码已更新")
+        return {
+            "success": True,
+            "message": "密码修改成功"
+        }
+    except Exception as e:
+        logger.error(f"修改密码失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"修改密码失败: {str(e)}")
+
+
 # 注册路由
 app.include_router(auth_router)
 
