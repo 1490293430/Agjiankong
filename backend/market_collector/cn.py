@@ -16,16 +16,36 @@ logger = get_logger(__name__)
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# 配置requests的默认超时，帮助akshare处理网络慢的情况
+# 注意：这会影响所有使用requests的地方，但akshare内部也使用requests
+try:
+    # 设置默认连接和读取超时
+    requests.adapters.DEFAULT_TIMEOUT = (10, 30)  # (连接超时, 读取超时)
+except Exception:
+    # 如果设置失败，忽略（某些版本的requests可能不支持）
+    pass
 
-def fetch_a_stock_spot(max_retries: int = 5) -> List[Dict[str, Any]]:
+
+def fetch_a_stock_spot(max_retries: int = 10) -> List[Dict[str, Any]]:
     """获取A股实时行情
     
     Args:
-        max_retries: 最大重试次数（增加到5次）
+        max_retries: 最大重试次数（增加到10次，提高成功率）
     """
+    # 配置requests的默认超时，避免akshare内部15秒超时不够用
+    import requests
+    original_timeout = requests.Session().timeout if hasattr(requests.Session(), 'timeout') else None
+    
     for attempt in range(max_retries):
         try:
-            df = ak.stock_zh_a_spot_em()
+            # 使用线程池包装，增加总体超时时间（60秒），给网络更多时间
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(ak.stock_zh_a_spot_em)
+                try:
+                    df = future.result(timeout=60)  # 增加到60秒超时，给网络更多时间
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError("akshare API调用超时（60秒）")
             
             # 标准化字段名
             df = df.rename(columns={
@@ -148,11 +168,14 @@ def fetch_a_stock_spot(max_retries: int = 5) -> List[Dict[str, Any]]:
             
         except Exception as e:
             if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 3  # 递增等待时间：3s, 6s, 9s, 12s
+                # 增加重试间隔：5s, 10s, 15s, 20s...，给网络更多恢复时间
+                wait_time = (attempt + 1) * 5  # 递增等待时间：5s, 10s, 15s, 20s, 25s...
                 error_msg = str(e)
                 # 只记录关键错误信息，避免日志过长
-                if "SSL" in error_msg or "SSLError" in error_msg:
+                if "SSL" in error_msg or "SSLError" in error_msg or "handshake" in error_msg.lower():
                     logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: SSL连接错误")
+                elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: 网络超时")
                 else:
                     logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {error_msg[:100]}")
                 time.sleep(wait_time)
