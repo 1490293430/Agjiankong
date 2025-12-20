@@ -130,16 +130,34 @@ async def websocket_kline_collect_progress(websocket: WebSocket):
         
         logger.info(f"K线采集进度WebSocket连接：task_id={task_id or 'latest'}")
         
-        # 定期推送进度（每1秒检查一次）
+        # 如果没有指定task_id，获取最新的任务
+        if not task_id:
+            # 获取最新的任务ID（按时间戳排序）
+            if kline_collect_progress:
+                task_id = max(kline_collect_progress.keys(), key=lambda k: kline_collect_progress[k].get("start_time", 0))
+        
+        # 立即发送一次当前进度（如果存在）
+        progress = kline_collect_progress.get(task_id) if task_id else None
         last_progress = None
+        if progress:
+            try:
+                await websocket.send_json({
+                    "type": "kline_collect_progress",
+                    "task_id": task_id,
+                    "progress": progress
+                })
+                last_progress = progress.copy() if progress else None
+            except Exception as e:
+                logger.error(f"推送K线采集初始进度失败: {e}")
+                return
+        
+        # 定期推送进度（每1秒检查一次）
         while True:
             await asyncio.sleep(1)  # 每1秒检查一次
             
-            # 如果没有指定task_id，获取最新的任务
-            if not task_id:
-                # 获取最新的任务ID（按时间戳排序）
-                if kline_collect_progress:
-                    task_id = max(kline_collect_progress.keys(), key=lambda k: kline_collect_progress[k].get("start_time", 0))
+            # 如果没有指定task_id，获取最新的任务（防止在循环中task_id丢失）
+            if not task_id and kline_collect_progress:
+                task_id = max(kline_collect_progress.keys(), key=lambda k: kline_collect_progress[k].get("start_time", 0))
             
             # 从全局字典获取进度
             progress = kline_collect_progress.get(task_id) if task_id else None
