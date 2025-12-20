@@ -36,6 +36,40 @@ def _convert_hk_code_to_yahoo(code: str) -> str:
     return f"{code_num}.HK"
 
 
+def _try_yahoo_formats(code: str) -> List[str]:
+    """尝试多种Yahoo Finance代码格式
+    返回可能的格式列表，按优先级排序
+    """
+    code_str = str(code).strip()
+    formats = []
+    
+    # 去掉前导0获取纯数字
+    code_num = code_str.lstrip('0')
+    if not code_num:
+        code_num = '0'
+    
+    # 格式1: 5位数字（03690.HK）
+    formats.append(f"{code_num.zfill(5)}.HK")
+    
+    # 格式2: 4位数字（3690.HK）- 某些股票可能需要
+    if len(code_num) <= 4:
+        formats.append(f"{code_num.zfill(4)}.HK")
+    
+    # 格式3: 保持原始格式（如果有前导0，如00700.HK）
+    if code_str.startswith('0') and len(code_str) >= 4:
+        formats.append(f"{code_str}.HK")
+    
+    # 去重并保持顺序
+    seen = set()
+    unique_formats = []
+    for fmt in formats:
+        if fmt not in seen:
+            seen.add(fmt)
+            unique_formats.append(fmt)
+    
+    return unique_formats
+
+
 def fetch_hk_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
     """获取港股实时行情
     
@@ -303,9 +337,6 @@ def _fetch_hk_kline_yahoo(
         return []
     
     try:
-        # 转换代码格式
-        yahoo_code = _convert_hk_code_to_yahoo(code)
-        
         # 转换周期格式（yfinance使用1d, 1wk, 1mo, 1h等）
         yfinance_interval_map = {
             "daily": "1d",
@@ -336,17 +367,41 @@ def _fetch_hk_kline_yahoo(
         else:
             end_dt = datetime.now()
         
-        # 获取数据
-        ticker = yf.Ticker(yahoo_code)
+        # 尝试多种Yahoo Finance代码格式
+        yahoo_formats = _try_yahoo_formats(code)
+        df = None
+        last_error = None
         
-        # yfinance的history方法使用start和end参数
-        df = ticker.history(
-            start=start_dt,
-            end=end_dt,
-            interval=interval,
-            auto_adjust=False,  # 不自动调整价格
-            prepost=False,  # 不包括盘前盘后数据
-        )
+        for yahoo_code in yahoo_formats:
+            try:
+                # 获取数据
+                ticker = yf.Ticker(yahoo_code)
+                
+                # yfinance的history方法使用start和end参数
+                df = ticker.history(
+                    start=start_dt,
+                    end=end_dt,
+                    interval=interval,
+                    auto_adjust=False,  # 不自动调整价格
+                    prepost=False,  # 不包括盘前盘后数据
+                )
+                
+                # 如果成功获取数据（不为空），跳出循环
+                if df is not None and not df.empty:
+                    logger.debug(f"Yahoo Finance使用格式 {yahoo_code} 成功获取数据: {code}")
+                    break
+                    
+            except Exception as e:
+                last_error = e
+                logger.debug(f"Yahoo Finance格式 {yahoo_code} 失败 {code}: {e}")
+                continue
+        
+        # 如果所有格式都失败，抛出最后一个错误
+        if df is None or df.empty:
+            if last_error:
+                raise last_error
+            logger.debug(f"Yahoo Finance所有格式都失败或无数据: {code}")
+            return []
         
         if df.empty:
             logger.debug(f"Yahoo Finance返回空数据: {code}")
