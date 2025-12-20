@@ -545,7 +545,6 @@ def fetch_hk_stock_kline(
                 )
                 # 如果全量获取成功，需要根据日期过滤
                 if not df.empty and "日期" in df.columns:
-                    from datetime import datetime
                     if fetch_start:
                         start_dt = datetime.strptime(fetch_start, "%Y%m%d")
                         df = df[pd.to_datetime(df["日期"]) >= start_dt]
