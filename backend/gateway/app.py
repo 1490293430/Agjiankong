@@ -1601,6 +1601,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     
     def collect_kline_for_stock(stock):
         nonlocal success_count, failed_count
+        from market.service.ws import kline_collect_stop_flags
+        
+        # 检查停止标志
+        if kline_collect_stop_flags.get(task_id, False):
+            return
+        
         code = str(stock.get("code", ""))
         if not code:
             return
@@ -1630,10 +1636,18 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     
     def batch_collect():
         """同步批量采集函数"""
+        from market.service.ws import kline_collect_stop_flags
+        
         executor = ThreadPoolExecutor(max_workers=50)
         try:
             # 使用线程池并发执行采集任务
-            futures = [executor.submit(collect_kline_for_stock, stock) for stock in target_stocks]
+            futures = []
+            for stock in target_stocks:
+                # 检查停止标志
+                if kline_collect_stop_flags.get(task_id, False):
+                    logger.info(f"收到停止信号，中断批量采集")
+                    break
+                futures.append(executor.submit(collect_kline_for_stock, stock))
             # 等待所有任务完成
             for future in futures:
                 try:
@@ -1657,23 +1671,44 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
             logger.error(f"[{market}]K线采集异常终止: {e}", exc_info=True)
             raise
         finally:
-            executor.shutdown(wait=True)
+            executor.shutdown(wait=True, cancel_futures=True)
         
-        # 更新最终进度
+        # 更新最终进度（检查是否被停止）
+        from market.service.ws import kline_collect_stop_flags
         end_time = datetime.now().isoformat()
-        kline_collect_progress[task_id] = {
-            "status": "completed",
-            "total": len(target_stocks),
-            "success": success_count,
-            "failed": failed_count,
-            "current": len(target_stocks),
-            "message": f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
-            "start_time": start_time,
-            "end_time": end_time,
-            "progress": 100,
-            "market": market
-        }
-        logger.info(f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
+        is_cancelled = kline_collect_stop_flags.get(task_id, False)
+        current_processed = success_count + failed_count
+        
+        if is_cancelled:
+            kline_collect_progress[task_id] = {
+                "status": "cancelled",
+                "total": len(target_stocks),
+                "success": success_count,
+                "failed": failed_count,
+                "current": current_processed,
+                "message": f"[{market}]K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
+                "start_time": start_time,
+                "end_time": end_time,
+                "progress": int((current_processed / len(target_stocks)) * 100) if target_stocks else 0,
+                "market": market
+            }
+            logger.info(f"[{market}]K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}")
+            # 清理停止标志
+            kline_collect_stop_flags.pop(task_id, None)
+        else:
+            kline_collect_progress[task_id] = {
+                "status": "completed",
+                "total": len(target_stocks),
+                "success": success_count,
+                "failed": failed_count,
+                "current": len(target_stocks),
+                "message": f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
+                "start_time": start_time,
+                "end_time": end_time,
+                "progress": 100,
+                "market": market
+            }
+            logger.info(f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
     
     # 运行批量采集
     batch_collect()
@@ -1756,6 +1791,8 @@ async def collect_batch_single_stock_kline_api(
         logger.info(f"开始单个批量采集，每次{batch_size}只，市场={market}")
         
         def collect_batch_internal():
+            from market.service.ws import kline_collect_stop_flags
+            
             task_id = f"batch_single_{str(uuid.uuid4())}"
             start_time = datetime.now().isoformat()
             total_success = 0
@@ -1815,10 +1852,19 @@ async def collect_batch_single_stock_kline_api(
             if market.upper() in ["A", "ALL"] and a_codes:
                 logger.info(f"开始采集A股，共{len(a_codes)}只，每次{batch_size}只")
                 for i in range(0, len(a_codes), batch_size):
+                    # 检查停止标志
+                    if kline_collect_stop_flags.get(task_id, False):
+                        logger.info(f"收到停止信号，中断A股采集")
+                        break
+                    
                     batch = a_codes[i:i+batch_size]
                     logger.info(f"采集A股批次 {i//batch_size + 1}/{(len(a_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
                     
                     for code in batch:
+                        # 检查停止标志
+                        if kline_collect_stop_flags.get(task_id, False):
+                            logger.info(f"收到停止信号，中断A股采集")
+                            break
                         try:
                             result = fetch_a_stock_kline(code, period, "", None, None, False, False)
                             if result and len(result) > 0:
@@ -1845,14 +1891,23 @@ async def collect_batch_single_stock_kline_api(
                     import time
                     time.sleep(1)
             
-            # 采集港股
-            if market.upper() in ["HK", "ALL"] and hk_codes:
+            # 采集港股（只在A股采集完成且未停止时进行）
+            if not kline_collect_stop_flags.get(task_id, False) and market.upper() in ["HK", "ALL"] and hk_codes:
                 logger.info(f"开始采集港股，共{len(hk_codes)}只，每次{batch_size}只")
                 for i in range(0, len(hk_codes), batch_size):
+                    # 检查停止标志
+                    if kline_collect_stop_flags.get(task_id, False):
+                        logger.info(f"收到停止信号，中断港股采集")
+                        break
+                    
                     batch = hk_codes[i:i+batch_size]
                     logger.info(f"采集港股批次 {i//batch_size + 1}/{(len(hk_codes)-1)//batch_size + 1}，本批次{len(batch)}只")
                     
                     for code in batch:
+                        # 检查停止标志
+                        if kline_collect_stop_flags.get(task_id, False):
+                            logger.info(f"收到停止信号，中断港股采集")
+                            break
                         try:
                             result = fetch_hk_stock_kline(code, period, "", None, None, False, False)
                             if result and len(result) > 0:
@@ -1879,20 +1934,38 @@ async def collect_batch_single_stock_kline_api(
                     import time
                     time.sleep(1)
             
-            # 完成
+            # 完成（检查是否被停止）
             end_time = datetime.now().isoformat()
-            kline_collect_progress[task_id] = {
-                "status": "completed",
-                "total": total_stocks,
-                "success": total_success,
-                "failed": total_failed,
-                "current": total_processed,
-                "message": f"采集完成！成功{total_success}，失败{total_failed}，总计{total_processed}",
-                "start_time": start_time,
-                "end_time": end_time,
-                "progress": 100
-            }
-            logger.info(f"单个批量采集完成：成功{total_success}，失败{total_failed}，总计{total_processed}")
+            is_cancelled = kline_collect_stop_flags.get(task_id, False)
+            
+            if is_cancelled:
+                kline_collect_progress[task_id] = {
+                    "status": "cancelled",
+                    "total": total_stocks,
+                    "success": total_success,
+                    "failed": total_failed,
+                    "current": total_processed,
+                    "message": f"采集已停止！成功{total_success}，失败{total_failed}，已处理{total_processed}/{total_stocks}",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "progress": int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
+                }
+                logger.info(f"单个批量采集已停止：成功{total_success}，失败{total_failed}，已处理{total_processed}/{total_stocks}")
+                # 清理停止标志
+                kline_collect_stop_flags.pop(task_id, None)
+            else:
+                kline_collect_progress[task_id] = {
+                    "status": "completed",
+                    "total": total_stocks,
+                    "success": total_success,
+                    "failed": total_failed,
+                    "current": total_processed,
+                    "message": f"采集完成！成功{total_success}，失败{total_failed}，总计{total_processed}",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "progress": 100
+                }
+                logger.info(f"单个批量采集完成：成功{total_success}，失败{total_failed}，总计{total_processed}")
         
         # 后台执行
         background_tasks.add_task(collect_batch_internal)
@@ -1910,6 +1983,62 @@ async def collect_batch_single_stock_kline_api(
     except Exception as e:
         logger.error(f"单个批量采集失败: {e}", exc_info=True)
         return {"code": 1, "data": {}, "message": f"启动失败: {str(e)}"}
+
+
+@api_router.post("/market/kline/collect/stop")
+async def stop_kline_collect_api():
+    """停止正在进行的K线采集任务
+    
+    说明：
+    - 停止当前最新的采集任务（单个批量采集或批量采集）
+    - 通过设置停止标志来中断采集循环
+    """
+    try:
+        from market.service.ws import kline_collect_progress, kline_collect_stop_flags
+        from datetime import datetime
+        
+        # 找到最新的运行中的任务
+        running_tasks = [
+            (task_id, progress) 
+            for task_id, progress in kline_collect_progress.items()
+            if progress.get("status") == "running"
+        ]
+        
+        if not running_tasks:
+            return {
+                "code": 1,
+                "data": {},
+                "message": "没有正在运行的采集任务"
+            }
+        
+        # 获取最新的任务（按start_time排序）
+        latest_task = max(running_tasks, key=lambda x: x[1].get("start_time", ""))
+        task_id, progress = latest_task
+        
+        # 设置停止标志
+        kline_collect_stop_flags[task_id] = True
+        
+        # 更新任务状态为取消
+        kline_collect_progress[task_id].update({
+            "status": "cancelled",
+            "message": "用户手动停止采集任务",
+            "end_time": datetime.now().isoformat()
+        })
+        
+        logger.info(f"用户停止K线采集任务: {task_id}")
+        
+        return {
+            "code": 0,
+            "data": {
+                "task_id": task_id,
+                "status": "stopped"
+            },
+            "message": "已发送停止信号，采集任务将在下一个循环停止"
+        }
+        
+    except Exception as e:
+        logger.error(f"停止K线采集失败: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": f"停止失败: {str(e)}"}
 
 
 @api_router.post("/market/kline/collect")
@@ -2023,19 +2152,23 @@ async def collect_kline_data_api(
         success_count = 0
         failed_count = 0
         
-        def collect_kline_for_stock(stock):
-            nonlocal success_count, failed_count
-            from market.service.ws import kline_collect_progress
-            from datetime import datetime
-            
-            code = str(stock.get("code", ""))
-            if not code:
-                return
-            
-            try:
-                # 优化：直接调用fetch_kline_func，它内部会检查数据库并跳过已是最新的数据
-                # 减少重复的数据库查询
-                kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+    def collect_kline_for_stock(stock):
+        nonlocal success_count, failed_count
+        from market.service.ws import kline_collect_progress, kline_collect_stop_flags
+        from datetime import datetime
+        
+        # 检查停止标志
+        if kline_collect_stop_flags.get(task_id, False):
+            return
+        
+        code = str(stock.get("code", ""))
+        if not code:
+            return
+        
+        try:
+            # 优化：直接调用fetch_kline_func，它内部会检查数据库并跳过已是最新的数据
+            # 减少重复的数据库查询
+            kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
                 
                 # 如果获取到数据，说明采集成功（fetch_kline_func内部已处理增量逻辑）
                 if kline_data and len(kline_data) > 0:
@@ -2084,15 +2217,22 @@ async def collect_kline_data_api(
         }
         
         async def batch_collect():
+            from market.service.ws import kline_collect_stop_flags
+            
             # 并发数调整为50，仅在采集时创建线程池；异常也保证销毁
             executor = ThreadPoolExecutor(max_workers=50)
             try:
                 loop = asyncio.get_event_loop()
-                tasks = [
-                    loop.run_in_executor(executor, collect_kline_for_stock, stock)
-                    for stock in target_stocks
-                ]
-                await asyncio.gather(*tasks)
+                tasks = []
+                for stock in target_stocks:
+                    # 检查停止标志
+                    if kline_collect_stop_flags.get(task_id, False):
+                        logger.info(f"收到停止信号，中断批量采集")
+                        break
+                    tasks.append(loop.run_in_executor(executor, collect_kline_for_stock, stock))
+                
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
             except Exception as e:
                 end_time = datetime.now().isoformat()
                 kline_collect_progress[task_id] = {

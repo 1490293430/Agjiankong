@@ -57,8 +57,8 @@ selection_progress: dict = {}
 # K线采集进度管理器（使用字典存储每个任务的进度）
 kline_collect_progress: dict = {}
 
-# K线采集进度管理器（使用字典存储每个任务的进度）
-kline_collect_progress: dict = {}
+# K线采集任务停止标志（存储task_id -> should_stop标志）
+kline_collect_stop_flags: dict = {}
 
 
 @router.websocket("/ws/selection/progress")

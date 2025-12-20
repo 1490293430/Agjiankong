@@ -2385,6 +2385,9 @@ function initStrategy() {
             const market = 'ALL';
             const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
             collectKlineData(market, maxCount);
+            // 显示停止按钮
+            const stopBtn = document.getElementById('stop-collect-kline-btn');
+            if (stopBtn) stopBtn.style.display = 'inline-block';
         });
     }
     if (singleBatchCollectBtn) {
@@ -2395,7 +2398,14 @@ function initStrategy() {
                 console.error('单个批量采集失败:', err);
                 showToast(`采集失败: ${err.message || '未知错误'}`, 'error');
             });
+            // 显示停止按钮
+            const stopBtn = document.getElementById('stop-collect-kline-btn');
+            if (stopBtn) stopBtn.style.display = 'inline-block';
         });
+    }
+    const stopCollectBtn = document.getElementById('stop-collect-kline-btn');
+    if (stopCollectBtn) {
+        stopCollectBtn.addEventListener('click', stopKlineCollect);
     }
 }
 
@@ -2823,6 +2833,35 @@ async function collectKlineData(market = 'A', maxCount = 6000) {
     }
 }
 
+// 停止K线采集
+async function stopKlineCollect() {
+    const stopBtn = document.getElementById('stop-collect-kline-btn');
+    if (!stopBtn) return;
+    
+    stopBtn.disabled = true;
+    stopBtn.textContent = '停止中...';
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect/stop`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 0) {
+            showToast('已发送停止信号，采集任务将停止', 'success');
+        } else {
+            showToast(`停止失败: ${result.message || '未知错误'}`, 'error');
+            stopBtn.disabled = false;
+            stopBtn.textContent = '🛑 停止采集';
+        }
+    } catch (error) {
+        showToast(`停止失败: ${error.message || '网络错误'}`, 'error');
+        stopBtn.disabled = false;
+        stopBtn.textContent = '🛑 停止采集';
+    }
+}
+
 function connectKlineCollectProgress(taskId, statusEl, btn) {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = wsProtocol + '//' + window.location.host;
@@ -2908,6 +2947,43 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     btn.disabled = false;
                     btn.textContent = '✅ 采集完成';
                     btn.style.background = '#10b981';
+                    // 隐藏停止按钮
+                    const stopBtn = document.getElementById('stop-collect-kline-btn');
+                    if (stopBtn) stopBtn.style.display = 'none';
+                    ws.close();
+                } else if (progress.status === 'cancelled') {
+                    const success = progress.success || 0;
+                    const failed = progress.failed || 0;
+                    const current = progress.current || 0;
+                    const total = progress.total || 0;
+                    
+                    statusEl.innerHTML = `
+                        <div style="margin-top: 10px;">
+                            <div style="color: #f59e0b; margin-bottom: 5px; font-weight: bold;">
+                                ⏹️ 采集已停止
+                            </div>
+                            <div style="color: #94a3b8; font-size: 11px; margin-bottom: 2px;">
+                                已处理: ${current}/${total} 只股票
+                            </div>
+                            <div style="color: #10b981; font-size: 11px; margin-bottom: 2px;">
+                                ✅ 成功: ${success} 只
+                            </div>
+                            <div style="color: ${failed > 0 ? '#f59e0b' : '#94a3b8'}; font-size: 11px;">
+                                ${failed > 0 ? `⚠️ 失败: ${failed} 只` : '无失败'}
+                            </div>
+                        </div>
+                    `;
+                    btn.disabled = false;
+                    btn.textContent = '📥 批量采集';
+                    btn.style.background = '#10b981';
+                    const singleBatchBtn = document.getElementById('single-batch-collect-kline-btn');
+                    if (singleBatchBtn) {
+                        singleBatchBtn.disabled = false;
+                        singleBatchBtn.textContent = '📥 单个批量采集';
+                    }
+                    // 隐藏停止按钮
+                    const stopBtn = document.getElementById('stop-collect-kline-btn');
+                    if (stopBtn) stopBtn.style.display = 'none';
                     ws.close();
                 } else if (progress.status === 'failed') {
                     statusEl.innerHTML = `
@@ -2922,6 +2998,15 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     `;
                     btn.disabled = false;
                     btn.textContent = '📥 重新采集';
+                    btn.style.background = '#10b981';
+                    const singleBatchBtn = document.getElementById('single-batch-collect-kline-btn');
+                    if (singleBatchBtn) {
+                        singleBatchBtn.disabled = false;
+                        singleBatchBtn.textContent = '📥 单个批量采集';
+                    }
+                    // 隐藏停止按钮
+                    const stopBtn = document.getElementById('stop-collect-kline-btn');
+                    if (stopBtn) stopBtn.style.display = 'none';
                     ws.close();
                 }
             }
