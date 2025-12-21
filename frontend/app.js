@@ -111,7 +111,10 @@ function handleSSEMessage(message) {
     }
 }
 
-// 处理市场行情数据更新（SSE推送）
+// 市场行情更新防抖定时器
+let marketUpdateTimer = null;
+
+// 处理市场行情数据更新（SSE推送，无感刷新）
 function handleMarketUpdate(data) {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
@@ -120,6 +123,22 @@ function handleMarketUpdate(data) {
     if (!marketTab || !marketTab.classList.contains('active')) {
         return;  // 不在行情页，不更新
     }
+    
+    // 使用防抖，避免频繁更新（100ms内多次更新只执行最后一次）
+    if (marketUpdateTimer) {
+        clearTimeout(marketUpdateTimer);
+    }
+    
+    marketUpdateTimer = setTimeout(() => {
+        _doMarketUpdate(data);
+        marketUpdateTimer = null;
+    }, 100);
+}
+
+// 执行市场行情更新（内部函数）
+function _doMarketUpdate(data) {
+    const tbody = document.getElementById('stock-list');
+    if (!tbody) return;
     
     const marketSelect = document.getElementById('market-select');
     const currentMarket = marketSelect ? marketSelect.value || 'a' : 'a';
@@ -139,7 +158,7 @@ function handleMarketUpdate(data) {
         stockMap[stock.code] = stock;
     });
     
-    // 更新现有行的数据
+    // 更新现有行的数据（无感刷新，只更新变化的字段）
     for (let i = 0; i < updateCount; i++) {
         const row = existingRows[i];
         if (!row) continue;
@@ -149,82 +168,89 @@ function handleMarketUpdate(data) {
         
         if (code && stockMap[code]) {
             const updatedStock = stockMap[code];
-            const watchlist = getWatchlist();
-            const isInWatchlist = watchlist.some(s => s.code === code);
             
-            // 更新行数据
-            row.setAttribute('data-stock', JSON.stringify(updatedStock));
-            row.innerHTML = `
-                <td>${updatedStock.code}</td>
-                <td>${updatedStock.name}</td>
-                <td>${updatedStock.price?.toFixed(2) || '-'}</td>
-                <td class="${updatedStock.pct >= 0 ? 'up' : 'down'}">
-                    ${updatedStock.pct?.toFixed(2) || '-'}%
-                </td>
-                <td>${formatVolume(updatedStock.volume)}</td>
-                <td>
-                    <button class="add-watchlist-btn" data-code="${updatedStock.code}" data-name="${updatedStock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: pointer; ${isInWatchlist ? 'opacity: 0.6;' : ''}" onclick="event.stopPropagation();">${isInWatchlist ? '已添加' : '加入自选'}</button>
-                </td>
-            `;
-            
-            // 重新绑定事件
-            row.addEventListener('click', function(e) {
-                if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-                    return;
+            // 只更新数据有变化的字段，避免不必要的DOM操作
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 5) {
+                // 更新价格
+                const priceCell = cells[2];
+                const newPrice = updatedStock.price?.toFixed(2) || '-';
+                if (priceCell.textContent !== newPrice) {
+                    priceCell.textContent = newPrice;
                 }
-                e.preventDefault();
-                const stockData = JSON.parse(this.getAttribute('data-stock'));
-                openKlineModal(stockData.code, stockData.name, stockData);
-            });
-            
-            const watchlistBtn = row.querySelector('.add-watchlist-btn');
-            if (watchlistBtn) {
-                const code = watchlistBtn.getAttribute('data-code');
-                const name = watchlistBtn.getAttribute('data-name');
-                watchlistBtn.onclick = function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    addToWatchlist(code, name);
-                };
+                
+                // 更新涨跌幅
+                const pctCell = cells[3];
+                const newPct = updatedStock.pct?.toFixed(2) || '-';
+                const newPctText = newPct + '%';
+                if (pctCell.textContent !== newPctText) {
+                    pctCell.textContent = newPctText;
+                    pctCell.className = updatedStock.pct >= 0 ? 'up' : 'down';
+                }
+                
+                // 更新成交量
+                const volumeCell = cells[4];
+                const newVolume = formatVolume(updatedStock.volume);
+                if (volumeCell.textContent !== newVolume) {
+                    volumeCell.textContent = newVolume;
+                }
             }
+            
+            // 更新data-stock属性
+            row.setAttribute('data-stock', JSON.stringify(updatedStock));
         }
     }
     
-    // 更新按钮状态
+    // 更新按钮状态（只在必要时）
     updateWatchlistButtonStates();
 }
 
-// 处理自选股同步（SSE推送）
+// 自选股同步更新防抖定时器
+let watchlistSyncTimer = null;
+
+// 处理自选股同步（SSE推送，无感刷新）
 function handleWatchlistSync(action, data) {
     console.log('[SSE] 自选股同步:', action, '数据数量:', data?.length || 0);
     
     if (action === 'init' || action === 'update') {
-        const serverData = data || [];
-        const localData = getWatchlist();
-        const localCodes = localData.map(s => s.code).sort().join(',');
-        const serverCodes = serverData.map(s => s.code).sort().join(',');
-        
-        console.log('[SSE] 本地代码:', localCodes);
-        console.log('[SSE] 服务器代码:', serverCodes);
-        
-        // 如果数据有变化，更新本地缓存
-        if (localCodes !== serverCodes) {
-            console.log('[SSE] 检测到数据变化，更新本地缓存');
-            localStorage.setItem('watchlist', JSON.stringify(serverData));
-            
-            // 更新按钮状态
-            updateWatchlistButtonStates();
-            
-            // 如果当前在自选页，刷新列表
-            const watchlistTab = document.getElementById('watchlist-tab');
-            if (watchlistTab && watchlistTab.classList.contains('active')) {
-                console.log('[SSE] 当前在自选页，刷新列表');
-                localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                loadWatchlist(true);
-            }
-        } else {
-            console.log('[SSE] 数据无变化，跳过更新');
+        // 使用防抖，避免频繁更新（200ms内多次更新只执行最后一次）
+        if (watchlistSyncTimer) {
+            clearTimeout(watchlistSyncTimer);
         }
+        
+        watchlistSyncTimer = setTimeout(() => {
+            _doWatchlistSync(data);
+            watchlistSyncTimer = null;
+        }, 200);
+    }
+}
+
+// 执行自选股同步更新（内部函数）
+function _doWatchlistSync(data) {
+    const serverData = data || [];
+    const localData = getWatchlist();
+    const localCodes = localData.map(s => s.code).sort().join(',');
+    const serverCodes = serverData.map(s => s.code).sort().join(',');
+    
+    // 如果数据有变化，更新本地缓存
+    if (localCodes !== serverCodes) {
+        console.log('[SSE] 检测到数据变化，更新本地缓存');
+        localStorage.setItem('watchlist', JSON.stringify(serverData));
+        
+        // 更新按钮状态
+        updateWatchlistButtonStates();
+        
+        // 如果当前在自选页，无感刷新列表（先显示缓存，再静默更新）
+        const watchlistTab = document.getElementById('watchlist-tab');
+        if (watchlistTab && watchlistTab.classList.contains('active')) {
+            console.log('[SSE] 当前在自选页，无感刷新列表');
+            // 清除缓存，强制重新加载
+            localStorage.removeItem(WATCHLIST_CACHE_KEY);
+            // 使用静默模式加载，不显示加载提示
+            loadWatchlist(true);
+        }
+    } else {
+        console.log('[SSE] 数据无变化，跳过更新');
     }
 }
 
@@ -586,7 +612,7 @@ let isLoading = false;
 let hasMore = true;
 let currentMarket = 'a';
 
-let marketRefreshInterval = null;
+// 已移除marketRefreshInterval，改用SSE实时推送
 
 async function initMarket() {
     const marketSelect = document.getElementById('market-select');
@@ -627,99 +653,7 @@ async function initMarket() {
     // 不再使用定时刷新，改用WebSocket实时推送
 }
 
-// 静默刷新（不显示加载提示，不重置分页）
-async function silentRefreshMarket() {
-    if (isLoading) return;
-    
-    isLoading = true;
-    const market = document.getElementById('market-select').value;
-    
-    try {
-        // 添加超时控制，避免长时间等待
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
-        
-        const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=1&page_size=${pageSize}`, {
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        const result = await response.json();
-        
-        if (result.code === 0 && result.data && result.data.length > 0) {
-            // 只更新第一页数据，保持滚动位置
-            const tbody = document.getElementById('stock-list');
-            if (!tbody) {
-                isLoading = false;
-                return;
-            }
-            
-            const firstPageRows = Math.min(pageSize, result.data.length);
-            const existingRows = tbody.querySelectorAll('tr');
-            
-            // 只更新前30条数据，避免DOM操作过多
-            const updateCount = Math.min(firstPageRows, existingRows.length);
-            for (let index = 0; index < updateCount; index++) {
-                if (existingRows[index] && result.data[index]) {
-                    const stock = result.data[index];
-                    const watchlist = getWatchlist();
-                    const isInWatchlist = watchlist.some(s => s.code === stock.code);
-                    const row = existingRows[index];
-                    row.setAttribute('data-stock', JSON.stringify(stock));
-                    row.style.cursor = 'pointer';
-                    row.innerHTML = `
-                        <td>${stock.code}</td>
-                        <td>${stock.name}</td>
-                        <td>${stock.price?.toFixed(2) || '-'}</td>
-                        <td class="${stock.pct >= 0 ? 'up' : 'down'}">
-                            ${stock.pct?.toFixed(2) || '-'}%
-                        </td>
-                        <td>${formatVolume(stock.volume)}</td>
-                        <td>
-                            <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: pointer; ${isInWatchlist ? 'opacity: 0.6;' : ''}" onclick="event.stopPropagation();">${isInWatchlist ? '已添加' : '加入自选'}</button>
-                        </td>
-                    `;
-                    
-                    // 重新绑定单击事件
-                    row.addEventListener('click', function(e) {
-                        // 如果点击的是按钮，不触发
-                        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-                            return;
-                        }
-                        e.preventDefault();
-                        const stockData = JSON.parse(this.getAttribute('data-stock'));
-                        openKlineModal(stockData.code, stockData.name, stockData);
-                    });
-                }
-            }
-            
-            // 重新绑定按钮事件（只绑定新更新的按钮）
-            existingRows.forEach((row, index) => {
-                if (index < updateCount) {
-                    const watchlistBtn = row.querySelector('.add-watchlist-btn');
-                    if (watchlistBtn) {
-                        const code = watchlistBtn.getAttribute('data-code');
-                        const name = watchlistBtn.getAttribute('data-name');
-                        watchlistBtn.onclick = function(e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            addToWatchlist(code, name);
-                        };
-                    }
-                }
-            });
-            
-            // 更新所有按钮状态（确保同步）
-            updateWatchlistButtonStates();
-        }
-    } catch (error) {
-        if (error.name !== 'AbortError') {
-            console.error('静默刷新失败:', error);
-        }
-    } finally {
-        isLoading = false;
-    }
-}
+// 已移除silentRefreshMarket函数，改用SSE实时推送实现无感刷新
 
 function resetAndLoadMarket() {
     currentPage = 1;
