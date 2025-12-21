@@ -449,7 +449,7 @@ function handleWatchlistSync(action, data) {
 
 // 执行自选股同步更新（内部函数）
 function _doWatchlistSync(data) {
-    console.log('[SSE] ========== 执行自选股同步更新 ==========');
+    console.log('[SSE] ========== 执行自选股同步更新（无感刷新） ==========');
     const serverData = data || [];
     const localData = getWatchlist();
     const localCodes = localData.map(s => s.code).sort().join(',');
@@ -460,20 +460,20 @@ function _doWatchlistSync(data) {
     
     // 如果数据有变化，更新本地缓存
     if (localCodes !== serverCodes) {
-        console.log('[SSE] ✅ 检测到数据变化，更新本地缓存和UI');
+        console.log('[SSE] ✅ 检测到数据变化，通过SSE无感更新UI');
         localStorage.setItem('watchlist', JSON.stringify(serverData));
         
         // 更新按钮状态（无论在哪一页都要更新）
         console.log('[SSE] 更新所有页面的按钮状态');
         updateWatchlistButtonStates();
         
-        // 如果当前在自选页，直接通过SSE数据更新列表（不需要重新请求）
+        // 如果当前在自选页，直接通过SSE数据更新列表（无感刷新，不需要重新请求）
         const watchlistTab = document.getElementById('watchlist-tab');
         if (watchlistTab && watchlistTab.classList.contains('active')) {
-            console.log('[SSE] 当前在自选页，直接使用SSE数据更新列表');
+            console.log('[SSE] 当前在自选页，使用SSE数据无感更新列表（不显示加载状态）');
             // 清除缓存，使用SSE推送的数据直接渲染
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
-            // 直接使用SSE推送的数据渲染，不需要重新请求
+            // 直接使用SSE推送的数据渲染，不需要重新请求，实现无感刷新
             renderWatchlistStocksFromSSE(serverData);
         } else {
             console.log('[SSE] 当前不在自选页，只更新按钮状态');
@@ -666,17 +666,14 @@ function startApp() {
     // 监听自选股变化事件（同一标签页内的同步）
     window.addEventListener('watchlistChanged', (e) => {
         const { action, code } = e.detail;
-        console.log(`自选股变化: ${action}, 代码: ${code}`);
+        console.log(`[自选] 自选股变化事件: ${action}, 代码: ${code}`);
         
         // 更新按钮状态
         updateWatchlistButtonStates();
         
-        // 如果当前在自选页且是添加操作，刷新列表
-        const watchlistTab = document.getElementById('watchlist-tab');
-        if (watchlistTab && watchlistTab.classList.contains('active') && action === 'add') {
-            localStorage.removeItem(WATCHLIST_CACHE_KEY);
-            loadWatchlist(true);
-        }
+        // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
+        // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
+        console.log('[自选] 等待SSE推送更新（无感刷新）');
     });
     
     // 初始化所有模块
@@ -2848,15 +2845,12 @@ function initWatchlist() {
         isSyncingWatchlist = false;
         if (serverData !== null) {
             console.log('[自选] 从服务器同步成功，共', serverData.length, '只股票');
-            // 如果当前在自选页，刷新列表
-            const watchlistTab = document.getElementById('watchlist-tab');
-            if (watchlistTab && watchlistTab.classList.contains('active')) {
-                console.log('[自选] 当前在自选页，刷新列表');
-                localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                loadWatchlist(true);
-            }
             // 更新按钮状态
             updateWatchlistButtonStates();
+            
+            // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
+            // 如果当前在自选页，SSE会在连接时推送初始数据，后续变化也会通过SSE推送
+            console.log('[自选] 等待SSE推送更新（无感刷新）');
         } else {
             console.log('[自选] 从服务器同步失败或数据为空，使用本地缓存');
         }
@@ -2870,17 +2864,13 @@ function initWatchlist() {
     // 监听 localStorage 变化，实现跨标签页同步
     window.addEventListener('storage', (e) => {
         if (e.key === 'watchlist') {
-            console.log('检测到自选股列表变化，同步更新');
+            console.log('[自选] 检测到跨标签页自选股列表变化，同步更新');
             // 更新按钮状态
             updateWatchlistButtonStates();
             
-            // 如果当前在自选页，刷新列表
-            const watchlistTab = document.getElementById('watchlist-tab');
-            if (watchlistTab && watchlistTab.classList.contains('active')) {
-                // 清除缓存，强制刷新
-                localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                loadWatchlist(true);
-            }
+            // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
+            // 跨标签页的变化会通过SSE推送同步，_doWatchlistSync会处理更新
+            console.log('[自选] 等待SSE推送更新（无感刷新）');
             
             // 如果当前在行情页，更新按钮状态
             const marketTab = document.getElementById('market-tab');
@@ -3331,13 +3321,9 @@ async function addToWatchlist(code, name) {
     // 更新按钮状态
     updateWatchlistButtonStates();
     
-    // 如果当前在自选页，刷新列表（清除缓存，强制刷新）
-    const watchlistTab = document.getElementById('watchlist-tab');
-    if (watchlistTab && watchlistTab.classList.contains('active')) {
-        console.log('[自选] 当前在自选页，刷新列表');
-        localStorage.removeItem(WATCHLIST_CACHE_KEY);
-        loadWatchlist(true);
-    }
+    // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
+    // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
+    console.log('[自选] 添加完成，等待SSE推送更新（无感刷新）');
 }
 
 // 从自选股移除（无感移除：立即删除，后台保存）
