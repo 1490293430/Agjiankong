@@ -63,6 +63,17 @@ async def create_sse_stream(
                     logger.debug(f"[SSE推送] [{client_id}] 自选股代码: {codes}")
                 yield f"data: {watchlist_json}\n\n"
             
+            elif current_tab == 'news':
+                # 推送资讯数据
+                news = get_json("news:latest") or []
+                news_data = {'type': 'news', 'action': 'init', 'data': news}
+                news_json = json.dumps(news_data)
+                logger.info(f"[SSE推送] [{client_id}] 推送初始资讯列表: 数量={len(news)}条, 数据大小={len(news_json)}字节")
+                if news:
+                    titles = [n.get('title', 'N/A')[:30] for n in news[:3]]
+                    logger.debug(f"[SSE推送] [{client_id}] 资讯标题示例: {titles}")
+                yield f"data: {news_json}\n\n"
+            
             # 无论哪个tab，都推送市场状态（首次连接时）
             try:
                 from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
@@ -285,3 +296,15 @@ def broadcast_market_status_update():
         })
     except Exception as e:
         logger.error(f"[SSE] 广播市场状态更新失败: {e}", exc_info=True)
+
+
+def broadcast_news_update(news: list):
+    """广播资讯更新（所有连接都需要接收）"""
+    news_count = len(news) if isinstance(news, list) else 0
+    titles = [n.get('title', 'N/A')[:30] for n in news[:5]] if news else []
+    logger.info(f"[SSE广播] 准备广播资讯更新: 数量={news_count}条, 标题示例={titles}")
+    broadcast_message({
+        "type": "news",
+        "action": "update",
+        "data": news
+    })

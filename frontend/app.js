@@ -246,7 +246,7 @@ function connectSSE(currentTab = null, taskId = null) {
                     const currentTabBtn = document.querySelector('.tab-btn.active');
                     if (currentTabBtn) {
                         const currentTab = currentTabBtn.getAttribute('data-tab');
-                        if (currentTab && (currentTab === 'market' || currentTab === 'watchlist')) {
+                        if (currentTab && (currentTab === 'market' || currentTab === 'watchlist' || currentTab === 'news')) {
                             console.log(`[SSE] 重新连接到tab: ${currentTab}`);
                             sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000); // 最大30秒
                             connectSSE(currentTab);
@@ -288,6 +288,13 @@ function handleSSEMessage(message) {
             const hkStatus = statusData.hk?.status || 'unknown';
             console.log(`[SSE处理] 处理市场状态更新: A股=${aStatus}, 港股=${hkStatus}`);
             handleMarketStatusUpdate(message.data);
+            break;
+        case 'news':
+            // 资讯更新
+            const newsAction = message.action || 'unknown';
+            const newsCount = Array.isArray(message.data) ? message.data.length : 0;
+            console.log(`[SSE处理] 处理资讯更新: action=${newsAction}, 数量=${newsCount}条`);
+            handleNewsUpdate(message.action, message.data);
             break;
         case 'kline_collect_progress':
             // K线采集进度
@@ -548,6 +555,24 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
     }
 }
 
+// 处理资讯更新（SSE推送，无感刷新）
+function handleNewsUpdate(action, data) {
+    console.log('[SSE] ========== 处理资讯更新（无感刷新） ==========');
+    const newsData = data || [];
+    console.log('[SSE] 收到资讯数据:', action, '数量:', newsData.length);
+    
+    if (action === 'init' || action === 'update') {
+        // 如果当前在资讯页，无感更新列表
+        const newsTab = document.getElementById('news-tab');
+        if (newsTab && newsTab.classList.contains('active')) {
+            console.log('[SSE] 当前在资讯页，使用SSE数据无感更新列表（不显示加载状态）');
+            renderNews(newsData);
+        } else {
+            console.log('[SSE] 当前不在资讯页，跳过更新');
+        }
+    }
+}
+
 // 处理K线采集进度（SSE推送）
 function handleKlineCollectProgress(taskId, progress) {
     // 这里需要根据实际的进度显示逻辑来处理
@@ -701,10 +726,13 @@ function startApp() {
             }
         }
     } else if (currentTab === 'watchlist') {
-        // 如果当前是自选页，加载自选股列表（使用缓存）
-        loadWatchlist(false); // 不强制刷新，使用缓存
-        // 连接SSE实时推送
+        // 如果当前是自选页，只连接SSE，不手动加载（依赖SSE推送初始数据）
+        console.log('[自选] 切换到自选页，连接SSE等待推送数据（无感刷新）');
         connectSSE('watchlist');
+    } else if (currentTab === 'news') {
+        // 如果当前是资讯页，只连接SSE，不手动加载（依赖SSE推送初始数据）
+        console.log('[资讯] 切换到资讯页，连接SSE等待推送数据（无感刷新）');
+        connectSSE('news');
     }
     
         initKlineModal();
@@ -883,14 +911,16 @@ function switchToTab(targetTab, addHistory = true) {
             connectSSE('market');
         }
         
-        // 切换到资讯页时，加载资讯
+        // 切换到资讯页时，只连接SSE，不手动加载（依赖SSE推送数据）
         if (targetTab === 'news') {
-            console.log('[资讯] 切换到资讯页');
-            // 如果容器为空或显示加载中，重新加载
-            const container = document.getElementById('news-list');
-            if (!container || container.innerHTML.trim() === '' || container.innerHTML.includes('加载中')) {
-                loadNews();
-            }
+            console.log('[资讯] 切换到资讯页，连接SSE等待推送数据（无感刷新）');
+            connectSSE('news');
+        }
+        
+        // 切换到自选页时，只连接SSE，不手动加载（依赖SSE推送数据）
+        if (targetTab === 'watchlist') {
+            console.log('[自选] 切换到自选页，连接SSE等待推送数据（无感刷新）');
+            connectSSE('watchlist');
         }
         
         // 切换到配置页时，加载配置
@@ -3449,10 +3479,9 @@ async function removeFromWatchlist(code) {
             }
         }
         
-        // 如果列表被清空了，重新加载
-        if (isInWatchlistPage && !targetRow) {
-            loadWatchlist(true);
-        }
+        // 不再手动刷新，依赖SSE推送来更新（无感刷新）
+        // 如果列表被清空，SSE会在下次推送时更新
+        console.log('[自选] 等待SSE推送更新（无感刷新）');
         
         // 恢复按钮状态
         updateWatchlistButtonStates();
@@ -5498,13 +5527,14 @@ function initNews() {
     }
     
     newsInitialized = true;
-    refreshBtn.addEventListener('click', loadNews);
-    
-    // 如果当前在资讯页，立即加载
-    const newsTab = document.getElementById('news-tab');
-    if (newsTab && newsTab.classList.contains('active')) {
+    // 刷新按钮仍然保留，但只在用户主动点击时刷新
+    refreshBtn.addEventListener('click', () => {
+        console.log('[资讯] 用户主动点击刷新按钮');
         loadNews();
-    }
+    });
+    
+    // 不再自动加载，依赖SSE推送数据（无感刷新）
+    console.log('[资讯] 资讯模块初始化完成，等待SSE推送数据');
 }
 
 async function loadNews() {

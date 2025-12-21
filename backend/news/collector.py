@@ -34,6 +34,13 @@ def fetch_news() -> List[Dict[str, Any]]:
             # 存储到Redis
             set_json("news:latest", result, ex=3600)  # 1小时过期
             
+            # 通过SSE广播资讯更新
+            try:
+                from market.service.sse import broadcast_news_update
+                broadcast_news_update(result)
+            except Exception as e:
+                logger.debug(f"SSE广播资讯更新失败（不影响采集）: {e}")
+            
             logger.info(f"资讯采集成功，共{len(result)}条")
             return result
         
