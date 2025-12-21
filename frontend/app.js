@@ -1050,13 +1050,25 @@ function openKlineModal(code, name, stockData = null) {
     
     modal.style.display = 'flex';
     
+    // 在移动端，确保模态框内容从顶部可见（不被地址栏遮挡）
+    // 滚动到顶部
+    if (modal) {
+        modal.scrollTop = 0;
+    }
+    
     // 等待模态框完全显示后再初始化面板和加载图表
-    // 使用简单的延迟，确保DOM已渲染
-    setTimeout(() => {
-        // 确保指标面板已初始化（在模态框显示后）
-        initIndicatorPanels();
-        loadChart(code);
-    }, 100);
+    // 使用requestAnimationFrame + setTimeout确保DOM已完全渲染（特别是手机端）
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            // 再次确保滚动到顶部（防止浏览器自动调整）
+            if (modal) {
+                modal.scrollTop = 0;
+            }
+            // 确保指标面板已初始化（在模态框显示后）
+            initIndicatorPanels();
+            loadChart(code);
+        }, 150); // 稍微增加延迟，确保手机端布局稳定
+    });
 }
 
 // 加载股票详情
@@ -1540,17 +1552,34 @@ function renderChart(data) {
     }
     
     // 确保容器有宽度和高度
-    // 获取容器的实际尺寸，如果为0则使用默认值
+    // 获取容器的实际尺寸，如果为0则延迟重试
     let containerWidth, containerHeight;
     const containerRect = container.getBoundingClientRect();
-    containerWidth = containerRect.width || container.offsetWidth || container.clientWidth || 800;
-    containerHeight = containerRect.height || container.offsetHeight || container.clientHeight || 500;
+    containerWidth = containerRect.width || container.offsetWidth || container.clientWidth || 0;
+    containerHeight = containerRect.height || container.offsetHeight || container.clientHeight || 0;
     
-    // 如果容器尺寸为0或过小，使用默认尺寸
+    // 如果容器尺寸为0或过小，延迟重试（可能是模态框还没完全显示）
     if (containerWidth < 100 || containerHeight < 100) {
-        console.warn('容器尺寸不足，使用默认尺寸', { width: containerWidth, height: containerHeight });
-        containerWidth = 800;
-        containerHeight = 500;
+        console.warn('容器尺寸不足，延迟重试', { width: containerWidth, height: containerHeight });
+        // 使用requestAnimationFrame等待下一个渲染周期
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                const retryRect = container.getBoundingClientRect();
+                containerWidth = retryRect.width || container.offsetWidth || container.clientWidth || window.innerWidth - 40;
+                containerHeight = retryRect.height || container.offsetHeight || container.clientHeight || Math.max(window.innerHeight * 0.6, 400);
+                
+                // 如果还是不够，使用窗口尺寸的合理比例（手机端）
+                if (containerWidth < 100) {
+                    containerWidth = window.innerWidth - 40;
+                }
+                if (containerHeight < 100) {
+                    containerHeight = Math.max(window.innerHeight * 0.6, 400);
+                }
+                
+                renderChartInternal(data, container, containerWidth, containerHeight);
+            }, 100);
+        });
+        return;
     }
     
     // 直接渲染
@@ -2197,7 +2226,7 @@ function initWatchlist() {
     function connectWatchlistWebSocket() {
         try {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/watchlist`;
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/watchlist`;
             watchlistWs = new WebSocket(wsUrl);
             
             watchlistWs.onopen = () => {

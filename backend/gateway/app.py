@@ -201,7 +201,9 @@ app.include_router(
     prefix="/api",
     dependencies=secured_dependencies,
 )
-# WebSocket路由直接注册（不使用prefix，因为ws_router中已定义完整路径）
+# WebSocket路由注册（不使用prefix，保持原有路径）
+# 注意：WebSocket不支持dependencies，所以不使用认证依赖
+# 前端连接路径：/ws/watchlist, /ws/selection/progress 等（不需要/api前缀）
 app.include_router(ws_router)
 
 # 创建其他路由
