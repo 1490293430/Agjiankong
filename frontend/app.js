@@ -8,53 +8,243 @@ let candleSeries = null;
 let volumeSeries = null;
 let ws = null;
 
-// 全局WebSocket连接管理器（避免重复连接）
-const wsConnections = {
-    klineCollect: null,
-    selection: null,
-    market: null,
-    stock: {}
-};
+// 全局SSE连接管理器（单条SSE连接推送所有数据）
+let sseConnection = null;
+let currentSseTab = null;  // 当前SSE连接的页面
+let sseTaskId = null;  // 当前SSE连接的任务ID
 
-// 关闭所有WebSocket连接
-function closeAllWebSockets() {
-    if (wsConnections.klineCollect) {
+// 关闭SSE连接
+function closeSSEConnection() {
+    if (sseConnection) {
         try {
-            wsConnections.klineCollect.close();
+            sseConnection.close();
+            console.log('[SSE] 关闭SSE连接');
         } catch (e) {
-            console.warn('关闭K线采集WebSocket失败:', e);
+            console.warn('[SSE] 关闭SSE连接失败:', e);
         }
-        wsConnections.klineCollect = null;
+        sseConnection = null;
     }
-    if (wsConnections.selection) {
-        try {
-            wsConnections.selection.close();
-        } catch (e) {
-            console.warn('关闭选股WebSocket失败:', e);
-        }
-        wsConnections.selection = null;
-    }
-    if (wsConnections.market) {
-        try {
-            wsConnections.market.close();
-        } catch (e) {
-            console.warn('关闭行情WebSocket失败:', e);
-        }
-        wsConnections.market = null;
-    }
-    Object.keys(wsConnections.stock).forEach(code => {
-        try {
-            wsConnections.stock[code].close();
-        } catch (e) {
-            console.warn(`关闭股票${code} WebSocket失败:`, e);
-        }
-        delete wsConnections.stock[code];
-    });
+    currentSseTab = null;
+    sseTaskId = null;
 }
 
-// 页面卸载时关闭所有WebSocket连接
-window.addEventListener('beforeunload', closeAllWebSockets);
-window.addEventListener('pagehide', closeAllWebSockets);
+// 连接SSE（统一推送服务）
+function connectSSE(currentTab = null, taskId = null) {
+    // 如果连接已存在且参数相同，不需要重新连接
+    if (sseConnection && currentSseTab === currentTab && sseTaskId === taskId) {
+        console.log('[SSE] 连接已存在且参数相同，跳过重新连接');
+        return;
+    }
+    
+    // 关闭旧连接
+    closeSSEConnection();
+    
+    // 构建SSE URL
+    const params = new URLSearchParams();
+    if (currentTab) {
+        params.append('current_tab', currentTab);
+    }
+    if (taskId) {
+        params.append('task_id', taskId);
+    }
+    
+    const sseUrl = `${API_BASE}/api/sse/stream${params.toString() ? '?' + params.toString() : ''}`;
+    console.log('[SSE] 连接SSE:', sseUrl);
+    
+    try {
+        sseConnection = new EventSource(sseUrl);
+        currentSseTab = currentTab;
+        sseTaskId = taskId;
+        
+        sseConnection.onopen = () => {
+            console.log('[SSE] 连接已建立:', sseUrl);
+        };
+        
+        sseConnection.onmessage = (event) => {
+            try {
+                // 跳过心跳消息
+                if (event.data.trim() === '' || event.data.startsWith(':')) {
+                    return;
+                }
+                
+                const message = JSON.parse(event.data);
+                console.log('[SSE] 收到消息:', message.type);
+                
+                // 根据消息类型处理
+                handleSSEMessage(message);
+            } catch (e) {
+                console.error('[SSE] 解析消息失败:', e, '原始数据:', event.data);
+            }
+        };
+        
+        sseConnection.onerror = (error) => {
+            console.error('[SSE] 连接错误:', error);
+            // SSE会自动重连，这里可以记录错误
+        };
+        
+    } catch (e) {
+        console.error('[SSE] 连接失败:', e);
+    }
+}
+
+// 处理SSE消息
+function handleSSEMessage(message) {
+    switch (message.type) {
+        case 'market':
+            // 市场行情数据更新
+            handleMarketUpdate(message.data);
+            break;
+        case 'watchlist_sync':
+            // 自选股同步
+            handleWatchlistSync(message.action, message.data);
+            break;
+        case 'kline_collect_progress':
+            // K线采集进度
+            handleKlineCollectProgress(message.task_id, message.progress);
+            break;
+        case 'selection_progress':
+            // 选股进度
+            handleSelectionProgress(message.task_id, message.progress);
+            break;
+        default:
+            console.log('[SSE] 未知消息类型:', message.type);
+    }
+}
+
+// 处理市场行情数据更新（SSE推送）
+function handleMarketUpdate(data) {
+    const tbody = document.getElementById('stock-list');
+    if (!tbody) return;
+    
+    const marketTab = document.getElementById('market-tab');
+    if (!marketTab || !marketTab.classList.contains('active')) {
+        return;  // 不在行情页，不更新
+    }
+    
+    const marketSelect = document.getElementById('market-select');
+    const currentMarket = marketSelect ? marketSelect.value || 'a' : 'a';
+    
+    // 根据当前选择的市场获取对应数据
+    const stocks = currentMarket === 'a' ? (data.a || []) : (data.hk || []);
+    
+    if (stocks.length === 0) return;
+    
+    // 只更新第一页的数据（避免影响滚动位置和分页）
+    const existingRows = Array.from(tbody.querySelectorAll('tr'));
+    const updateCount = Math.min(stocks.length, existingRows.length);
+    
+    // 构建股票代码到数据的映射
+    const stockMap = {};
+    stocks.forEach(stock => {
+        stockMap[stock.code] = stock;
+    });
+    
+    // 更新现有行的数据
+    for (let i = 0; i < updateCount; i++) {
+        const row = existingRows[i];
+        if (!row) continue;
+        
+        const stockData = JSON.parse(row.getAttribute('data-stock') || '{}');
+        const code = stockData.code;
+        
+        if (code && stockMap[code]) {
+            const updatedStock = stockMap[code];
+            const watchlist = getWatchlist();
+            const isInWatchlist = watchlist.some(s => s.code === code);
+            
+            // 更新行数据
+            row.setAttribute('data-stock', JSON.stringify(updatedStock));
+            row.innerHTML = `
+                <td>${updatedStock.code}</td>
+                <td>${updatedStock.name}</td>
+                <td>${updatedStock.price?.toFixed(2) || '-'}</td>
+                <td class="${updatedStock.pct >= 0 ? 'up' : 'down'}">
+                    ${updatedStock.pct?.toFixed(2) || '-'}%
+                </td>
+                <td>${formatVolume(updatedStock.volume)}</td>
+                <td>
+                    <button class="add-watchlist-btn" data-code="${updatedStock.code}" data-name="${updatedStock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: pointer; ${isInWatchlist ? 'opacity: 0.6;' : ''}" onclick="event.stopPropagation();">${isInWatchlist ? '已添加' : '加入自选'}</button>
+                </td>
+            `;
+            
+            // 重新绑定事件
+            row.addEventListener('click', function(e) {
+                if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                    return;
+                }
+                e.preventDefault();
+                const stockData = JSON.parse(this.getAttribute('data-stock'));
+                openKlineModal(stockData.code, stockData.name, stockData);
+            });
+            
+            const watchlistBtn = row.querySelector('.add-watchlist-btn');
+            if (watchlistBtn) {
+                const code = watchlistBtn.getAttribute('data-code');
+                const name = watchlistBtn.getAttribute('data-name');
+                watchlistBtn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addToWatchlist(code, name);
+                };
+            }
+        }
+    }
+    
+    // 更新按钮状态
+    updateWatchlistButtonStates();
+}
+
+// 处理自选股同步（SSE推送）
+function handleWatchlistSync(action, data) {
+    console.log('[SSE] 自选股同步:', action, '数据数量:', data?.length || 0);
+    
+    if (action === 'init' || action === 'update') {
+        const serverData = data || [];
+        const localData = getWatchlist();
+        const localCodes = localData.map(s => s.code).sort().join(',');
+        const serverCodes = serverData.map(s => s.code).sort().join(',');
+        
+        console.log('[SSE] 本地代码:', localCodes);
+        console.log('[SSE] 服务器代码:', serverCodes);
+        
+        // 如果数据有变化，更新本地缓存
+        if (localCodes !== serverCodes) {
+            console.log('[SSE] 检测到数据变化，更新本地缓存');
+            localStorage.setItem('watchlist', JSON.stringify(serverData));
+            
+            // 更新按钮状态
+            updateWatchlistButtonStates();
+            
+            // 如果当前在自选页，刷新列表
+            const watchlistTab = document.getElementById('watchlist-tab');
+            if (watchlistTab && watchlistTab.classList.contains('active')) {
+                console.log('[SSE] 当前在自选页，刷新列表');
+                localStorage.removeItem(WATCHLIST_CACHE_KEY);
+                loadWatchlist(true);
+            }
+        } else {
+            console.log('[SSE] 数据无变化，跳过更新');
+        }
+    }
+}
+
+// 处理K线采集进度（SSE推送）
+function handleKlineCollectProgress(taskId, progress) {
+    // 这里需要根据实际的进度显示逻辑来处理
+    // 暂时保留，后续需要时再实现
+    console.log('[SSE] K线采集进度:', taskId, progress);
+}
+
+// 处理选股进度（SSE推送）
+function handleSelectionProgress(taskId, progress) {
+    // 这里需要根据实际的进度显示逻辑来处理
+    // 暂时保留，后续需要时再实现
+    console.log('[SSE] 选股进度:', taskId, progress);
+}
+
+// 页面卸载时关闭SSE连接
+window.addEventListener('beforeunload', closeSSEConnection);
+window.addEventListener('pagehide', closeSSEConnection);
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -156,12 +346,12 @@ function startApp() {
     initMarket(); // 始终初始化行情模块（即使不在行情页，也需要初始化事件监听）
     initWatchlist(); // 初始化自选股模块
     
-    // 根据当前tab加载数据
+    // 根据当前tab加载数据（首次加载）
     if (currentTab === 'market') {
         // 如果当前是行情页，检查是否有数据，没有才加载
         const tbody = document.getElementById('stock-list');
         if (!tbody || tbody.children.length === 0) {
-            loadMarket();
+            loadMarket(); // 首次加载后会连接SSE
         } else {
             // 检查是否有有效数据（不是loading或错误提示）
             const hasData = Array.from(tbody.children).some(tr => {
@@ -170,12 +360,16 @@ function startApp() {
                 return cells.length > 1 && text.trim() && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
             });
             if (!hasData) {
-                loadMarket();
+                loadMarket(); // 首次加载后会连接SSE
+            } else {
+                // 如果已有数据，立即连接SSE
+                connectSSE('market');
             }
         }
     } else if (currentTab === 'watchlist') {
         // 如果当前是自选页，加载自选股列表（使用缓存）
         loadWatchlist(false); // 不强制刷新，使用缓存
+        // WebSocket已在initWatchlist中连接
     }
     
     initKlineModal();
@@ -264,9 +458,9 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
-        // 切换到自选页时，无感刷新：先显示缓存数据，然后后台静默更新
+        // 切换到自选页时，先显示缓存数据，通过SSE实时推送更新
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，无感刷新：先显示缓存，后台更新');
+            console.log('[自选] 切换到自选页，使用SSE实时推送');
             
             // 先使用缓存数据快速显示（如果存在）
             const cachedData = getCachedWatchlistData();
@@ -277,52 +471,31 @@ function switchToTab(targetTab, addHistory = true) {
                 // 先渲染缓存数据（无感显示）
                 renderWatchlistStocks(cachedData, false, true);
             } else if (localWatchlist.length > 0) {
-                // 如果没有缓存但有自选列表，立即加载（显示加载状态）
-                console.log('[自选] 无缓存数据，立即加载');
-                loadWatchlist(true);
+                // 如果没有缓存但有自选列表，先同步一次数据
+                console.log('[自选] 无缓存数据，先同步一次');
+                syncWatchlistFromServer().then(serverData => {
+                    if (serverData !== null) {
+                        localStorage.setItem('watchlist', JSON.stringify(serverData));
+                        loadWatchlist(true);
+                    } else {
+                        loadWatchlist(true);
+                    }
+                }).catch(() => {
+                    loadWatchlist(true);
+                });
             } else {
                 // 如果自选列表为空，显示占位符
                 console.log('[自选] 自选列表为空');
                 loadWatchlist(false);
             }
             
-            // 后台静默同步最新数据（不影响用户当前查看）
-            syncWatchlistFromServer().then(serverData => {
-                if (serverData !== null) {
-                    console.log('[自选] 后台同步成功，共', serverData.length, '只股票');
-                    const localData = getWatchlist();
-                    const localCodes = localData.map(s => s.code).sort().join(',');
-                    const serverCodes = serverData.map(s => s.code).sort().join(',');
-                    
-                    // 如果服务器数据与本地数据不同，静默更新（不闪烁）
-                    if (localCodes !== serverCodes) {
-                        console.log('[自选] 检测到数据变化，静默更新');
-                        console.log('[自选] 本地代码:', localCodes);
-                        console.log('[自选] 服务器代码:', serverCodes);
-                        // 更新本地缓存
-                        localStorage.setItem('watchlist', JSON.stringify(serverData));
-                        // 清除数据缓存，静默重新加载（不显示加载状态）
-                        localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                        // 静默刷新：如果当前在自选页，才刷新
-                        const watchlistTab = document.getElementById('watchlist-tab');
-                        if (watchlistTab && watchlistTab.classList.contains('active')) {
-                            loadWatchlist(true);
-                        }
-                    } else {
-                        console.log('[自选] 数据无变化，保持当前显示');
-                    }
-                } else {
-                    console.log('[自选] 后台同步失败，继续使用当前数据');
-                }
-            }).catch(err => {
-                console.error('[自选] 后台同步失败:', err);
-                // 同步失败不影响当前显示
-            });
+            // 连接SSE实时推送
+            connectSSE('watchlist');
         }
         
-        // 切换到行情页时，每次刷新数据并更新按钮状态
+        // 切换到行情页时，连接WebSocket实时推送，移除自动刷新
         if (targetTab === 'market') {
-            console.log('[行情] 切换到行情页，刷新数据并更新按钮状态');
+            console.log('[行情] 切换到行情页，连接WebSocket实时推送');
             
             // 先同步服务器最新自选列表（确保按钮状态准确）
             syncWatchlistFromServer().then(serverData => {
@@ -341,19 +514,17 @@ function switchToTab(targetTab, addHistory = true) {
                 updateWatchlistButtonStates();
             });
             
-            // 每次都重新加载行情数据
-            // 延迟加载，确保tab切换动画完成
-            setTimeout(() => {
-                // 再次检查是否仍在行情页
-                const marketTab = document.getElementById('market-tab');
-                if (marketTab && marketTab.classList.contains('active')) {
-                    console.log('[行情] 切换到行情页，开始加载行情数据');
-                    // 重置分页状态，从头开始加载
-                    currentPage = 1;
-                    hasMore = true;
-                    loadMarket();
-                }
-            }, 100);
+            // 如果表格为空，先加载一次初始数据
+            const tbody = document.getElementById('stock-list');
+            if (!tbody || tbody.children.length === 0) {
+                console.log('[行情] 行情页表格为空，加载初始数据');
+                currentPage = 1;
+                hasMore = true;
+                loadMarket();
+            }
+            
+            // 连接行情WebSocket实时推送
+            connectMarketWebSocket();
         }
     }
 }
@@ -453,16 +624,7 @@ async function initMarket() {
     }
     
     // 注意：不在这里加载数据，由startApp()根据当前tab决定是否加载
-    // 但需要设置自动刷新定时器（如果当前是行情页）
-    const marketTab = document.getElementById('market-tab');
-    if (marketTab && marketTab.classList.contains('active')) {
-        // 无感自动刷新：每30秒静默刷新当前页数据（不重置分页）
-        marketRefreshInterval = setInterval(() => {
-            if (!isLoading && currentPage === 1) {
-                silentRefreshMarket();
-            }
-        }, 30000); // 30秒刷新一次
-    }
+    // 不再使用定时刷新，改用WebSocket实时推送
 }
 
 // 静默刷新（不显示加载提示，不重置分页）
@@ -661,6 +823,11 @@ async function loadMarket() {
             
             if (result.data && result.data.length > 0) {
                 appendStockList(result.data);
+                
+                // 如果是第一页且首次加载，连接SSE实时推送
+                if (currentPage === 1) {
+                    connectSSE('market');
+                }
                 
                 // 检查是否还有更多数据
                 if (result.pagination) {
@@ -2313,106 +2480,7 @@ function initWatchlist() {
         console.error('[自选] 从服务器同步失败:', err);
     });
     
-    // 连接WebSocket实时同步自选股变化
-    let watchlistWs = null;
-    function connectWatchlistWebSocket() {
-        try {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // 注意：WebSocket路径是 /ws/watchlist，不是 /api/ws/watchlist
-            const wsUrl = `${wsProtocol}//${window.location.host}/ws/watchlist`;
-            console.log('[自选] WebSocket连接URL:', wsUrl, '(注意：应该是/ws/watchlist，不是/api/ws/watchlist)');
-            watchlistWs = new WebSocket(wsUrl);
-            
-            watchlistWs.onopen = () => {
-                console.log('[自选] WebSocket连接已建立，URL:', wsUrl);
-            };
-            
-            watchlistWs.onmessage = (event) => {
-                try {
-                    console.log('[自选] 收到WebSocket消息:', event.data);
-                    const message = JSON.parse(event.data);
-                    if (message.type === 'watchlist_sync') {
-                        console.log('[自选] WebSocket消息类型:', message.action, '数据数量:', message.data?.length || 0);
-                        if (message.action === 'init' || message.action === 'update') {
-                            const serverData = message.data || [];
-                            const localData = getWatchlistFromCache();
-                            const localCodes = localData.map(s => s.code).sort().join(',');
-                            const serverCodes = serverData.map(s => s.code).sort().join(',');
-                            
-                            console.log('[自选] 本地代码:', localCodes);
-                            console.log('[自选] 服务器代码:', serverCodes);
-                            
-                            // 如果数据有变化，更新本地缓存
-                            if (localCodes !== serverCodes) {
-                                console.log('[自选] 检测到数据变化，更新本地缓存');
-                                localStorage.setItem('watchlist', JSON.stringify(serverData));
-                                
-                                // 更新按钮状态
-                                updateWatchlistButtonStates();
-                                
-                                // 如果当前在自选页，刷新列表
-                                const watchlistTab = document.getElementById('watchlist-tab');
-                                if (watchlistTab && watchlistTab.classList.contains('active')) {
-                                    console.log('[自选] 当前在自选页，刷新列表');
-                                    localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                                    loadWatchlist(true);
-                                }
-                            } else {
-                                console.log('[自选] 数据无变化，跳过更新');
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error('[自选] 解析WebSocket消息失败:', e, '原始数据:', event.data);
-                }
-            };
-            
-            watchlistWs.onerror = (error) => {
-                console.error('[自选] WebSocket错误:', error, 'URL:', wsUrl, 'readyState:', watchlistWs?.readyState);
-                // 检查URL是否正确
-                if (wsUrl.includes('/api/ws/watchlist')) {
-                    console.error('[自选] ❌ 错误：URL包含/api/ws/watchlist，应该是/ws/watchlist！');
-                    console.error('[自选] ❌ 这通常是浏览器缓存了旧代码。请强制刷新浏览器（Ctrl+Shift+R 或 Cmd+Shift+R）');
-                }
-            };
-            
-            watchlistWs.onclose = (event) => {
-                console.log('[自选] WebSocket连接已关闭，code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, 'URL:', wsUrl);
-                // 如果是403错误（code 1008或1006），说明路径不正确，可能是缓存问题
-                if (event.code === 1008 || event.code === 1006 || (!event.wasClean && event.code !== 1000)) {
-                    if (wsUrl.includes('/api/ws/watchlist')) {
-                        console.error('[自选] ❌ 连接被拒绝，URL路径不正确。当前URL:', wsUrl);
-                        console.error('[自选] ❌ 应该是: ws://' + window.location.host + '/ws/watchlist');
-                        console.error('[自选] ❌ 这通常是浏览器缓存了旧代码。请强制刷新浏览器（Ctrl+Shift+R 或 Cmd+Shift+R）');
-                    } else {
-                        console.warn('[自选] WebSocket连接失败，可能的原因：路径错误、服务器未启动、或网络问题');
-                    }
-                }
-                console.log('[自选] 5秒后重连...');
-                // 5秒后重连
-                setTimeout(connectWatchlistWebSocket, 5000);
-            };
-            
-            // 每30秒发送一次ping，保持连接活跃
-            setInterval(() => {
-                if (watchlistWs && watchlistWs.readyState === WebSocket.OPEN) {
-                    try {
-                        watchlistWs.send('ping');
-                    } catch (e) {
-                        console.debug('发送WebSocket ping失败:', e);
-                    }
-                }
-            }, 30000);
-            
-        } catch (e) {
-            console.error('连接自选股WebSocket失败:', e);
-            // 5秒后重试
-            setTimeout(connectWatchlistWebSocket, 5000);
-        }
-    }
-    
-    // 建立WebSocket连接
-    connectWatchlistWebSocket();
+    // SSE连接已在全局管理，当切换到自选页时会通过connectSSE('watchlist')连接
     
     // 监听 localStorage 变化，实现跨标签页同步
     window.addEventListener('storage', (e) => {

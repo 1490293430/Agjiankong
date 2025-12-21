@@ -161,6 +161,13 @@ def fetch_a_stock_spot(max_retries: int = 10) -> List[Dict[str, Any]]:
             }
             set_json("market:a:spot_diff", diff_payload, ex=300)
 
+            # 4. 通过SSE广播市场数据更新
+            try:
+                from market.service.sse import broadcast_market_update
+                broadcast_market_update("a")
+            except Exception as e:
+                logger.debug(f"SSE广播A股数据失败（不影响数据采集）: {e}")
+
             logger.info(
                 f"A股行情采集成功，全量{len(result)}只股票，其中新增{len(added)}只，更新{len(updated)}只，删除{len(removed_codes)}只"
             )

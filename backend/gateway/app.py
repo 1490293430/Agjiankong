@@ -204,7 +204,11 @@ app.include_router(
 # WebSocket路由注册（不使用prefix，保持原有路径）
 # 注意：WebSocket不支持dependencies，所以不使用认证依赖
 # 前端连接路径：/ws/watchlist, /ws/selection/progress 等（不需要/api前缀）
+# 保留WebSocket用于向后兼容，但推荐使用SSE
 app.include_router(ws_router)
+
+# SSE路由注册（统一推送服务）
+app.include_router(sse_router, prefix="/api")
 
 # 创建其他路由
 api_router = APIRouter(
@@ -276,28 +280,24 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
         if success:
             logger.info(f"[自选] 自选股列表保存成功，共{len(validated_stocks)}只股票: {[s['code'] for s in validated_stocks]}")
             
-            # 通过WebSocket广播给所有连接的客户端（后台任务）
-            async def broadcast_watchlist_update():
+            # 通过SSE广播给所有连接的客户端（后台任务）
+            async def do_sse_broadcast():
                 try:
-                    from market.service.ws import watchlist_manager
-                    logger.info(f"[自选] 开始广播，当前WebSocket连接数: {len(watchlist_manager.active_connections)}")
-                    await watchlist_manager.broadcast({
-                        "type": "watchlist_sync",
-                        "action": "update",
-                        "data": validated_stocks
-                    })
-                    logger.info(f"[自选] 自选股变化已广播给{len(watchlist_manager.active_connections)}个客户端")
+                    from market.service.sse import broadcast_watchlist_update
+                    logger.info(f"[自选] 开始SSE广播")
+                    broadcast_watchlist_update(validated_stocks)
+                    logger.info(f"[自选] 自选股变化已通过SSE广播")
                 except Exception as e:
-                    logger.error(f"[自选] 广播自选股变化失败: {e}", exc_info=True)
+                    logger.error(f"[自选] SSE广播自选股变化失败: {e}", exc_info=True)
             
             if background_tasks:
                 logger.info(f"[自选] 使用background_tasks异步广播")
-                background_tasks.add_task(broadcast_watchlist_update)
+                background_tasks.add_task(do_sse_broadcast)
             else:
                 # 如果没有background_tasks，直接执行（可能阻塞）
                 logger.info(f"[自选] 直接执行广播（无background_tasks）")
                 try:
-                    await broadcast_watchlist_update()
+                    await do_sse_broadcast()
                 except Exception as e:
                     logger.error(f"[自选] 广播自选股变化失败: {e}", exc_info=True)
             

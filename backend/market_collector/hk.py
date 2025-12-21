@@ -199,6 +199,13 @@ def fetch_hk_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             }
             set_json("market:hk:spot_diff", diff_payload, ex=300)
             
+            # 4. 通过SSE广播市场数据更新
+            try:
+                from market.service.sse import broadcast_market_update
+                broadcast_market_update("hk")
+            except Exception as e:
+                logger.debug(f"SSE广播港股数据失败（不影响数据采集）: {e}")
+            
             logger.info(
                 f"港股行情采集成功，全量{len(result)}只股票，其中新增{len(added)}只，更新{len(updated)}只，删除{len(removed_codes)}只"
             )
