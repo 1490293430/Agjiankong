@@ -395,7 +395,8 @@ function startApp() {
     } else if (currentTab === 'watchlist') {
         // 如果当前是自选页，加载自选股列表（使用缓存）
         loadWatchlist(false); // 不强制刷新，使用缓存
-        // WebSocket已在initWatchlist中连接
+        // 连接SSE实时推送
+        connectSSE('watchlist');
     }
     
     initKlineModal();
@@ -519,9 +520,9 @@ function switchToTab(targetTab, addHistory = true) {
             connectSSE('watchlist');
         }
         
-        // 切换到行情页时，连接WebSocket实时推送，移除自动刷新
+        // 切换到行情页时，连接SSE实时推送
         if (targetTab === 'market') {
-            console.log('[行情] 切换到行情页，连接WebSocket实时推送');
+            console.log('[行情] 切换到行情页，连接SSE实时推送');
             
             // 先同步服务器最新自选列表（确保按钮状态准确）
             syncWatchlistFromServer().then(serverData => {
@@ -549,8 +550,8 @@ function switchToTab(targetTab, addHistory = true) {
                 loadMarket();
             }
             
-            // 连接行情WebSocket实时推送
-            connectMarketWebSocket();
+            // 连接SSE实时推送
+            connectSSE('market');
         }
     }
 }
