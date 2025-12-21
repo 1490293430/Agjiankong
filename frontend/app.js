@@ -264,52 +264,65 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
-        // 切换到自选页时，清除缓存并强制从本地数据加载（确保显示最新数据）
+        // 切换到自选页时，无感刷新：先显示缓存数据，然后后台静默更新
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，清除缓存并重新加载');
-            // 清除数据缓存（强制重新获取行情数据）
-            localStorage.removeItem(WATCHLIST_CACHE_KEY);
+            console.log('[自选] 切换到自选页，无感刷新：先显示缓存，后台更新');
             
-            // 获取本地自选列表（应该是最新的，因为addToWatchlist已经更新了localStorage）
+            // 先使用缓存数据快速显示（如果存在）
+            const cachedData = getCachedWatchlistData();
             const localWatchlist = getWatchlist();
-            console.log('[自选] 切换到自选页，本地自选列表:', localWatchlist.map(s => s.code), '共', localWatchlist.length, '只');
             
-            // 强制刷新加载（使用本地自选列表数据，但重新获取行情数据）
-            loadWatchlist(true);
+            if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
+                console.log('[自选] 使用缓存数据快速显示，共', cachedData.length, '只股票');
+                // 先渲染缓存数据（无感显示）
+                renderWatchlistStocks(cachedData, false, true);
+            } else if (localWatchlist.length > 0) {
+                // 如果没有缓存但有自选列表，立即加载（显示加载状态）
+                console.log('[自选] 无缓存数据，立即加载');
+                loadWatchlist(true);
+            } else {
+                // 如果自选列表为空，显示占位符
+                console.log('[自选] 自选列表为空');
+                loadWatchlist(false);
+            }
             
-            // 然后异步从服务器同步最新数据（后台更新，确保多设备同步）
+            // 后台静默同步最新数据（不影响用户当前查看）
             syncWatchlistFromServer().then(serverData => {
                 if (serverData !== null) {
-                    console.log('[自选] 切换到自选页，从服务器同步成功，共', serverData.length, '只股票');
+                    console.log('[自选] 后台同步成功，共', serverData.length, '只股票');
                     const localData = getWatchlist();
                     const localCodes = localData.map(s => s.code).sort().join(',');
                     const serverCodes = serverData.map(s => s.code).sort().join(',');
                     
-                    // 如果服务器数据与本地数据不同，更新本地缓存并刷新列表
+                    // 如果服务器数据与本地数据不同，静默更新（不闪烁）
                     if (localCodes !== serverCodes) {
-                        console.log('[自选] 检测到服务器数据与本地数据不同，更新并刷新');
+                        console.log('[自选] 检测到数据变化，静默更新');
                         console.log('[自选] 本地代码:', localCodes);
                         console.log('[自选] 服务器代码:', serverCodes);
                         // 更新本地缓存
                         localStorage.setItem('watchlist', JSON.stringify(serverData));
-                        // 清除数据缓存，强制重新加载
+                        // 清除数据缓存，静默重新加载（不显示加载状态）
                         localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                        loadWatchlist(true);
+                        // 静默刷新：如果当前在自选页，才刷新
+                        const watchlistTab = document.getElementById('watchlist-tab');
+                        if (watchlistTab && watchlistTab.classList.contains('active')) {
+                            loadWatchlist(true);
+                        }
                     } else {
-                        console.log('[自选] 服务器数据与本地数据一致，无需更新');
+                        console.log('[自选] 数据无变化，保持当前显示');
                     }
                 } else {
-                    console.log('[自选] 切换到自选页，服务器同步失败，继续使用本地数据');
+                    console.log('[自选] 后台同步失败，继续使用当前数据');
                 }
             }).catch(err => {
-                console.error('[自选] 切换到自选页，服务器同步失败:', err);
-                // 服务器同步失败不影响，继续使用本地数据
+                console.error('[自选] 后台同步失败:', err);
+                // 同步失败不影响当前显示
             });
         }
         
-        // 切换到行情页时，检查是否已有数据显示，并更新按钮状态
+        // 切换到行情页时，每次刷新数据并更新按钮状态
         if (targetTab === 'market') {
-            console.log('[行情] 切换到行情页，先同步自选列表，然后更新按钮状态');
+            console.log('[行情] 切换到行情页，刷新数据并更新按钮状态');
             
             // 先同步服务器最新自选列表（确保按钮状态准确）
             syncWatchlistFromServer().then(serverData => {
@@ -328,25 +341,16 @@ function switchToTab(targetTab, addHistory = true) {
                 updateWatchlistButtonStates();
             });
             
-            const tbody = document.getElementById('stock-list');
-            // 如果表格已存在且有数据（不是loading提示），不重新加载
-            if (tbody && tbody.children.length > 0) {
-                const hasLoading = tbody.querySelector('.loading');
-                const hasData = Array.from(tbody.children).some(tr => {
-                    const text = tr.textContent || '';
-                    return text.trim() && !text.includes('加载中') && !text.includes('加载失败');
-                });
-                if (hasData && !hasLoading) {
-                    console.log('[行情] 行情页已有数据，跳过加载（按钮状态会在同步后更新）');
-                    return;
-                }
-            }
-            // 如果表格为空或只有loading/错误提示，加载数据
+            // 每次都重新加载行情数据
             // 延迟加载，确保tab切换动画完成
             setTimeout(() => {
                 // 再次检查是否仍在行情页
                 const marketTab = document.getElementById('market-tab');
                 if (marketTab && marketTab.classList.contains('active')) {
+                    console.log('[行情] 切换到行情页，开始加载行情数据');
+                    // 重置分页状态，从头开始加载
+                    currentPage = 1;
+                    hasMore = true;
                     loadMarket();
                 }
             }, 100);
@@ -598,25 +602,8 @@ async function loadMarket() {
         return;
     }
     
-    // 检查是否已有有效数据（不是loading或错误提示）
-    if (tbody.children.length > 0 && currentPage === 1) {
-        const hasLoading = tbody.querySelector('.loading');
-        const hasError = Array.from(tbody.children).some(tr => {
-            const text = tr.textContent || '';
-            return text.includes('加载失败') || text.includes('请求超时') || text.includes('网络错误');
-        });
-        const hasData = Array.from(tbody.children).some(tr => {
-            const text = tr.textContent || '';
-            const cells = tr.querySelectorAll('td');
-            // 如果有多个td且不是loading/错误提示，认为有数据
-            return cells.length > 1 && text.trim() && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
-        });
-        
-        if (hasData && !hasLoading && !hasError) {
-            console.log('行情页已有数据，跳过加载');
-            return;
-        }
-    }
+    // 行情页每次都刷新，不再检查是否已有数据
+    // 但如果当前正在加载中，跳过重复请求（已在函数开头检查isLoading）
     
     const marketSelect = document.getElementById('market-select');
     if (!marketSelect) {
@@ -2484,7 +2471,7 @@ async function loadWatchlist(forceRefresh = false) {
             const cachedData = getCachedWatchlistData();
             if (cachedData && cachedData.length > 0) {
                 console.log('[自选] loadWatchlist: 使用缓存的自选股数据，共', cachedData.length, '只');
-                renderWatchlistStocks(cachedData, false);
+                renderWatchlistStocks(cachedData, false, true); // silent=true 静默渲染
                 return;
             }
         } else {
@@ -2605,10 +2592,12 @@ async function loadWatchlist(forceRefresh = false) {
 }
 
 // 渲染自选股列表（复用函数）
-function renderWatchlistStocks(watchlistStocks, forceRender = false) {
+function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = false) {
     const tbodyEl = document.getElementById('watchlist-stock-list');
     
-    console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票, forceRender=', forceRender);
+    if (!silent) {
+        console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票, forceRender=', forceRender);
+    }
     
     // 如果强制渲染，跳过数据比较
     if (!forceRender && tbodyEl && tbodyEl.children.length > 0) {
@@ -2620,13 +2609,17 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false) {
         
         const newCodes = watchlistStocks.map(s => String(s.code).trim());
         
-        console.log('[自选] renderWatchlistStocks: 现有代码:', existingCodes, '新代码:', newCodes);
+        if (!silent) {
+            console.log('[自选] renderWatchlistStocks: 现有代码:', existingCodes, '新代码:', newCodes);
+        }
         
-        // 如果数据相同，不重新渲染
+        // 如果数据相同，不重新渲染（无感更新）
         if (existingCodes.length === newCodes.length && 
             existingCodes.length > 0 &&
             existingCodes.every((code, idx) => code === newCodes[idx])) {
-            console.log('[自选] renderWatchlistStocks: 数据未变化，跳过渲染');
+            if (!silent) {
+                console.log('[自选] renderWatchlistStocks: 数据未变化，跳过渲染');
+            }
             return;
         }
     }
@@ -2696,7 +2689,9 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false) {
         finalTbodyEl.appendChild(tr);
     });
     
-    console.log('[自选] renderWatchlistStocks: 渲染完成，共', watchlistStocks.length, '只股票');
+    if (!silent) {
+        console.log('[自选] renderWatchlistStocks: 渲染完成，共', watchlistStocks.length, '只股票');
+    }
     
     // 绑定移除按钮事件
     document.querySelectorAll('.remove-watchlist-btn').forEach(btn => {
