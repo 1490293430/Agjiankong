@@ -139,19 +139,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (validTabs.includes(pathTab)) {
                 const savedTab = localStorage.getItem('currentTab');
                 if (savedTab !== pathTab) {
-                    switchToTab(pathTab, false); // 首次加载，不添加历史记录（因为URL已经是对的了）
+                    // 使用replaceState更新URL，不添加历史记录
+                    if (window.history && window.history.replaceState) {
+                        window.history.replaceState({ tab: pathTab }, '', `/${pathTab}${window.location.search}`);
+                    }
+                    switchToTab(pathTab, false); // 首次加载，不添加历史记录
                 }
             } else {
                 // 无效路径，重定向到默认tab
-                switchToTab('market', true);
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState({ tab: 'market' }, '', '/market');
+                }
+                switchToTab('market', false);
             }
         }
     } else {
         // 根路径，重定向到默认tab
+        const defaultTab = localStorage.getItem('currentTab') || 'market';
         if (window.history && window.history.replaceState) {
-            window.history.replaceState({ tab: 'market' }, '', '/market');
+            window.history.replaceState({ tab: defaultTab }, '', `/${defaultTab}${window.location.search}`);
         }
-        switchToTab('market', false);
+        switchToTab(defaultTab, false);
     }
 });
 
@@ -275,10 +283,16 @@ function switchToTab(targetTab, addHistory = true) {
         // 保存当前tab到localStorage
         localStorage.setItem('currentTab', targetTab);
         
-        // 添加历史记录（使用路径模式，如 /market, /watchlist）
-        if (addHistory && window.history && window.history.pushState) {
+        // 更新URL（使用路径模式，如 /market, /watchlist）
+        if (window.history) {
             const url = `/${targetTab}${window.location.search}`;
-            window.history.pushState({ tab: targetTab }, '', url);
+            if (addHistory && window.history.pushState) {
+                // 添加历史记录（用户操作）
+                window.history.pushState({ tab: targetTab }, '', url);
+            } else if (window.history.replaceState) {
+                // 替换当前历史记录（初始化或程序化切换）
+                window.history.replaceState({ tab: targetTab }, '', url);
+            }
         }
         
         // 切换到自选页时，检查是否已有数据显示
@@ -342,6 +356,11 @@ function initTabs() {
                 initialTab = pathTab;
             }
         }
+    }
+    
+    // 如果当前路径是根路径，立即更新URL
+    if (path === '/' && window.history && window.history.replaceState) {
+        window.history.replaceState({ tab: initialTab }, '', `/${initialTab}${window.location.search}`);
     }
     
     // 立即切换到初始tab（不添加历史记录，因为这是首次加载）
@@ -815,6 +834,9 @@ function initKlineModal() {
         });
     }
     
+    // 初始化指标控制面板内容（在打开模态框之前就填充，不依赖指标数据加载）
+    initIndicatorPanels();
+    
     // 检查是否有保存的K线状态，页面刷新后自动恢复
     try {
         const savedKlineState = localStorage.getItem('klineModalState');
@@ -832,6 +854,175 @@ function initKlineModal() {
         }
     } catch (e) {
         console.warn('恢复K线模态弹窗状态失败:', e);
+    }
+}
+
+// 初始化指标控制面板内容（独立函数，不依赖指标数据）
+function initIndicatorPanels() {
+    const volumeContainer = document.getElementById('volume-controls');
+    const emaContainer = document.getElementById('ema-controls');
+    if (!volumeContainer || !emaContainer) {
+        console.warn('指标控制面板容器不存在');
+        return;
+    }
+    
+    // 从localStorage加载配置
+    const savedEmaConfig = localStorage.getItem('emaConfig');
+    if (savedEmaConfig) {
+        try {
+            emaConfig = JSON.parse(savedEmaConfig);
+        } catch (e) {
+            console.warn('解析EMA配置失败:', e);
+        }
+    }
+    const savedVolumeVisible = localStorage.getItem('volumeVisible');
+    if (savedVolumeVisible !== null) {
+        volumeVisible = savedVolumeVisible === 'true';
+    }
+    
+    // 成交量控制内容
+    volumeContainer.innerHTML = `
+        <label class="indicator-switch">
+            <input type="checkbox" id="volume-toggle" ${volumeVisible ? 'checked' : ''}>
+            <span>成交量显示</span>
+        </label>
+    `;
+    
+    // EMA 控制内容
+    emaContainer.innerHTML = `
+        <div class="indicator-switch">
+            <input type="checkbox" id="ema-toggle" ${emaConfig.enabled ? 'checked' : ''}>
+            <span>EMA</span>
+        </div>
+        <div class="indicator-control-body" id="ema-config-group" style="${emaConfig.enabled ? '' : 'display: none;'}">
+            <div class="ema-inputs">
+                <label>EMA配置：</label>
+                <input type="number" id="ema1" value="${emaConfig.values[0]}" min="1" max="500" placeholder="周期1">
+                <input type="number" id="ema2" value="${emaConfig.values[1]}" min="1" max="500" placeholder="周期2">
+                <input type="number" id="ema3" value="${emaConfig.values[2]}" min="1" max="500" placeholder="周期3">
+            </div>
+        </div>
+    `;
+    
+    // 绑定事件（每次重新绑定，因为innerHTML会清除事件）
+    const volumeToggle = document.getElementById('volume-toggle');
+    if (volumeToggle) {
+        // 移除旧的事件监听器（如果存在）
+        const newVolumeToggle = volumeToggle.cloneNode(true);
+        volumeToggle.parentNode.replaceChild(newVolumeToggle, volumeToggle);
+        newVolumeToggle.addEventListener('change', function(e) {
+            volumeVisible = e.target.checked;
+            localStorage.setItem('volumeVisible', volumeVisible);
+            if (volumeSeries) {
+                volumeSeries.applyOptions({ visible: volumeVisible });
+            }
+        });
+    }
+    
+    const emaToggle = document.getElementById('ema-toggle');
+    if (emaToggle) {
+        // 移除旧的事件监听器（如果存在）
+        const newEmaToggle = emaToggle.cloneNode(true);
+        emaToggle.parentNode.replaceChild(newEmaToggle, emaToggle);
+        newEmaToggle.addEventListener('change', function(e) {
+            emaConfig.enabled = e.target.checked;
+            localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
+            const emaGroup = document.getElementById('ema-config-group');
+            if (emaGroup) {
+                emaGroup.style.display = emaConfig.enabled ? '' : 'none';
+            }
+            updateEMA();
+        });
+    }
+    
+    // EMA 数值输入：输入即生效（无需"应用"按钮）
+    const emaInputs = ['ema1', 'ema2', 'ema3'];
+    const defaultPeriods = [20, 50, 100];
+    emaInputs.forEach((id, index) => {
+        const inputEl = document.getElementById(id);
+        if (!inputEl) return;
+        // 移除旧的事件监听器（如果存在）
+        const newInputEl = inputEl.cloneNode(true);
+        inputEl.parentNode.replaceChild(newInputEl, inputEl);
+        newInputEl.addEventListener('input', (e) => {
+            const raw = parseInt(e.target.value, 10);
+            const period = Number.isFinite(raw) && raw > 0 ? raw : defaultPeriods[index];
+            emaConfig.values[index] = period;
+            // 确保输入框里也回显合法数值
+            if (raw !== period) {
+                e.target.value = period;
+            }
+            localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
+            if (emaConfig.enabled) {
+                updateEMA();
+            }
+        });
+    });
+    
+    // 绑定折叠行为（点击"成交量"或"EMA"头部时展开/收起）
+    // 直接绑定到每个toggle按钮，确保事件正常工作
+    // 使用事件委托，避免重复绑定问题
+    const controlsBar = document.querySelector('.kline-controls-bar');
+    if (controlsBar) {
+        // 移除旧的事件监听器（如果存在）
+        if (controlsBar._indicatorToggleHandler) {
+            controlsBar.removeEventListener('click', controlsBar._indicatorToggleHandler);
+        }
+        
+        // 创建新的事件处理函数
+        controlsBar._indicatorToggleHandler = (e) => {
+            // 检查点击的是否是indicator-toggle或其子元素
+            const toggle = e.target.closest('.indicator-toggle');
+            if (!toggle) return;
+            
+            e.stopPropagation(); // 阻止事件冒泡
+            e.preventDefault(); // 阻止默认行为
+            
+            const targetId = toggle.getAttribute('data-target');
+            const content = document.getElementById(targetId);
+            if (!content) {
+                console.warn('找不到目标元素:', targetId);
+                return;
+            }
+            
+            console.log('点击了indicator-toggle:', targetId, '当前状态:', toggle.classList.contains('active'));
+            
+            // 切换active类
+            const isActive = toggle.classList.contains('active');
+            if (isActive) {
+                toggle.classList.remove('active');
+                content.classList.remove('active');
+                console.log('关闭面板:', targetId);
+            } else {
+                // 关闭其他已打开的panel
+                document.querySelectorAll('.indicator-toggle.active').forEach(otherToggle => {
+                    otherToggle.classList.remove('active');
+                    const otherPanel = document.getElementById(otherToggle.getAttribute('data-target'));
+                    if (otherPanel) otherPanel.classList.remove('active');
+                });
+                
+                toggle.classList.add('active');
+                content.classList.add('active');
+                console.log('打开面板:', targetId, '元素存在:', !!content, '有active类:', content.classList.contains('active'));
+            }
+        };
+        
+        controlsBar.addEventListener('click', controlsBar._indicatorToggleHandler);
+    }
+    
+    // 点击外部关闭panel（使用事件委托，避免重复绑定）
+    // 使用全局变量标记，避免重复绑定
+    if (!window.klineExternalClickBound) {
+        window.klineExternalClickBound = true;
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.kline-indicators-group')) {
+                document.querySelectorAll('.indicator-toggle.active').forEach(toggle => {
+                    toggle.classList.remove('active');
+                    const panel = document.getElementById(toggle.getAttribute('data-target'));
+                    if (panel) panel.classList.remove('active');
+                });
+            }
+        });
     }
 }
 
@@ -883,11 +1074,13 @@ function openKlineModal(code, name, stockData = null) {
     
     modal.style.display = 'flex';
     
-    // 等待模态框完全显示后再加载图表
+    // 等待模态框完全显示后再初始化面板和加载图表
     // 使用简单的延迟，确保DOM已渲染
     setTimeout(() => {
+        // 确保指标面板已初始化（在模态框显示后）
+        initIndicatorPanels();
         loadChart(code);
-    }, 200);
+    }, 100);
 }
 
 // 加载股票详情
@@ -1216,7 +1409,15 @@ async function loadChart(code) {
                 
                 // 加载技术指标（异步，不阻塞K线显示）
                 setTimeout(() => {
-                    loadIndicators(code);
+                    try {
+                        loadIndicators(code).catch(err => {
+                            console.error('加载指标失败（异步）:', err);
+                            // 静默失败，不影响K线图显示
+                        });
+                    } catch (err) {
+                        console.error('调用loadIndicators失败:', err);
+                        // 静默失败，不影响K线图显示
+                    }
                 }, 500);
             } catch (renderError) {
                 console.error('渲染K线图失败:', renderError);
@@ -1765,23 +1966,41 @@ async function loadIndicators(code) {
         if (!response.ok) {
             if (response.status === 401) {
                 console.warn('加载指标失败 - 认证失败，可能需要重新登录');
+            } else if (response.status === 500) {
+                // 服务器错误，可能是数据格式问题，记录但不影响K线图
+                console.error('加载指标失败 - 服务器错误:', response.status);
+                try {
+                    const errorText = await response.text();
+                    console.error('错误详情:', errorText.substring(0, 200)); // 只显示前200字符
+                } catch (e) {
+                    // 忽略解析错误
+                }
             } else {
                 const errorText = await response.text();
-                console.error('加载指标失败 - HTTP错误:', response.status, errorText);
+                console.error('加载指标失败 - HTTP错误:', response.status, errorText.substring(0, 200));
             }
             return; // 静默失败，不影响K线图显示
         }
         
         const result = await response.json();
         
-        if (result.code === 0) {
-            renderIndicators(result.data);
+        if (result.code === 0 && result.data) {
+            try {
+                renderIndicators(result.data);
+            } catch (renderError) {
+                console.error('渲染指标失败:', renderError);
+                // 渲染失败不影响K线图
+            }
         } else {
             console.warn('加载指标失败 - API错误:', result.message || '未知错误');
         }
     } catch (error) {
         console.error('加载指标失败:', error);
         // 静默失败，不影响K线图显示
+        // 确保不会因为指标加载失败而导致整个页面崩溃
+        if (error instanceof TypeError && error.message.includes('JSON')) {
+            console.warn('指标数据格式错误，跳过显示');
+        }
     }
 }
 
@@ -1794,130 +2013,11 @@ let volumeVisible = false;  // 默认关闭
 let emaSeries = [];
 
 function renderIndicators(indicators) {
-    const volumeContainer = document.getElementById('volume-controls');
-    const emaContainer = document.getElementById('ema-controls');
-    if (!volumeContainer || !emaContainer) return;
-    
-    // 从localStorage加载配置
-    const savedEmaConfig = localStorage.getItem('emaConfig');
-    if (savedEmaConfig) {
-        emaConfig = JSON.parse(savedEmaConfig);
-    }
-    const savedVolumeVisible = localStorage.getItem('volumeVisible');
-    if (savedVolumeVisible !== null) {
-        volumeVisible = savedVolumeVisible === 'true';
-    }
-    
-    // 成交量控制内容
-    volumeContainer.innerHTML = `
-        <label class="indicator-switch">
-            <input type="checkbox" id="volume-toggle" ${volumeVisible ? 'checked' : ''}>
-            <span>成交量显示</span>
-        </label>
-    `;
-    
-    // EMA 控制内容
-    emaContainer.innerHTML = `
-        <div class="indicator-switch">
-            <input type="checkbox" id="ema-toggle" ${emaConfig.enabled ? 'checked' : ''}>
-            <span>EMA</span>
-        </div>
-        <div class="indicator-control-body" id="ema-config-group" style="${emaConfig.enabled ? '' : 'display: none;'}">
-            <div class="ema-inputs">
-                <label>EMA配置：</label>
-                <input type="number" id="ema1" value="${emaConfig.values[0]}" min="1" max="500" placeholder="周期1">
-                <input type="number" id="ema2" value="${emaConfig.values[1]}" min="1" max="500" placeholder="周期2">
-                <input type="number" id="ema3" value="${emaConfig.values[2]}" min="1" max="500" placeholder="周期3">
-            </div>
-        </div>
-    `;
-    
-    // 绑定事件
-    document.getElementById('volume-toggle').addEventListener('change', function(e) {
-        volumeVisible = e.target.checked;
-        localStorage.setItem('volumeVisible', volumeVisible);
-        if (volumeSeries) {
-            volumeSeries.applyOptions({ visible: volumeVisible });
-        }
-    });
-    
-    document.getElementById('ema-toggle').addEventListener('change', function(e) {
-        emaConfig.enabled = e.target.checked;
-        localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
-        const emaGroup = document.getElementById('ema-config-group');
-        if (emaGroup) {
-            emaGroup.style.display = emaConfig.enabled ? '' : 'none';
-        }
-        updateEMA();
-    });
-    
-    // EMA 数值输入：输入即生效（无需“应用”按钮）
-    const emaInputs = ['ema1', 'ema2', 'ema3'];
-    const defaultPeriods = [20, 50, 100];
-    emaInputs.forEach((id, index) => {
-        const inputEl = document.getElementById(id);
-        if (!inputEl) return;
-        inputEl.addEventListener('input', (e) => {
-            const raw = parseInt(e.target.value, 10);
-            const period = Number.isFinite(raw) && raw > 0 ? raw : defaultPeriods[index];
-            emaConfig.values[index] = period;
-            // 确保输入框里也回显合法数值
-            if (raw !== period) {
-                e.target.value = period;
-            }
-            localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
-            if (emaConfig.enabled) {
-                updateEMA();
-            }
-        });
-    });
-    
-    // 初始化显示状态
+    // 指标数据已加载，更新显示状态（面板内容已在initIndicatorPanels中初始化）
     if (volumeSeries) {
         volumeSeries.applyOptions({ visible: volumeVisible });
     }
     updateEMA();
-    
-    // 绑定折叠行为（点击"成交量"或"EMA"头部时展开/收起）
-    document.querySelectorAll('.indicator-toggle').forEach(el => {
-        el.addEventListener('click', (e) => {
-            e.stopPropagation(); // 阻止事件冒泡
-            const targetId = el.getAttribute('data-target');
-            const content = document.getElementById(targetId);
-            if (!content) {
-                console.warn('找不到目标元素:', targetId);
-                return;
-            }
-            
-            // 切换active类
-            const isActive = el.classList.contains('active');
-            if (isActive) {
-                el.classList.remove('active');
-                content.classList.remove('active');
-            } else {
-                // 关闭其他已打开的panel
-                document.querySelectorAll('.indicator-toggle.active').forEach(toggle => {
-                    toggle.classList.remove('active');
-                    const panel = document.getElementById(toggle.getAttribute('data-target'));
-                    if (panel) panel.classList.remove('active');
-                });
-                
-                el.classList.add('active');
-                content.classList.add('active');
-            }
-        });
-    });
-    
-    // 点击外部关闭panel
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.kline-indicators-group')) {
-            document.querySelectorAll('.indicator-toggle.active').forEach(toggle => {
-                toggle.classList.remove('active');
-                const panel = document.getElementById(toggle.getAttribute('data-target'));
-                if (panel) panel.classList.remove('active');
-            });
-        }
-    });
 }
 
 function updateEMA() {

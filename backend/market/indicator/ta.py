@@ -338,7 +338,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     if len(df) >= 20:
         high_20d = df["high"].tail(20).max()
         result["high_20d"] = float(high_20d)
-        result["break_high_20d"] = float(latest["close"]) >= high_20d
+        result["break_high_20d"] = bool(float(latest["close"]) >= high_20d)  # 转换为Python bool
     
     # 布林带状态判断
     if len(df) >= 20:
@@ -349,8 +349,24 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         prev_width = float(boll_width.iloc[-2]) if len(df) >= 21 else current_width
         result["boll_width"] = current_width
         result["boll_width_prev"] = prev_width
-        result["boll_expanding"] = current_width > prev_width  # 开口
-        result["boll_contracting"] = current_width < prev_width  # 收口
+        result["boll_expanding"] = bool(current_width > prev_width)  # 开口，转换为Python bool
+        result["boll_contracting"] = bool(current_width < prev_width)  # 收口，转换为Python bool
+    
+    # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
+    def convert_numpy_types(value):
+        if isinstance(value, np.integer):
+            return int(value)
+        elif isinstance(value, np.floating):
+            return float(value)
+        elif isinstance(value, np.bool_):
+            return bool(value)
+        elif pd.isna(value):
+            return None
+        return value
+    
+    # 递归转换所有值
+    for key, value in result.items():
+        result[key] = convert_numpy_types(value)
     
     return result
 

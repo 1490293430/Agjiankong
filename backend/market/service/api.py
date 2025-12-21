@@ -260,6 +260,7 @@ async def get_a_stock_indicators(
 ):
     """获取A股技术指标"""
     try:
+        import numpy as np
         # 获取K线数据
         kline_data = fetch_a_stock_kline(code, period="daily")
         if not kline_data:
@@ -270,6 +271,24 @@ async def get_a_stock_indicators(
         
         # 计算指标
         indicators = calculate_all_indicators(df)
+        
+        # 双重保险：确保所有numpy类型都转换为Python原生类型
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            elif pd.isna(obj):
+                return None
+            return obj
+        
+        indicators = convert_numpy_types(indicators)
         
         return {"code": 0, "data": indicators, "message": "success"}
     except Exception as e:
