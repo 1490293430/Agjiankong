@@ -264,20 +264,37 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
-        // 切换到自选页时，检查是否已有数据显示
+        // 切换到自选页时，总是从服务器同步最新数据
         if (targetTab === 'watchlist') {
-            const tbody = document.getElementById('watchlist-stock-list');
-            // 如果表格已存在且有数据，不重新加载
-            if (tbody && tbody.children.length > 0) {
-                console.log('自选页已有数据，跳过加载');
-                return;
-            }
-            // 否则使用缓存加载
-            loadWatchlist(false); // 不强制刷新，使用缓存
+            console.log('[自选] 切换到自选页，清除缓存并重新加载');
+            // 清除缓存，强制从服务器同步最新数据
+            localStorage.removeItem(WATCHLIST_CACHE_KEY);
+            // 从服务器同步最新数据
+            syncWatchlistFromServer().then(serverData => {
+                if (serverData !== null) {
+                    console.log('[自选] 切换到自选页，从服务器同步成功，共', serverData.length, '只股票');
+                    // 更新本地缓存
+                    localStorage.setItem('watchlist', JSON.stringify(serverData));
+                    // 加载列表（强制刷新）
+                    loadWatchlist(true);
+                } else {
+                    // 如果服务器同步失败，使用本地缓存加载
+                    console.log('[自选] 切换到自选页，服务器同步失败，使用本地缓存');
+                    loadWatchlist(false);
+                }
+            }).catch(err => {
+                console.error('[自选] 切换到自选页，服务器同步失败:', err);
+                // 如果服务器同步失败，使用本地缓存加载
+                loadWatchlist(false);
+            });
         }
         
-        // 切换到行情页时，检查是否已有数据显示
+        // 切换到行情页时，检查是否已有数据显示，并更新按钮状态
         if (targetTab === 'market') {
+            // 总是更新按钮状态（因为自选股可能在切换页面时已变化）
+            console.log('[行情] 切换到行情页，更新按钮状态');
+            updateWatchlistButtonStates();
+            
             const tbody = document.getElementById('stock-list');
             // 如果表格已存在且有数据（不是loading提示），不重新加载
             if (tbody && tbody.children.length > 0) {
@@ -287,7 +304,7 @@ function switchToTab(targetTab, addHistory = true) {
                     return text.trim() && !text.includes('加载中') && !text.includes('加载失败');
                 });
                 if (hasData && !hasLoading) {
-                    console.log('行情页已有数据，跳过加载');
+                    console.log('[行情] 行情页已有数据，跳过加载（按钮状态已更新）');
                     return;
                 }
             }
