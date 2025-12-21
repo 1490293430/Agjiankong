@@ -469,14 +469,25 @@ function startApp() {
 }
 
 // 主题切换
+let themeInitialized = false;
 function initTheme() {
+    if (themeInitialized) {
+        return; // 已经初始化过，避免重复初始化
+    }
+    
     const body = document.body;
     const btn = document.getElementById('theme-toggle');
     
     if (!btn) {
-        console.warn('[主题] 主题切换按钮不存在');
+        console.warn('[主题] 主题切换按钮不存在，将在DOM加载后重试');
+        // 延迟重试，确保DOM已加载
+        setTimeout(() => {
+            initTheme();
+        }, 100);
         return;
     }
+    
+    themeInitialized = true;
     
     const saved = localStorage.getItem('theme');
     // 如果主题已在页面加载前设置（通过head中的脚本），这里只是确保应用（不会重复添加）
@@ -486,8 +497,8 @@ function initTheme() {
     
     updateThemeButtonText(btn, body);
     
-    // 绑定点击事件（移除旧的事件监听器，避免重复绑定）
-    btn.onclick = () => {
+    // 绑定点击事件
+    btn.addEventListener('click', () => {
         body.classList.toggle('light-mode');
         const mode = body.classList.contains('light-mode') ? 'light' : 'dark';
         localStorage.setItem('theme', mode);
@@ -495,7 +506,7 @@ function initTheme() {
         // 主题切换时更新图表主题
         updateChartTheme();
         console.log('[主题] 主题已切换为:', mode);
-    };
+    });
 }
 
 function updateThemeButtonText(btn, body) {
@@ -5150,11 +5161,24 @@ async function scheduleAutoAnalyze() {
 // 交易模块已删除，替换为AI分析模块
 
 // 资讯模块
+let newsInitialized = false;
 function initNews() {
-    const refreshBtn = document.getElementById('refresh-news-btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', loadNews);
+    if (newsInitialized) {
+        return; // 已经初始化过，避免重复初始化
     }
+    
+    const refreshBtn = document.getElementById('refresh-news-btn');
+    if (!refreshBtn) {
+        console.warn('[资讯] 刷新按钮不存在，将在DOM加载后重试');
+        // 延迟重试，确保DOM已加载
+        setTimeout(() => {
+            initNews();
+        }, 100);
+        return;
+    }
+    
+    newsInitialized = true;
+    refreshBtn.addEventListener('click', loadNews);
     
     // 如果当前在资讯页，立即加载
     const newsTab = document.getElementById('news-tab');
@@ -5256,13 +5280,23 @@ function renderNews(newsList) {
 window.loadChart = loadChart;
 
 // 配置模块
+let configInitialized = false;
 function initConfig() {
+    if (configInitialized) {
+        return; // 已经初始化过，避免重复初始化
+    }
+    
     const saveBtn = document.getElementById('cfg-save-btn');
     if (!saveBtn) {
-        console.warn('[配置] 保存按钮不存在');
+        console.warn('[配置] 保存按钮不存在，将在DOM加载后重试');
+        // 延迟重试，确保DOM已加载
+        setTimeout(() => {
+            initConfig();
+        }, 100);
         return;
     }
 
+    configInitialized = true;
     saveBtn.addEventListener('click', saveConfig);
     
     // 如果当前在配置页，立即加载
@@ -5691,11 +5725,20 @@ let marketStatusInterval = null;
 
 function initMarketStatus() {
     console.log('initMarketStatus: 初始化市场状态模块');
+    
+    // 清除旧的定时器（如果存在）
+    if (marketStatusInterval) {
+        clearInterval(marketStatusInterval);
+        marketStatusInterval = null;
+    }
+    
     // 立即更新一次
     updateMarketStatus();
     
     // 每10秒更新一次市场状态
-    marketStatusInterval = setInterval(updateMarketStatus, 10000);
+    marketStatusInterval = setInterval(() => {
+        updateMarketStatus();
+    }, 10000);
 }
 
 // 市场状态更新锁，防止重复更新
@@ -5718,12 +5761,24 @@ async function updateMarketStatus() {
     if (!aStatusEl || !hkStatusEl) {
         console.warn('市场状态元素未找到，aStatusEl:', aStatusEl, 'hkStatusEl:', hkStatusEl);
         // 如果元素不存在，等待一段时间后重试（可能是DOM还没加载完成）
-        setTimeout(() => {
-            console.log('updateMarketStatus: 延迟重试');
-            updateMarketStatus();
-        }, 1000);
+        // 最多重试5次
+        if (!updateMarketStatus.retryCount) {
+            updateMarketStatus.retryCount = 0;
+        }
+        if (updateMarketStatus.retryCount < 5) {
+            updateMarketStatus.retryCount++;
+            setTimeout(() => {
+                console.log('updateMarketStatus: 延迟重试', updateMarketStatus.retryCount);
+                updateMarketStatus();
+            }, 1000);
+        } else {
+            console.error('updateMarketStatus: 重试次数过多，停止重试');
+        }
         return;
     }
+    
+    // 重置重试计数
+    updateMarketStatus.retryCount = 0;
     
     // 如果元素存在但内容为空，显示"加载中..."
     if (!aStatusEl.textContent || aStatusEl.textContent === '') {
