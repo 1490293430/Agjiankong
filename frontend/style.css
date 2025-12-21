@@ -272,10 +272,10 @@ body.light-mode .market-status-value.loading {
     border-radius: 8px;
     overflow-y: auto;
     overflow-x: hidden;
-    /* 使用更灵活的高度计算，确保在不同情况下都能滚动 */
-    max-height: calc(100vh - 250px); /* 减少固定值，给更多空间 */
+    /* 使用固定高度，确保容器可以滚动 */
+    height: calc(100vh - 320px); /* 固定高度，确保可以滚动（减去header、controls、提示文字等） */
     min-height: 400px; /* 设置最小高度，确保有足够空间显示内容 */
-    height: auto; /* 允许自动调整高度 */
+    max-height: calc(100vh - 250px); /* 最大高度限制 */
     -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
     position: relative; /* 确保滚动定位正确 */
 }
@@ -284,6 +284,7 @@ body.light-mode .market-status-value.loading {
 .stock-list-container .stock-table {
     width: 100%;
     table-layout: auto; /* 允许表格自动调整 */
+    margin: 0; /* 移除默认margin */
 }
 
 .stock-table {
