@@ -1051,16 +1051,59 @@ function openKlineModal(code, name, stockData = null) {
     modal.style.display = 'flex';
     
     // 在移动端，确保模态框内容从顶部可见（不被地址栏遮挡）
-    // 滚动到顶部
+    // 1. 立即滚动到顶部
     if (modal) {
         modal.scrollTop = 0;
     }
+    
+    // 2. 动态设置模态框高度，使用实际窗口高度（不考虑地址栏）
+    const setModalHeight = () => {
+        const modalContent = document.querySelector('.kline-modal-content');
+        if (modalContent) {
+            // 使用window.innerHeight（实际可视区域高度）而不是100vh
+            const actualHeight = window.innerHeight;
+            modalContent.style.height = `${actualHeight}px`;
+            modalContent.style.maxHeight = `${actualHeight}px`;
+            console.log('[K线] 设置模态框高度:', actualHeight);
+        }
+    };
+    
+    // 立即设置高度
+    setModalHeight();
+    
+    // 监听窗口大小变化（地址栏显示/隐藏时）
+    const handleResize = () => {
+        setModalHeight();
+        // 确保滚动到顶部
+        if (modal) {
+            modal.scrollTop = 0;
+        }
+        // 确保内容区域也滚动到顶部
+        const modalContent = document.querySelector('.kline-modal-content');
+        if (modalContent) {
+            modalContent.scrollTop = 0;
+        }
+    };
+    
+    // 移除旧的监听器（如果存在）
+    if (window._klineModalResizeHandler) {
+        window.removeEventListener('resize', window._klineModalResizeHandler);
+        window.removeEventListener('orientationchange', window._klineModalResizeHandler);
+    }
+    
+    // 添加新的监听器
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    
+    // 保存清理函数，关闭模态框时移除监听器
+    window._klineModalResizeHandler = handleResize;
     
     // 等待模态框完全显示后再初始化面板和加载图表
     // 使用requestAnimationFrame + setTimeout确保DOM已完全渲染（特别是手机端）
     requestAnimationFrame(() => {
         setTimeout(() => {
-            // 再次确保滚动到顶部（防止浏览器自动调整）
+            // 再次确保滚动到顶部和高度设置（防止浏览器自动调整）
+            setModalHeight();
             if (modal) {
                 modal.scrollTop = 0;
             }
@@ -1198,6 +1241,13 @@ function closeKlineModal(event) {
     const modal = document.getElementById('kline-modal');
     if (!modal || modal.style.display === 'none') {
         return false; // 如果已经关闭，直接返回
+    }
+    
+    // 清理窗口大小变化监听器
+    if (window._klineModalResizeHandler) {
+        window.removeEventListener('resize', window._klineModalResizeHandler);
+        window.removeEventListener('orientationchange', window._klineModalResizeHandler);
+        window._klineModalResizeHandler = null;
     }
     
     // 如果当前历史记录是K线图状态，替换为之前的tab页面（使用路径模式）
@@ -2198,27 +2248,27 @@ function saveCachedWatchlistData(data) {
 
 // 自选股模块
 function initWatchlist() {
-    // 绑定刷新按钮
-    const refreshBtn = document.getElementById('refresh-watchlist-btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            loadWatchlist(true); // 强制刷新
-        });
-    }
+    console.log('[自选] 初始化自选股模块');
     
     // 页面加载时从服务器同步自选股列表
+    console.log('[自选] 开始从服务器同步自选股列表...');
     syncWatchlistFromServer().then(serverData => {
         if (serverData !== null) {
-            console.log('自选股列表已从服务器同步');
+            console.log('[自选] 从服务器同步成功，共', serverData.length, '只股票');
             // 如果当前在自选页，刷新列表
             const watchlistTab = document.getElementById('watchlist-tab');
             if (watchlistTab && watchlistTab.classList.contains('active')) {
+                console.log('[自选] 当前在自选页，刷新列表');
                 localStorage.removeItem(WATCHLIST_CACHE_KEY);
                 loadWatchlist(true);
             }
             // 更新按钮状态
             updateWatchlistButtonStates();
+        } else {
+            console.log('[自选] 从服务器同步失败或数据为空，使用本地缓存');
         }
+    }).catch(err => {
+        console.error('[自选] 从服务器同步失败:', err);
     });
     
     // 连接WebSocket实时同步自选股变化
@@ -2227,25 +2277,31 @@ function initWatchlist() {
         try {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${wsProtocol}//${window.location.host}/ws/watchlist`;
+            console.log('[自选] WebSocket连接URL:', wsUrl);
             watchlistWs = new WebSocket(wsUrl);
             
             watchlistWs.onopen = () => {
-                console.log('自选股WebSocket连接已建立');
+                console.log('[自选] WebSocket连接已建立，URL:', wsUrl);
             };
             
             watchlistWs.onmessage = (event) => {
                 try {
+                    console.log('[自选] 收到WebSocket消息:', event.data);
                     const message = JSON.parse(event.data);
                     if (message.type === 'watchlist_sync') {
+                        console.log('[自选] WebSocket消息类型:', message.action, '数据数量:', message.data?.length || 0);
                         if (message.action === 'init' || message.action === 'update') {
                             const serverData = message.data || [];
                             const localData = getWatchlistFromCache();
                             const localCodes = localData.map(s => s.code).sort().join(',');
                             const serverCodes = serverData.map(s => s.code).sort().join(',');
                             
+                            console.log('[自选] 本地代码:', localCodes);
+                            console.log('[自选] 服务器代码:', serverCodes);
+                            
                             // 如果数据有变化，更新本地缓存
                             if (localCodes !== serverCodes) {
-                                console.log('收到自选股变化推送，更新本地数据');
+                                console.log('[自选] 检测到数据变化，更新本地缓存');
                                 localStorage.setItem('watchlist', JSON.stringify(serverData));
                                 
                                 // 更新按钮状态
@@ -2254,23 +2310,26 @@ function initWatchlist() {
                                 // 如果当前在自选页，刷新列表
                                 const watchlistTab = document.getElementById('watchlist-tab');
                                 if (watchlistTab && watchlistTab.classList.contains('active')) {
+                                    console.log('[自选] 当前在自选页，刷新列表');
                                     localStorage.removeItem(WATCHLIST_CACHE_KEY);
                                     loadWatchlist(true);
                                 }
+                            } else {
+                                console.log('[自选] 数据无变化，跳过更新');
                             }
                         }
                     }
                 } catch (e) {
-                    console.error('解析WebSocket消息失败:', e);
+                    console.error('[自选] 解析WebSocket消息失败:', e, '原始数据:', event.data);
                 }
             };
             
             watchlistWs.onerror = (error) => {
-                console.error('自选股WebSocket错误:', error);
+                console.error('[自选] WebSocket错误:', error, 'URL:', wsUrl, 'readyState:', watchlistWs?.readyState);
             };
             
-            watchlistWs.onclose = () => {
-                console.log('自选股WebSocket连接已关闭，5秒后重连...');
+            watchlistWs.onclose = (event) => {
+                console.log('[自选] WebSocket连接已关闭，code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, '5秒后重连...');
                 // 5秒后重连
                 setTimeout(connectWatchlistWebSocket, 5000);
             };
@@ -2576,18 +2635,29 @@ function getWatchlistFromCache() {
 // 从服务器同步自选股列表（异步，用于初始化）
 async function syncWatchlistFromServer() {
     try {
-        const response = await apiFetch(`${API_BASE}/api/watchlist`);
+        const url = `${API_BASE}/api/watchlist`;
+        console.log('[自选] syncWatchlistFromServer: 请求URL:', url);
+        const response = await apiFetch(url);
+        console.log('[自选] syncWatchlistFromServer: 响应状态:', response.status, response.statusText);
+        
         if (response.ok) {
             const result = await response.json();
+            console.log('[自选] syncWatchlistFromServer: 响应数据:', result);
             if (result.code === 0 && Array.isArray(result.data)) {
+                console.log('[自选] syncWatchlistFromServer: 同步成功，共', result.data.length, '只股票');
                 // 保存到本地缓存
                 localStorage.setItem('watchlist', JSON.stringify(result.data));
                 return result.data;
+            } else {
+                console.warn('[自选] syncWatchlistFromServer: 响应格式错误:', result);
             }
+        } else {
+            console.warn('[自选] syncWatchlistFromServer: HTTP错误:', response.status);
         }
     } catch (e) {
-        console.debug('从服务器同步自选股失败，使用本地缓存:', e);
+        console.error('[自选] syncWatchlistFromServer: 异常:', e);
     }
+    console.log('[自选] syncWatchlistFromServer: 同步失败，返回null');
     return null;
 }
 
@@ -2598,32 +2668,44 @@ function getWatchlist() {
 
 // 保存自选股列表（同时保存到服务器和本地）
 async function saveWatchlist(watchlist) {
+    console.log('[自选] saveWatchlist: 开始保存，股票数量:', watchlist.length);
     // 先保存到本地缓存（快速响应）
     localStorage.setItem('watchlist', JSON.stringify(watchlist));
+    console.log('[自选] saveWatchlist: 已保存到本地缓存');
     
     // 同步保存到服务器（等待响应，确保数据同步）
     try {
-        const response = await apiFetch(`${API_BASE}/api/watchlist`, {
+        const url = `${API_BASE}/api/watchlist`;
+        const payload = { stocks: watchlist };
+        console.log('[自选] saveWatchlist: 请求URL:', url);
+        console.log('[自选] saveWatchlist: 请求数据:', JSON.stringify(payload));
+        
+        const response = await apiFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stocks: watchlist })
+            body: JSON.stringify(payload)
         });
+        
+        console.log('[自选] saveWatchlist: 响应状态:', response.status, response.statusText);
         
         if (response.ok) {
             const result = await response.json();
+            console.log('[自选] saveWatchlist: 响应数据:', result);
             if (result.code === 0) {
-                console.debug('自选股列表已同步到服务器');
+                console.log('[自选] saveWatchlist: 保存成功，服务器返回', result.data?.length || 0, '只股票');
                 return true;
             } else {
-                console.warn('保存自选股到服务器失败:', result.message);
+                console.warn('[自选] saveWatchlist: 服务器返回错误:', result.message);
                 return false;
             }
         } else {
-            console.warn('保存自选股到服务器失败:', response.status);
+            console.warn('[自选] saveWatchlist: HTTP错误:', response.status, response.statusText);
+            const errorText = await response.text().catch(() => '');
+            console.warn('[自选] saveWatchlist: 错误响应体:', errorText);
             return false;
         }
     } catch (e) {
-        console.warn('保存自选股到服务器失败:', e);
+        console.error('[自选] saveWatchlist: 异常:', e);
         // 即使服务器保存失败，本地已保存，不影响使用
         return false;
     }
@@ -2631,21 +2713,31 @@ async function saveWatchlist(watchlist) {
 
 // 添加到自选股
 async function addToWatchlist(code, name) {
+    console.log('[自选] 开始添加股票到自选:', code, name);
     const watchlist = getWatchlist();
+    console.log('[自选] 当前自选列表:', watchlist.map(s => s.code));
+    
     if (watchlist.some(s => s.code === code)) {
+        console.log('[自选] 股票已在自选列表中，跳过');
         alert('该股票已在自选列表中');
         return;
     }
+    
     watchlist.push({ code, name, addTime: Date.now() });
+    console.log('[自选] 添加到列表后，共', watchlist.length, '只股票');
     
     // 等待保存到服务器完成（确保数据同步）
+    console.log('[自选] 开始保存到服务器...');
     const saved = await saveWatchlist(watchlist);
-    if (!saved) {
+    if (saved) {
+        console.log('[自选] 保存到服务器成功');
+    } else {
         // 如果保存失败，提示用户（但不阻止操作，因为本地已保存）
-        console.warn('保存到服务器失败，但已保存到本地');
+        console.warn('[自选] 保存到服务器失败，但已保存到本地');
     }
     
     // 触发自定义事件，通知当前标签页的其他部分更新
+    console.log('[自选] 触发watchlistChanged事件');
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'add', code, name } }));
     
     // 更新按钮状态
@@ -2654,6 +2746,7 @@ async function addToWatchlist(code, name) {
     // 如果当前在自选页，刷新列表（清除缓存，强制刷新）
     const watchlistTab = document.getElementById('watchlist-tab');
     if (watchlistTab && watchlistTab.classList.contains('active')) {
+        console.log('[自选] 当前在自选页，刷新列表');
         localStorage.removeItem(WATCHLIST_CACHE_KEY);
         loadWatchlist(true);
     }

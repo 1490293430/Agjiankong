@@ -231,10 +231,12 @@ async def get_latest_news():
 async def get_watchlist():
     """获取自选股列表"""
     try:
+        logger.info("[自选] 收到获取自选股列表请求")
         watchlist = get_json("watchlist:default") or []
+        logger.info(f"[自选] 返回自选股列表，共{len(watchlist)}只股票: {[s.get('code') for s in watchlist]}")
         return {"code": 0, "data": watchlist, "message": "success"}
     except Exception as e:
-        logger.error(f"获取自选股列表失败: {e}", exc_info=True)
+        logger.error(f"[自选] 获取自选股列表失败: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
 
 
@@ -246,8 +248,12 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
         stocks: 自选股列表，格式: [{"code": "000001", "name": "平安银行", "addTime": 1234567890}]
     """
     try:
+        logger.info(f"[自选] 收到保存请求，原始数据: {data}")
         stocks = data.get("stocks", [])
+        logger.info(f"[自选] 提取的stocks: {stocks}, 类型: {type(stocks)}, 长度: {len(stocks) if isinstance(stocks, list) else 'N/A'}")
+        
         if not isinstance(stocks, list):
+            logger.warning(f"[自选] stocks参数不是数组: {type(stocks)}")
             return {"code": 1, "data": [], "message": "stocks参数必须是数组"}
         
         # 验证数据格式
@@ -260,38 +266,48 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
                     "addTime": stock.get("addTime", int(time.time() * 1000))
                 })
         
+        logger.info(f"[自选] 验证后的股票列表: {validated_stocks}, 共{len(validated_stocks)}只")
+        
         # 保存到Redis
+        logger.info(f"[自选] 开始保存到Redis: watchlist:default")
         success = set_json("watchlist:default", validated_stocks)
+        logger.info(f"[自选] Redis保存结果: {success}")
+        
         if success:
-            logger.info(f"自选股列表保存成功，共{len(validated_stocks)}只股票")
+            logger.info(f"[自选] 自选股列表保存成功，共{len(validated_stocks)}只股票: {[s['code'] for s in validated_stocks]}")
             
             # 通过WebSocket广播给所有连接的客户端（后台任务）
             async def broadcast_watchlist_update():
                 try:
                     from market.service.ws import watchlist_manager
+                    logger.info(f"[自选] 开始广播，当前WebSocket连接数: {len(watchlist_manager.active_connections)}")
                     await watchlist_manager.broadcast({
                         "type": "watchlist_sync",
                         "action": "update",
                         "data": validated_stocks
                     })
-                    logger.debug(f"自选股变化已广播给{len(watchlist_manager.active_connections)}个客户端")
+                    logger.info(f"[自选] 自选股变化已广播给{len(watchlist_manager.active_connections)}个客户端")
                 except Exception as e:
-                    logger.warning(f"广播自选股变化失败: {e}")
+                    logger.error(f"[自选] 广播自选股变化失败: {e}", exc_info=True)
             
             if background_tasks:
+                logger.info(f"[自选] 使用background_tasks异步广播")
                 background_tasks.add_task(broadcast_watchlist_update)
             else:
                 # 如果没有background_tasks，直接执行（可能阻塞）
+                logger.info(f"[自选] 直接执行广播（无background_tasks）")
                 try:
                     await broadcast_watchlist_update()
                 except Exception as e:
-                    logger.warning(f"广播自选股变化失败: {e}")
+                    logger.error(f"[自选] 广播自选股变化失败: {e}", exc_info=True)
             
+            logger.info(f"[自选] 返回成功响应，数据: {validated_stocks}")
             return {"code": 0, "data": validated_stocks, "message": "success"}
         else:
+            logger.error(f"[自选] Redis保存失败")
             return {"code": 1, "data": [], "message": "保存失败"}
     except Exception as e:
-        logger.error(f"保存自选股列表失败: {e}", exc_info=True)
+        logger.error(f"[自选] 保存自选股列表异常: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
 
 

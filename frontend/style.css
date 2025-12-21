@@ -468,11 +468,8 @@ body.light-mode textarea {
     border-radius: 0;
     width: 100%;
     max-width: 100%;
-    /* 使用动态视口高度，避免被浏览器地址栏遮挡 */
-    height: 100dvh;          /* 动态视口高度（现代浏览器） */
-    height: 100vh;          /* 回退方案 */
-    max-height: 100dvh;
-    max-height: 100vh;
+    /* 高度由JavaScript动态设置（使用window.innerHeight） */
+    /* 不使用100vh，因为100vh包含了地址栏的高度 */
     display: flex;
     flex-direction: column;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -484,6 +481,8 @@ body.light-mode textarea {
     /* 确保内容从顶部开始，不被地址栏遮挡 */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    /* 确保从顶部开始 */
+    align-self: flex-start;
 }
 
 /* K线图头部 - 重构版 */
@@ -1819,17 +1818,27 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     /* K线图模态框在移动端全屏显示 */
     .kline-modal {
         align-items: flex-start; /* 确保从顶部开始 */
-        padding-top: 0; /* 移除顶部padding */
+        padding-top: 0 !important; /* 移除顶部padding */
+        margin-top: 0 !important; /* 移除顶部margin */
+        /* 确保从屏幕最顶部开始 */
+        top: 0 !important;
+        /* 使用实际窗口高度 */
+        height: 100vh;
+        height: 100dvh; /* 动态视口高度 */
+        max-height: 100vh;
+        max-height: 100dvh;
     }
     
     .kline-modal-content {
         border-radius: 0;
-        /* 在移动端使用100%高度，确保不被地址栏遮挡 */
-        height: 100%;
-        max-height: 100%;
+        /* 在移动端使用实际窗口高度（JavaScript动态设置） */
+        /* 不使用100vh，因为100vh包含了地址栏的高度 */
+        /* height和max-height由JavaScript动态设置 */
         /* 添加安全区域补偿（iPhone等设备） */
         padding-top: env(safe-area-inset-top, 0);
         padding-bottom: env(safe-area-inset-bottom, 0);
+        /* 确保内容从顶部开始 */
+        margin-top: 0 !important;
     }
     
     /* 移动端K线图优化 */
@@ -2003,10 +2012,31 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     }
     
     /* 超小屏幕K线图优化 */
+    .kline-modal {
+        /* 确保从屏幕最顶部开始，不考虑地址栏 */
+        top: 0 !important;
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
+    
+    .kline-modal-content {
+        /* 确保从顶部开始，添加安全区域补偿 */
+        margin-top: 0 !important;
+        padding-top: env(safe-area-inset-top, 0) !important;
+        /* 高度由JavaScript动态设置 */
+    }
+    
     .kline-modal-header {
         padding: 6px 8px;
         gap: 4px;
         max-height: 100px; /* 进一步限制头部高度 */
+        /* 确保头部在顶部可见 */
+        position: sticky;
+        top: env(safe-area-inset-top, 0); /* 考虑安全区域 */
+        z-index: 10;
+        background: #1e293b;
+        overflow-y: auto; /* 如果内容太多，可以滚动 */
+        -webkit-overflow-scrolling: touch;
     }
     
     .kline-title {
@@ -2018,6 +2048,8 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         font-size: 9px;
         padding: 4px 6px;
         max-height: 50px; /* 进一步限制股票详情高度 */
+        overflow-y: auto; /* 如果内容太多，可以滚动 */
+        -webkit-overflow-scrolling: touch;
     }
     
     .detail-label-inline {

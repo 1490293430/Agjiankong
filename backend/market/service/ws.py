@@ -84,13 +84,19 @@ class ConnectionManager:
             self.disconnect(websocket)
     
     async def broadcast(self, message: dict):
+        logger.info(f"[自选] 开始广播消息，当前连接数: {len(self.active_connections)}")
         disconnected = []
+        success_count = 0
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
+                success_count += 1
+                logger.debug(f"[自选] 消息发送成功到连接 {id(connection)}")
             except Exception as e:
-                logger.error(f"广播消息失败: {e}")
+                logger.error(f"[自选] 广播消息失败: {e}", exc_info=True)
                 disconnected.append(connection)
+        
+        logger.info(f"[自选] 广播完成，成功: {success_count}, 失败: {len(disconnected)}")
         
         # 移除断开的连接
         for conn in disconnected:
@@ -425,16 +431,26 @@ async def websocket_stock(websocket: WebSocket, code: str):
 @router.websocket("/ws/watchlist")
 async def websocket_watchlist(websocket: WebSocket):
     """自选股同步WebSocket（实时推送自选股变化）"""
-    await watchlist_manager.connect(websocket)
+    logger.info("[自选] WebSocket连接请求，路径: /ws/watchlist")
+    try:
+        await watchlist_manager.connect(websocket)
+        logger.info(f"[自选] WebSocket连接建立成功，当前连接数: {len(watchlist_manager.active_connections)}")
+    except Exception as e:
+        logger.error(f"[自选] WebSocket连接失败: {e}", exc_info=True)
+        return
     
     try:
         # 首次连接时立即推送一次当前自选股列表
+        logger.info("[自选] 获取当前自选股列表...")
         watchlist = get_json("watchlist:default") or []
+        logger.info(f"[自选] 当前自选股列表: {[s.get('code') for s in watchlist]}, 共{len(watchlist)}只")
+        
         await watchlist_manager.send_personal_message({
             "type": "watchlist_sync",
             "action": "init",
             "data": watchlist
         }, websocket)
+        logger.info(f"[自选] 已发送初始数据给客户端")
         
         # 保持连接，等待服务器推送更新
         while True:
@@ -447,8 +463,8 @@ async def websocket_watchlist(websocket: WebSocket):
             
     except WebSocketDisconnect:
         watchlist_manager.disconnect(websocket)
-        logger.info("自选股WebSocket客户端断开连接")
+        logger.info("[自选] WebSocket客户端断开连接")
     except Exception as e:
-        logger.error(f"自选股WebSocket错误: {e}", exc_info=True)
+        logger.error(f"[自选] WebSocket错误: {e}", exc_info=True)
         watchlist_manager.disconnect(websocket)
 
