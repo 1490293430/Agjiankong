@@ -29,7 +29,14 @@ let sseReconnectTimer = null;
 let sseReconnectDelay = 1000; // 初始延迟1秒
 
 // WebSocket连接管理器（用于K线采集和选股进度）
-let wsConnections = {
+// 确保在全局作用域中定义，避免作用域问题
+if (typeof window !== 'undefined') {
+    window.wsConnections = window.wsConnections || {
+        klineCollect: null,  // K线采集进度WebSocket连接
+        selection: null      // 选股进度WebSocket连接
+    };
+}
+let wsConnections = window.wsConnections || {
     klineCollect: null,  // K线采集进度WebSocket连接
     selection: null      // 选股进度WebSocket连接
 };
@@ -1050,6 +1057,101 @@ let currentMarket = 'a';
 
 // 已移除marketRefreshInterval，改用SSE实时推送
 
+// 行情页滚动处理函数（提升到全局作用域，供loadMarket使用）
+let marketScrollTimer = null;
+function handleMarketScroll() {
+    // 检查行情页是否激活
+    const marketTab = document.getElementById('market-tab');
+    if (!marketTab || !marketTab.classList.contains('active')) {
+        return;
+    }
+    
+    // 防抖处理
+    if (marketScrollTimer) {
+        clearTimeout(marketScrollTimer);
+    }
+    
+    marketScrollTimer = setTimeout(() => {
+        // 重新获取容器引用（可能DOM已更新）
+        const currentContainer = document.querySelector('.stock-list-container');
+        let scrollTop, scrollHeight, clientHeight;
+        let usingContainer = false;
+        
+        // 优先使用容器滚动（如果容器存在且可以滚动）
+        if (currentContainer) {
+            const containerScrollHeight = currentContainer.scrollHeight;
+            const containerClientHeight = currentContainer.clientHeight;
+            
+            // 检查容器是否可以滚动（内容高度大于可视高度）
+            if (containerScrollHeight > containerClientHeight + 10) { // 加10px容差
+                scrollTop = currentContainer.scrollTop;
+                scrollHeight = containerScrollHeight;
+                clientHeight = containerClientHeight;
+                usingContainer = true;
+            }
+        }
+        
+        // 如果容器无法滚动，使用window滚动（桌面端）
+        if (!usingContainer) {
+            scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            scrollHeight = document.documentElement.scrollHeight;
+            clientHeight = window.innerHeight;
+        }
+        
+        // 距离底部100px时加载下一页
+        const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+        
+        // 详细日志（仅在接近底部时输出，避免日志过多）
+        if (distanceToBottom < 200) {
+            console.log('[行情] 滚动检测:', { 
+                distanceToBottom: distanceToBottom.toFixed(2),
+                scrollTop: scrollTop.toFixed(2),
+                scrollHeight,
+                clientHeight,
+                isLoading, 
+                hasMore, 
+                currentPage,
+                usingContainer: usingContainer ? 'container' : 'window',
+                shouldLoad: distanceToBottom <= 100 && !isLoading && hasMore
+            });
+        }
+        
+        if (distanceToBottom <= 100 && !isLoading && hasMore) {
+            console.log('[行情] ✅ 触发无限滚动，加载下一页，当前页:', currentPage);
+            loadMarket();
+        }
+    }, 150); // 增加防抖时间到150ms，减少频繁触发
+}
+
+// 设置滚动监听器（提升到全局作用域，供loadMarket使用）
+let scrollListenersSetup = false;
+function setupMarketScrollListeners() {
+    const currentContainer = document.querySelector('.stock-list-container');
+    
+    // 监听容器滚动（优先）
+    if (currentContainer) {
+        // 移除旧的监听器（如果存在）
+        currentContainer.removeEventListener('scroll', handleMarketScroll);
+        // 添加新的监听器
+        currentContainer.addEventListener('scroll', handleMarketScroll, { passive: true });
+        console.log('[行情] ✅ 已设置容器滚动监听器', {
+            clientHeight: currentContainer.clientHeight,
+            scrollHeight: currentContainer.scrollHeight,
+            canScroll: currentContainer.scrollHeight > currentContainer.clientHeight,
+            rowCount: document.getElementById('stock-list')?.children.length || 0
+        });
+    } else {
+        console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
+    }
+    
+    // window滚动监听器只设置一次（避免重复添加）
+    if (!scrollListenersSetup) {
+        window.addEventListener('scroll', handleMarketScroll, { passive: true });
+        console.log('[行情] ✅ 已设置window滚动监听器');
+        scrollListenersSetup = true;
+    }
+}
+
 async function initMarket() {
     const marketSelect = document.getElementById('market-select');
     const searchInput = document.getElementById('search-input');
@@ -1065,107 +1167,11 @@ async function initMarket() {
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
     
-    // 监听滚动事件实现无限加载（支持桌面端和移动端）
-    let marketScrollTimer = null;
-    
-    function handleMarketScroll() {
-        // 检查行情页是否激活
-        const marketTab = document.getElementById('market-tab');
-        if (!marketTab || !marketTab.classList.contains('active')) {
-            return;
-        }
-        
-        // 防抖处理
-        if (marketScrollTimer) {
-            clearTimeout(marketScrollTimer);
-        }
-        
-        marketScrollTimer = setTimeout(() => {
-            // 重新获取容器引用（可能DOM已更新）
-            const currentContainer = document.querySelector('.stock-list-container');
-            let scrollTop, scrollHeight, clientHeight;
-            let usingContainer = false;
-            
-            // 优先使用容器滚动（如果容器存在且可以滚动）
-            if (currentContainer) {
-                const containerScrollHeight = currentContainer.scrollHeight;
-                const containerClientHeight = currentContainer.clientHeight;
-                
-                // 检查容器是否可以滚动（内容高度大于可视高度）
-                if (containerScrollHeight > containerClientHeight + 10) { // 加10px容差
-                    scrollTop = currentContainer.scrollTop;
-                    scrollHeight = containerScrollHeight;
-                    clientHeight = containerClientHeight;
-                    usingContainer = true;
-                }
-            }
-            
-            // 如果容器无法滚动，使用window滚动（桌面端）
-            if (!usingContainer) {
-                scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                scrollHeight = document.documentElement.scrollHeight;
-                clientHeight = window.innerHeight;
-            }
-            
-            // 距离底部100px时加载下一页
-            const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
-            
-            // 详细日志（仅在接近底部时输出，避免日志过多）
-            if (distanceToBottom < 200) {
-                console.log('[行情] 滚动检测:', { 
-                    distanceToBottom: distanceToBottom.toFixed(2),
-                    scrollTop: scrollTop.toFixed(2),
-                    scrollHeight,
-                    clientHeight,
-                    isLoading, 
-                    hasMore, 
-                    currentPage,
-                    usingContainer: usingContainer ? 'container' : 'window',
-                    shouldLoad: distanceToBottom <= 100 && !isLoading && hasMore
-                });
-            }
-            
-            if (distanceToBottom <= 100 && !isLoading && hasMore) {
-                console.log('[行情] ✅ 触发无限滚动，加载下一页，当前页:', currentPage);
-                loadMarket();
-            }
-        }, 150); // 增加防抖时间到150ms，减少频繁触发
-    }
-    
-    // 设置滚动监听器（延迟设置，确保DOM已完全加载）
-    let scrollListenersSetup = false;
-    function setupScrollListeners() {
-        const currentContainer = document.querySelector('.stock-list-container');
-        
-        // 监听容器滚动（优先）
-        if (currentContainer) {
-            // 移除旧的监听器（如果存在）
-            currentContainer.removeEventListener('scroll', handleMarketScroll);
-            // 添加新的监听器
-            currentContainer.addEventListener('scroll', handleMarketScroll, { passive: true });
-            console.log('[行情] ✅ 已设置容器滚动监听器', {
-                clientHeight: currentContainer.clientHeight,
-                scrollHeight: currentContainer.scrollHeight,
-                canScroll: currentContainer.scrollHeight > currentContainer.clientHeight,
-                rowCount: document.getElementById('stock-list')?.children.length || 0
-            });
-        } else {
-            console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
-        }
-        
-        // window滚动监听器只设置一次（避免重复添加）
-        if (!scrollListenersSetup) {
-            window.addEventListener('scroll', handleMarketScroll, { passive: true });
-            console.log('[行情] ✅ 已设置window滚动监听器');
-            scrollListenersSetup = true;
-        }
-    }
-    
     // 立即设置一次
-    setupScrollListeners();
+    setupMarketScrollListeners();
     
     // 延迟再次设置（确保DOM完全加载）
-    setTimeout(setupScrollListeners, 500);
+    setTimeout(setupMarketScrollListeners, 500);
     
     // 监听窗口大小变化
     let resizeTimer = null;
@@ -1175,7 +1181,7 @@ async function initMarket() {
         }
         resizeTimer = setTimeout(() => {
             console.log('[行情] 窗口大小变化，重新设置滚动监听器');
-            setupScrollListeners();
+            setupMarketScrollListeners();
         }, 300);
     });
     
@@ -1184,7 +1190,7 @@ async function initMarket() {
         btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-tab');
             if (tab === 'market') {
-                setTimeout(setupScrollListeners, 100);
+                setTimeout(setupMarketScrollListeners, 100);
             }
         });
     });
@@ -1348,10 +1354,8 @@ async function loadMarket() {
                             hasMore: hasMore
                         });
                         
-                        // 如果容器可以滚动，确保滚动监听器已设置
-                        if (canScroll) {
-                            setupScrollListeners();
-                        }
+                        // 重新设置滚动监听器（确保监听器已绑定到最新的DOM）
+                        setupMarketScrollListeners();
                     }
                 }, 200);
                 
