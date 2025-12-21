@@ -271,8 +271,11 @@ body.light-mode .market-status-value.loading {
     background: #1e293b;
     border-radius: 8px;
     overflow-y: auto;
+    overflow-x: hidden;
     max-height: calc(100vh - 300px); /* 限制最大高度，确保可以滚动 */
+    min-height: 400px; /* 设置最小高度，确保有足够空间显示内容 */
     -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
+    position: relative; /* 确保滚动定位正确 */
 }
 
 .stock-table {

@@ -1069,34 +1069,59 @@ async function initMarket() {
         
         marketScrollTimer = setTimeout(() => {
             let scrollTop, scrollHeight, clientHeight;
+            let isContainerScroll = false;
             
-            // 检查容器是否有滚动（移动端）
-            if (container && container.scrollHeight > container.clientHeight) {
-                scrollTop = container.scrollTop;
-                scrollHeight = container.scrollHeight;
-                clientHeight = container.clientHeight;
-            } else {
-                // 桌面端使用window滚动
+            // 检查容器是否有滚动（移动端或桌面端）
+            if (container) {
+                const containerScrollHeight = container.scrollHeight;
+                const containerClientHeight = container.clientHeight;
+                
+                // 如果容器可以滚动（内容高度大于可视高度）
+                if (containerScrollHeight > containerClientHeight + 5) { // 加5px容差
+                    scrollTop = container.scrollTop;
+                    scrollHeight = containerScrollHeight;
+                    clientHeight = containerClientHeight;
+                    isContainerScroll = true;
+                    console.log('[行情] 使用容器滚动:', { scrollTop, scrollHeight, clientHeight });
+                }
+            }
+            
+            // 如果不是容器滚动，使用window滚动（桌面端）
+            if (!isContainerScroll) {
                 scrollTop = window.pageYOffset || document.documentElement.scrollTop;
                 scrollHeight = document.documentElement.scrollHeight;
                 clientHeight = window.innerHeight;
+                console.log('[行情] 使用window滚动:', { scrollTop, scrollHeight, clientHeight });
             }
             
             // 距离底部100px时加载下一页
-            if (scrollTop + clientHeight >= scrollHeight - 100 && !isLoading && hasMore) {
-                console.log('[行情] 触发无限滚动，加载下一页');
+            const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+            console.log('[行情] 滚动检测:', { 
+                distanceToBottom, 
+                isLoading, 
+                hasMore, 
+                currentPage,
+                shouldLoad: distanceToBottom <= 100 && !isLoading && hasMore
+            });
+            
+            if (distanceToBottom <= 100 && !isLoading && hasMore) {
+                console.log('[行情] ✅ 触发无限滚动，加载下一页');
                 loadMarket();
             }
         }, 100);
     }
     
-    // 监听容器滚动（移动端）
+    // 监听容器滚动（移动端和桌面端都监听容器）
     if (container) {
-        container.addEventListener('scroll', handleMarketScroll);
+        container.addEventListener('scroll', handleMarketScroll, { passive: true });
+        console.log('[行情] 已设置容器滚动监听器，容器高度:', container.clientHeight, 'px');
+    } else {
+        console.warn('[行情] 容器不存在，无法设置滚动监听');
     }
     
-    // 监听window滚动（桌面端）
-    window.addEventListener('scroll', handleMarketScroll);
+    // 同时监听window滚动（作为备用，某些情况下容器可能不滚动）
+    window.addEventListener('scroll', handleMarketScroll, { passive: true });
+    console.log('[行情] 已设置window滚动监听器');
     
     // 注意：不在这里加载数据，由startApp()根据当前tab决定是否加载
     // 不再使用定时刷新，改用WebSocket实时推送
@@ -1243,11 +1268,18 @@ async function loadMarket() {
                 // 检查是否还有更多数据
                 if (result.pagination) {
                     hasMore = currentPage < result.pagination.total_pages;
+                    console.log(`[行情] 分页信息: 当前页=${currentPage}, 总页数=${result.pagination.total_pages}, hasMore=${hasMore}`);
+                    if (hasMore) {
+                        currentPage++;
+                        console.log(`[行情] 还有更多数据，下一页=${currentPage}`);
+                    }
+                } else {
+                    // 如果没有分页信息，根据返回的数据量判断
+                    hasMore = result.data.length === pageSize;
+                    console.log(`[行情] 无分页信息，根据数据量判断: 返回${result.data.length}条, pageSize=${pageSize}, hasMore=${hasMore}`);
                     if (hasMore) {
                         currentPage++;
                     }
-                } else {
-                    hasMore = false;
                 }
                 
                 // 如果没有更多数据，显示提示
@@ -1300,7 +1332,7 @@ async function loadMarket() {
         hasMore = false;
     } finally {
         isLoading = false;
-        console.log('[行情] loadMarket完成, isLoading=false');
+        console.log('[行情] loadMarket完成, isLoading=false, currentPage=', currentPage, ', hasMore=', hasMore);
     }
 }
 
