@@ -90,7 +90,7 @@ def init_tables():
     try:
         client = _create_clickhouse_client()
         
-        # K线表（添加period字段以区分不同周期）
+        # K线表（使用ReplacingMergeTree自动去重，避免频繁DELETE导致mutation堆积）
         client.execute("""
         CREATE TABLE IF NOT EXISTS kline
         (
@@ -102,50 +102,54 @@ def init_tables():
             low Float64,
             close Float64,
             volume Float64,
-            amount Float64
+            amount Float64,
+            update_time DateTime DEFAULT now()
         )
-        ENGINE = MergeTree()
+        ENGINE = ReplacingMergeTree(update_time)
         ORDER BY (code, period, date)
         """)
         
-        # 如果表已存在但没有period字段，添加period字段并迁移数据
+        # 检查表结构，确保使用ReplacingMergeTree引擎
         try:
-            # 检查period字段是否存在
+            # 检查表是否存在以及引擎类型
+            engine_info = client.execute("""
+                SELECT engine, engine_full 
+                FROM system.tables 
+                WHERE database = %(db)s AND name = 'kline'
+            """, {'db': settings.clickhouse_db})
+            
+            if engine_info and len(engine_info) > 0:
+                current_engine = engine_info[0][0]
+                if current_engine != 'ReplacingMergeTree':
+                    logger.warning(f"⚠️ kline表当前引擎为 {current_engine}，建议改为 ReplacingMergeTree 以避免 mutation 堆积")
+                    logger.warning("⚠️ 如需迁移，请执行以下步骤：")
+                    logger.warning("   1. 停止数据采集")
+                    logger.warning("   2. 执行: ALTER TABLE kline MODIFY ENGINE = ReplacingMergeTree(update_time)")
+                    logger.warning("   3. 或重建表（需要先添加 update_time 字段）")
+                else:
+                    logger.info("✓ kline表已使用ReplacingMergeTree引擎")
+            
+            # 检查是否有update_time字段
             columns = client.execute("DESCRIBE kline")
             column_names = [col[0] for col in columns]
             
+            if "update_time" not in column_names:
+                logger.info("检测到kline表缺少update_time字段，正在添加...")
+                try:
+                    client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS update_time DateTime DEFAULT now()")
+                    logger.info("✓ update_time字段添加成功")
+                except Exception as e:
+                    logger.warning(f"添加update_time字段失败: {e}")
+            
             if "period" not in column_names:
-                logger.info("检测到kline表缺少period字段，开始迁移...")
-                # 添加period字段，默认值为'daily'（兼容旧数据）
-                client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS period String DEFAULT 'daily'")
-                
-                # 更新ORDER BY需要重建表，这里使用更安全的方式
-                # 先创建一个临时表
-                client.execute("""
-                    CREATE TABLE IF NOT EXISTS kline_new
-                    (
-                        code String,
-                        period String,
-                        date Date,
-                        open Float64,
-                        high Float64,
-                        low Float64,
-                        close Float64,
-                        volume Float64,
-                        amount Float64
-                    )
-                    ENGINE = MergeTree()
-                    ORDER BY (code, period, date)
-                """)
-                
-                # 迁移数据（所有旧数据默认为daily）
-                client.execute("INSERT INTO kline_new SELECT code, 'daily' as period, date, open, high, low, close, volume, amount FROM kline")
-                
-                # 删除旧表并重命名新表（需要先停止写入，这里只是记录日志）
-                logger.warning("已创建新表kline_new，请手动迁移数据后删除旧表kline并重命名kline_new为kline")
-                logger.warning("或者，如果数据量不大，可以直接删除旧表后让系统重新创建")
+                logger.info("检测到kline表缺少period字段，正在添加...")
+                try:
+                    client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS period String DEFAULT 'daily'")
+                    logger.info("✓ period字段添加成功")
+                except Exception as e:
+                    logger.warning(f"添加period字段失败: {e}")
         except Exception as e:
-            logger.debug(f"表结构检查/迁移可能已存在或失败: {e}")
+            logger.debug(f"表结构检查可能失败（表可能不存在）: {e}")
         
         # 技术指标表（存储预计算的指标，每日更新）
         client.execute("""
@@ -287,16 +291,17 @@ def get_kline_latest_date(code: str, period: str = "daily") -> str | None:
         
         # 查询该股票指定周期的最大日期
         # 兼容旧表结构（没有period字段）
+        # 使用FINAL确保ReplacingMergeTree去重后的结果
         try:
             result = client.execute(
-                "SELECT max(date) as max_date FROM kline WHERE code = %(code)s AND period = %(period)s",
+                "SELECT max(date) as max_date FROM kline FINAL WHERE code = %(code)s AND period = %(period)s",
                 {'code': code, 'period': period_normalized}
             )
         except Exception:
             # 如果period字段不存在，使用旧查询方式（兼容）
             logger.debug(f"使用兼容模式查询（可能表结构未更新）: {code}")
             result = client.execute(
-                "SELECT max(date) as max_date FROM kline WHERE code = %(code)s",
+                "SELECT max(date) as max_date FROM kline FINAL WHERE code = %(code)s",
                 {'code': code}
             )
         
@@ -347,16 +352,17 @@ def get_kline_earliest_date(code: str, period: str = "daily") -> str | None:
         
         # 查询该股票指定周期的最小日期
         # 兼容旧表结构（没有period字段）
+        # 使用FINAL确保ReplacingMergeTree去重后的结果
         try:
             result = client.execute(
-                "SELECT min(date) as min_date FROM kline WHERE code = %(code)s AND period = %(period)s",
+                "SELECT min(date) as min_date FROM kline FINAL WHERE code = %(code)s AND period = %(period)s",
                 {'code': code, 'period': period_normalized}
             )
         except Exception:
             # 如果period字段不存在，使用旧查询方式（兼容）
             logger.debug(f"使用兼容模式查询（可能表结构未更新）: {code}")
             result = client.execute(
-                "SELECT min(date) as min_date FROM kline WHERE code = %(code)s",
+                "SELECT min(date) as min_date FROM kline FINAL WHERE code = %(code)s",
                 {'code': code}
             )
         
@@ -473,42 +479,8 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
         if not data_to_insert:
             return True
         
-        # 先删除要插入的日期范围内的重复数据（避免重复插入）
-        # 获取所有要插入的日期范围
-        dates_to_insert = set()
-        codes_to_insert = set()
-        for item in data_to_insert:
-            codes_to_insert.add(item[0])  # code
-            dates_to_insert.add(item[2])  # date
-        
-        if dates_to_insert:
-            min_date = min(dates_to_insert)
-            max_date = max(dates_to_insert)
-            
-            # 优化：删除这些股票在这些日期范围内的数据（避免重复）
-            # 使用更快的删除方式，不等待完成
-            try:
-                codes_str = ','.join([f"'{c}'" for c in codes_to_insert])
-                delete_query = f"""
-                    ALTER TABLE kline DELETE 
-                    WHERE code IN ({codes_str}) 
-                    AND period = %(period)s 
-                    AND date >= %(min_date)s 
-                    AND date <= %(max_date)s
-                """
-                # 优化：异步执行删除，不等待完成（ClickHouse的DELETE是异步的）
-                client.execute(delete_query, {
-                    'period': period_normalized,
-                    'min_date': min_date,
-                    'max_date': max_date
-                })
-                # 不等待删除完成，直接插入（ClickHouse会处理重复）
-                logger.debug(f"已提交删除重复数据任务：{len(codes_to_insert)}只股票，日期范围{min_date}到{max_date}")
-            except Exception as delete_error:
-                # 如果删除失败，记录警告但继续插入
-                logger.warning(f"删除重复数据失败，继续插入: {delete_error}")
-        
-        # 使用INSERT批量插入（已删除重复数据，确保唯一性）
+        # 直接使用INSERT批量插入，ReplacingMergeTree会自动去重
+        # 不再使用ALTER TABLE DELETE，避免产生大量mutation导致"Too many unfinished mutations"错误
         # ClickHouse driver的execute方法支持直接传入数据列表
         try:
             client.execute(
@@ -528,9 +500,11 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
             else:
                 raise
         
-        # 保存后清理超过期限的旧数据（按period精确清理）
-        for code in codes:
-            cleanup_old_kline_data(code, period_normalized)
+        # 注意：不再在每次保存时清理旧数据，避免产生大量mutation
+        # 如需清理旧数据，建议使用定期任务批量处理，或使用TTL自动清理
+        # 临时禁用自动清理，避免mutation堆积
+        # for code in codes:
+        #     cleanup_old_kline_data(code, period_normalized)
         
         # 关闭临时连接
         client.disconnect()
@@ -542,6 +516,10 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
 
 def cleanup_old_kline_data(code: str, period: str = "daily") -> None:
     """清理超过保留期限的K线数据（按period精确清理）
+    
+    ⚠️ 警告：此函数会触发 ALTER TABLE DELETE，产生 mutation
+    在数据采集频繁时可能导致 "Too many unfinished mutations" 错误
+    建议改为定期批量清理或使用 TTL 自动清理
     
     Args:
         code: 股票代码
@@ -687,10 +665,11 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
             params['end_date'] = end_date_str
         
         # 尝试查询（包含period字段）
+        # 使用FINAL确保ReplacingMergeTree去重后的结果（注意：FINAL有性能开销，但能保证数据一致性）
         try:
             query = f"""
                 SELECT code, period, date, open, high, low, close, volume, amount
-                FROM kline
+                FROM kline FINAL
                 WHERE {' AND '.join(where_conditions)}
                 ORDER BY date ASC
             """
@@ -705,7 +684,7 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
                 params.pop('period', None)
             query = f"""
                 SELECT code, date, open, high, low, close, volume, amount
-                FROM kline
+                FROM kline FINAL
                 WHERE {' AND '.join(where_conditions)}
                 ORDER BY date ASC
             """
@@ -1154,6 +1133,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             has_period = False
         
         if has_period:
+            # 使用FINAL确保ReplacingMergeTree去重后的结果
             query = """
                 SELECT 
                     k.code,
@@ -1162,10 +1142,10 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                     k.volume,
                     k.amount,
                     0.0 as pct
-                FROM kline k
+                FROM kline FINAL k
                 INNER JOIN (
                     SELECT code, MAX(date) as max_date
-                    FROM kline
+                    FROM kline FINAL
                     WHERE period = 'daily'
                     GROUP BY code
                 ) latest ON k.code = latest.code AND k.date = latest.max_date
@@ -1174,6 +1154,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             """
         else:
             # 兼容旧表结构（没有period字段）
+            # 使用FINAL确保ReplacingMergeTree去重后的结果
             query = """
                 SELECT 
                     k.code,
@@ -1182,10 +1163,10 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                     k.volume,
                     k.amount,
                     0.0 as pct
-                FROM kline k
+                FROM kline FINAL k
                 INNER JOIN (
                     SELECT code, MAX(date) as max_date
-                    FROM kline
+                    FROM kline FINAL
                     GROUP BY code
                 ) latest ON k.code = latest.code AND k.date = latest.max_date
                 ORDER BY k.amount DESC
