@@ -351,6 +351,19 @@ function _doMarketUpdate(data) {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
     
+    const container = document.querySelector('.stock-list-container');
+    
+    // 保存当前滚动位置
+    let savedScrollTop = 0;
+    if (container) {
+        // 检查是容器滚动还是window滚动
+        if (container.scrollHeight > container.clientHeight) {
+            savedScrollTop = container.scrollTop;
+        } else {
+            savedScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        }
+    }
+    
     const marketSelect = document.getElementById('market-select');
     const currentMarket = marketSelect ? marketSelect.value || 'a' : 'a';
     
@@ -412,6 +425,17 @@ function _doMarketUpdate(data) {
         }
     }
     
+    // 恢复滚动位置（如果发生了变化）
+    if (container && savedScrollTop > 0) {
+        requestAnimationFrame(() => {
+            if (container.scrollHeight > container.clientHeight) {
+                container.scrollTop = savedScrollTop;
+            } else {
+                window.scrollTo(0, savedScrollTop);
+            }
+        });
+    }
+    
     // 更新按钮状态（每次市场数据更新后都要更新，因为自选股可能变化）
     updateWatchlistButtonStates();
 }
@@ -459,11 +483,23 @@ function _doWatchlistSync(data) {
         // 如果当前在自选页，直接通过SSE数据更新列表（无感刷新，不需要重新请求）
         const watchlistTab = document.getElementById('watchlist-tab');
         if (watchlistTab && watchlistTab.classList.contains('active')) {
-            console.log('[SSE] 当前在自选页，使用SSE数据无感更新列表（不显示加载状态）');
+            console.log('[SSE] 当前在自选页，使用SSE数据无感更新列表（不显示加载状态，保持滚动位置）');
+            // 保存当前滚动位置
+            const container = document.getElementById('watchlist-container');
+            const savedScrollTop = container ? container.scrollTop : 0;
+            
             // 清除缓存，使用SSE推送的数据直接渲染
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
             // 直接使用SSE推送的数据渲染，不需要重新请求，实现无感刷新
-            renderWatchlistStocksFromSSE(serverData);
+            renderWatchlistStocksFromSSE(serverData).then(() => {
+                // 恢复滚动位置
+                if (container && savedScrollTop > 0) {
+                    // 延迟恢复，确保DOM已更新
+                    setTimeout(() => {
+                        container.scrollTop = savedScrollTop;
+                    }, 50);
+                }
+            });
         } else {
             console.log('[SSE] 当前不在自选页，只更新按钮状态');
         }
@@ -476,8 +512,11 @@ function _doWatchlistSync(data) {
 async function renderWatchlistStocksFromSSE(watchlistData) {
     console.log('[SSE] 从SSE数据直接渲染自选股列表，数量:', watchlistData.length);
     
+    // 保存当前滚动位置
+    const container = document.getElementById('watchlist-container');
+    const savedScrollTop = container ? container.scrollTop : 0;
+    
     if (!watchlistData || watchlistData.length === 0) {
-        const container = document.getElementById('watchlist-container');
         if (container) {
             container.innerHTML = `
                 <div class="watchlist-placeholder">
@@ -489,7 +528,7 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
         }
         watchlistAllStocks = [];
         watchlistRenderedCount = 0;
-        return;
+        return Promise.resolve();
     }
     
     // 批量获取股票行情数据
@@ -526,6 +565,16 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
             
             // 使用无限滚动渲染（forceRender=true重置状态，silent=true不显示日志）
             renderWatchlistStocks(watchlistStocks, true, true);
+            
+            // 恢复滚动位置
+            if (container && savedScrollTop > 0) {
+                // 延迟恢复，确保DOM已更新
+                setTimeout(() => {
+                    container.scrollTop = savedScrollTop;
+                }, 100);
+            }
+            
+            return Promise.resolve();
         } else {
             throw new Error(result.message || '批量查询失败');
         }
@@ -536,6 +585,15 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
             ...item,
             name: item.name || item.code
         })), true, true);
+        
+        // 恢复滚动位置
+        if (container && savedScrollTop > 0) {
+            setTimeout(() => {
+                container.scrollTop = savedScrollTop;
+            }, 100);
+        }
+        
+        return Promise.resolve();
     }
 }
 
@@ -994,25 +1052,51 @@ async function initMarket() {
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
     
-    // 监听滚动事件实现无限加载
-    if (container) {
-        container.addEventListener('scroll', () => {
-            // 检查行情页是否激活
-            const marketTab = document.getElementById('market-tab');
-            if (!marketTab || !marketTab.classList.contains('active')) {
-                return;
-            }
+    // 监听滚动事件实现无限加载（支持桌面端和移动端）
+    let marketScrollTimer = null;
+    
+    function handleMarketScroll() {
+        // 检查行情页是否激活
+        const marketTab = document.getElementById('market-tab');
+        if (!marketTab || !marketTab.classList.contains('active')) {
+            return;
+        }
+        
+        // 防抖处理
+        if (marketScrollTimer) {
+            clearTimeout(marketScrollTimer);
+        }
+        
+        marketScrollTimer = setTimeout(() => {
+            let scrollTop, scrollHeight, clientHeight;
             
-            const scrollTop = container.scrollTop;
-            const scrollHeight = container.scrollHeight;
-            const clientHeight = container.clientHeight;
+            // 检查容器是否有滚动（移动端）
+            if (container && container.scrollHeight > container.clientHeight) {
+                scrollTop = container.scrollTop;
+                scrollHeight = container.scrollHeight;
+                clientHeight = container.clientHeight;
+            } else {
+                // 桌面端使用window滚动
+                scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                scrollHeight = document.documentElement.scrollHeight;
+                clientHeight = window.innerHeight;
+            }
             
             // 距离底部100px时加载下一页
             if (scrollTop + clientHeight >= scrollHeight - 100 && !isLoading && hasMore) {
+                console.log('[行情] 触发无限滚动，加载下一页');
                 loadMarket();
             }
-        });
+        }, 100);
     }
+    
+    // 监听容器滚动（移动端）
+    if (container) {
+        container.addEventListener('scroll', handleMarketScroll);
+    }
+    
+    // 监听window滚动（桌面端）
+    window.addEventListener('scroll', handleMarketScroll);
     
     // 注意：不在这里加载数据，由startApp()根据当前tab决定是否加载
     // 不再使用定时刷新，改用WebSocket实时推送
@@ -2836,13 +2920,35 @@ const SYNC_COOLDOWN = 5000; // 5秒冷却时间
 function initWatchlist() {
     console.log('[自选] 初始化自选股模块');
     
-    // 初始化自选页无限滚动（使用window滚动事件，因为容器可能没有独立滚动）
+    // 初始化自选页无限滚动（监听容器滚动，而不是window滚动）
     let watchlistScrollTimer = null;
-    window.addEventListener('scroll', () => {
+    
+    // 监听容器滚动事件
+    function setupWatchlistScrollListener() {
+        const container = document.getElementById('watchlist-container');
+        if (!container) {
+            // 如果容器不存在，延迟重试
+            setTimeout(setupWatchlistScrollListener, 100);
+            return;
+        }
+        
+        // 移除旧的监听器（如果存在）
+        container.removeEventListener('scroll', handleWatchlistScroll);
+        
+        // 添加新的监听器
+        container.addEventListener('scroll', handleWatchlistScroll);
+        console.log('[自选] 滚动监听器已设置，监听容器:', container);
+    }
+    
+    // 滚动处理函数
+    function handleWatchlistScroll() {
         const watchlistTab = document.getElementById('watchlist-tab');
         if (!watchlistTab || !watchlistTab.classList.contains('active')) {
             return;
         }
+        
+        const container = document.getElementById('watchlist-container');
+        if (!container) return;
         
         // 防抖处理
         if (watchlistScrollTimer) {
@@ -2851,9 +2957,9 @@ function initWatchlist() {
         
         watchlistScrollTimer = setTimeout(() => {
             // 检查是否滚动到底部
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            const scrollHeight = document.documentElement.scrollHeight;
-            const clientHeight = window.innerHeight;
+            const scrollTop = container.scrollTop;
+            const scrollHeight = container.scrollHeight;
+            const clientHeight = container.clientHeight;
             
             // 距离底部200px时加载下一批
             if (scrollTop + clientHeight >= scrollHeight - 200 && 
@@ -2867,6 +2973,20 @@ function initWatchlist() {
                 });
             }
         }, 100);
+    }
+    
+    // 初始设置监听器
+    setupWatchlistScrollListener();
+    
+    // 当tab切换时重新设置监听器（因为容器可能被重新创建）
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.getAttribute('data-tab');
+            if (tab === 'watchlist') {
+                setTimeout(setupWatchlistScrollListener, 100);
+            }
+        });
     });
     
     // 页面加载时从服务器同步自选股列表（带防抖）
@@ -3129,6 +3249,13 @@ let watchlistIsLoading = false; // 是否正在加载
 // 渲染自选股列表（支持无限滚动）
 function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = false) {
     const tbodyEl = document.getElementById('watchlist-stock-list');
+    const container = document.getElementById('watchlist-container');
+    
+    // 保存滚动位置（仅在强制渲染时保存，避免影响正常滚动）
+    let savedScrollTop = 0;
+    if (forceRender && container) {
+        savedScrollTop = container.scrollTop;
+    }
     
     if (!silent) {
         console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票, forceRender=', forceRender);
@@ -3212,6 +3339,14 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
     
     if (!silent) {
         console.log('[自选] renderWatchlistStocks: 开始分批渲染，总数:', watchlistAllStocks.length);
+    }
+    
+    // 恢复滚动位置（仅在强制渲染时恢复）
+    if (forceRender && container && savedScrollTop > 0) {
+        // 延迟恢复，确保DOM已更新
+        setTimeout(() => {
+            container.scrollTop = savedScrollTop;
+        }, 100);
     }
     
     // 更新按钮状态（确保按钮状态正确）
