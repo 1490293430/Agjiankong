@@ -797,8 +797,9 @@ function startApp() {
             loadWatchlist(false);
         }
     } else if (currentTab === 'news') {
-        // 如果当前是资讯页，等待SSE推送数据
-        console.log('[资讯] 当前是资讯页，等待SSE推送数据');
+        // 如果当前是资讯页，主动加载一次数据（避免页面为空）
+        console.log('[资讯] 当前是资讯页，主动加载一次数据');
+        loadNews();
     }
     
     // 建立全局SSE连接（推送所有类型数据，不依赖tab）
@@ -979,10 +980,21 @@ function switchToTab(targetTab, addHistory = true) {
             // SSE已全局连接，无需重新连接
         }
         
-        // 切换到资讯页时，使用SSE实时推送
+        // 切换到资讯页时，如果数据为空则主动加载一次
         if (targetTab === 'news') {
             console.log('[资讯] 切换到资讯页，使用SSE实时推送（SSE已连接，无需重连）');
             // SSE已全局连接，无需重新连接
+            // 如果数据为空，主动加载一次（避免页面为空）
+            const newsList = document.getElementById('news-list');
+            if (newsList) {
+                const hasData = newsList.children.length > 0 && 
+                               !newsList.innerHTML.includes('暂无资讯') && 
+                               !newsList.innerHTML.includes('加载中');
+                if (!hasData) {
+                    console.log('[资讯] 切换到资讯页，数据为空，主动加载一次');
+                    loadNews();
+                }
+            }
         }
         
         // 切换到配置页时，加载配置
@@ -6007,8 +6019,23 @@ function initNews() {
         }
     });
     
-    // 不再自动加载，依赖SSE推送数据（无感刷新）
-    console.log('[资讯] 资讯模块初始化完成，等待SSE推送数据');
+    // 如果当前在资讯页且没有数据，主动加载一次（避免页面为空）
+    const newsTab = document.getElementById('news-tab');
+    const newsList = document.getElementById('news-list');
+    if (newsTab && newsTab.classList.contains('active')) {
+        // 检查是否已有数据（不是占位符或加载提示）
+        const hasData = newsList && newsList.children.length > 0 && 
+                       !newsList.innerHTML.includes('暂无资讯') && 
+                       !newsList.innerHTML.includes('加载中');
+        if (!hasData) {
+            console.log('[资讯] 当前在资讯页且无数据，主动加载一次');
+            loadNews();
+        } else {
+            console.log('[资讯] 资讯模块初始化完成，已有数据，等待SSE推送更新');
+        }
+    } else {
+        console.log('[资讯] 资讯模块初始化完成，等待切换到资讯页或SSE推送数据');
+    }
 }
 
 async function loadNews() {
