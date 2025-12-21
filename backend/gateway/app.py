@@ -12,6 +12,7 @@ import time
 # 导入各模块路由
 from market.service.api import router as market_router
 from market.service.ws import router as ws_router
+from market.service.sse import router as sse_router
 from news.collector import fetch_news
 from ai.analyzer import analyze_stock
 from trading.plan import (
