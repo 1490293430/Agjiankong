@@ -1090,36 +1090,46 @@ function handleMarketScroll() {
         let usingContainer = false;
         
         // 优先使用容器滚动（移动端和桌面端都支持）
+        const isMobile = window.innerWidth <= 768;
+        
         if (currentContainer) {
             const containerScrollHeight = currentContainer.scrollHeight;
             const containerClientHeight = currentContainer.clientHeight;
             
-            // 检查容器是否可以滚动（内容高度大于可视高度）
-            // 移动端容器通常可以滚动，即使内容不多也要检查
-            // 使用更宽松的条件，确保移动端能正确检测
-            const isMobile = window.innerWidth <= 768;
-            const threshold = isMobile ? 1 : 5; // 移动端使用1px容差，桌面端5px
-            
-            if (containerScrollHeight > containerClientHeight + threshold) {
-                scrollTop = currentContainer.scrollTop;
-                scrollHeight = containerScrollHeight;
-                clientHeight = containerClientHeight;
-                usingContainer = true;
-            } else if (isMobile && containerScrollHeight > 0 && containerClientHeight > 0) {
-                // 移动端特殊处理：即使高度差很小，也尝试使用容器滚动
-                // 因为移动端容器滚动更可靠
-                scrollTop = currentContainer.scrollTop;
-                scrollHeight = containerScrollHeight;
-                clientHeight = containerClientHeight;
-                usingContainer = true;
+            // 移动端：始终优先使用容器滚动（因为移动端CSS设置了overflow-y: auto）
+            // 桌面端：只有当容器可以滚动时才使用容器滚动
+            if (isMobile) {
+                // 移动端：只要容器存在且有内容，就使用容器滚动
+                if (containerScrollHeight > 0 && containerClientHeight > 0) {
+                    scrollTop = currentContainer.scrollTop;
+                    scrollHeight = containerScrollHeight;
+                    clientHeight = containerClientHeight;
+                    usingContainer = true;
+                }
+            } else {
+                // 桌面端：只有当容器可以滚动时才使用容器滚动
+                const threshold = 5; // 桌面端5px容差
+                if (containerScrollHeight > containerClientHeight + threshold) {
+                    scrollTop = currentContainer.scrollTop;
+                    scrollHeight = containerScrollHeight;
+                    clientHeight = containerClientHeight;
+                    usingContainer = true;
+                }
             }
         }
         
-        // 如果容器无法滚动，使用window滚动（桌面端）
-        if (!usingContainer) {
+        // 如果容器无法滚动，使用window滚动（仅桌面端fallback）
+        if (!usingContainer && !isMobile) {
             scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             scrollHeight = document.documentElement.scrollHeight;
             clientHeight = window.innerHeight;
+        } else if (!usingContainer && isMobile) {
+            // 移动端：如果容器滚动失败，也尝试window滚动作为备用
+            // 但这种情况应该很少发生
+            scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            scrollHeight = document.documentElement.scrollHeight;
+            clientHeight = window.innerHeight;
+            console.warn('[行情] 移动端：容器滚动检测失败，使用window滚动作为备用');
         }
         
         // 距离底部100px时加载下一页
@@ -1157,6 +1167,8 @@ function setupMarketScrollListeners() {
     const currentContainer = document.querySelector('.stock-list-container');
     
     // 监听容器滚动（移动端和桌面端都支持）
+    const isMobile = window.innerWidth <= 768;
+    
     if (currentContainer) {
         // 移除旧的监听器（如果存在）- 使用命名函数引用确保能正确移除
         if (containerScrollListenerSetup) {
@@ -1167,23 +1179,25 @@ function setupMarketScrollListeners() {
         containerScrollListenerSetup = true;
         
         const rowCount = document.getElementById('stock-list')?.children.length || 0;
-        const canScroll = currentContainer.scrollHeight > currentContainer.clientHeight + 5;
+        const canScroll = currentContainer.scrollHeight > currentContainer.clientHeight + (isMobile ? 1 : 5);
         console.log('[行情] ✅ 已设置容器滚动监听器', {
             clientHeight: currentContainer.clientHeight,
             scrollHeight: currentContainer.scrollHeight,
             scrollTop: currentContainer.scrollTop,
             canScroll: canScroll,
             rowCount: rowCount,
-            isMobile: window.innerWidth <= 768
+            isMobile: isMobile,
+            containerStyle: window.getComputedStyle(currentContainer).overflowY
         });
     } else {
         console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
     }
     
-    // window滚动监听器只设置一次（避免重复添加）- 作为备用，确保桌面端也能工作
+    // window滚动监听器只设置一次（避免重复添加）
+    // 移动端也设置window滚动作为备用（虽然主要使用容器滚动）
     if (!scrollListenersSetup) {
         window.addEventListener('scroll', handleMarketScroll, { passive: true });
-        console.log('[行情] ✅ 已设置window滚动监听器（备用）');
+        console.log('[行情] ✅ 已设置window滚动监听器（备用）', { isMobile: isMobile });
         scrollListenersSetup = true;
     }
 }
@@ -1209,9 +1223,16 @@ async function initMarket() {
     // 延迟再次设置（确保DOM完全加载）
     setTimeout(setupMarketScrollListeners, 500);
     
-    // 移动端额外延迟设置，确保容器高度计算正确
+    // 移动端额外多次延迟设置，确保容器高度计算正确和滚动监听器正确绑定
     if (window.innerWidth <= 768) {
-        setTimeout(setupMarketScrollListeners, 1000);
+        setTimeout(() => {
+            setupMarketScrollListeners();
+            console.log('[行情] 移动端：延迟1000ms设置滚动监听器');
+            setTimeout(() => {
+                setupMarketScrollListeners();
+                console.log('[行情] 移动端：延迟1500ms设置滚动监听器');
+            }, 500);
+        }, 1000);
     }
     
     // 监听窗口大小变化（包括移动端横竖屏切换）
@@ -1410,11 +1431,17 @@ async function loadMarket() {
                         // 重新设置滚动监听器（确保监听器已绑定到最新的DOM）
                         setupMarketScrollListeners();
                         
-                        // 移动端额外延迟一次，确保容器高度计算正确
+                        // 移动端额外延迟多次，确保容器高度计算正确和滚动监听器正确绑定
                         if (window.innerWidth <= 768) {
                             setTimeout(() => {
                                 setupMarketScrollListeners();
                                 console.log('[行情] 移动端：二次设置滚动监听器');
+                                
+                                // 第三次设置，确保万无一失
+                                setTimeout(() => {
+                                    setupMarketScrollListeners();
+                                    console.log('[行情] 移动端：三次设置滚动监听器');
+                                }, 300);
                             }, 300);
                         }
                     }
