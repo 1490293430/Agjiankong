@@ -49,6 +49,9 @@ async def create_sse_stream(
             
             # 主循环：只等待队列消息，不主动检查数据变化
             # 数据变化时由数据采集器通过broadcast_message自动推送
+            heartbeat_interval = 30  # 心跳间隔（秒）
+            last_heartbeat = asyncio.get_event_loop().time()
+            
             while True:
                 # 检查是否需要断开连接
                 if await request.is_disconnected():
@@ -56,9 +59,17 @@ async def create_sse_stream(
                     break
                 
                 try:
-                    # 等待队列中的消息（无限等待，直到有消息）
-                    message = await message_queue.get()
-                    yield f"data: {json.dumps(message)}\n\n"
+                    # 等待队列中的消息（最多等待心跳间隔时间）
+                    try:
+                        message = await asyncio.wait_for(message_queue.get(), timeout=heartbeat_interval)
+                        yield f"data: {json.dumps(message)}\n\n"
+                        last_heartbeat = asyncio.get_event_loop().time()
+                    except asyncio.TimeoutError:
+                        # 超时，发送心跳
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_heartbeat >= heartbeat_interval:
+                            yield f": heartbeat\n\n"  # SSE心跳消息（以:开头）
+                            last_heartbeat = current_time
                     
                 except Exception as e:
                     logger.error(f"[SSE] 推送错误: {e}", exc_info=True)

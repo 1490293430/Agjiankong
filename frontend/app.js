@@ -727,7 +727,7 @@ async function loadMarket() {
         // 添加超时控制，避免请求卡住
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
-            controller.abort();
+            controller.abort('Request timeout after 10 seconds');
         }, 10000); // 10秒超时
         
         const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}`, {
@@ -1486,7 +1486,7 @@ async function loadChart(code) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             console.warn('[K线] 请求超时，取消请求');
-            controller.abort();
+            controller.abort('K线数据请求超时（30秒）');
         }, 30000); // 30秒超时（增加超时时间，避免504错误）
         
         let response, result;
@@ -1508,8 +1508,8 @@ async function loadChart(code) {
             
             console.error('K线数据请求失败:', fetchError);
             
-            // 如果是超时错误，提供重试提示
-            if (fetchError.name === 'AbortError') {
+            // 如果是超时错误或被取消，提供重试提示
+            if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
                 container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
                     <div style="font-size: 18px; margin-bottom: 12px;">⏱️ 请求超时</div>
                     <div style="color: #94a3b8; margin-bottom: 16px;">服务器响应时间过长，请稍后重试</div>
@@ -2519,7 +2519,7 @@ async function loadWatchlist(forceRefresh = false) {
         // 使用批量查询接口，直接查询自选股的行情数据（大幅提升加载速度）
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
+            const timeoutId = setTimeout(() => controller.abort('Request timeout after 15 seconds'), 15000); // 15秒超时
             
             const response = await apiFetch(`${API_BASE}/api/market/spot/batch`, {
                 method: 'POST',
@@ -2575,6 +2575,24 @@ async function loadWatchlist(forceRefresh = false) {
             }
         } catch (fetchError) {
             console.error('批量查询自选股行情失败:', fetchError);
+            
+            // 如果是AbortError（请求被取消），不抛出错误，而是尝试使用缓存
+            if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+                console.warn('[自选] 请求被取消，尝试使用缓存数据');
+                const cachedData = getCachedWatchlistData();
+                if (cachedData && cachedData.length > 0) {
+                    console.log('[自选] loadWatchlist: 使用缓存数据，共', cachedData.length, '只');
+                    renderWatchlistStocks(cachedData, forceRefresh);
+                    return;
+                }
+                // 如果没有缓存，显示友好提示而不是错误
+                const tbodyEl = document.getElementById('watchlist-stock-list');
+                if (tbodyEl) {
+                    tbodyEl.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">请求超时，请稍后刷新</td></tr>';
+                }
+                return;
+            }
+            
             // 如果批量查询失败，尝试使用缓存
             const cachedData = getCachedWatchlistData();
             if (cachedData && cachedData.length > 0) {
@@ -2588,6 +2606,16 @@ async function loadWatchlist(forceRefresh = false) {
         
     } catch (error) {
         console.error('加载自选股失败:', error);
+        
+        // 如果是AbortError（请求被取消），显示友好提示
+        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            const tbodyEl = document.getElementById('watchlist-stock-list');
+            if (tbodyEl) {
+                tbodyEl.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">请求超时，请稍后刷新</td></tr>';
+            }
+            return;
+        }
+        
         // 如果加载失败，尝试使用缓存
         const cachedData = getCachedWatchlistData();
         if (cachedData && cachedData.length > 0) {
@@ -2596,7 +2624,8 @@ async function loadWatchlist(forceRefresh = false) {
         } else {
             const tbodyEl = document.getElementById('watchlist-stock-list');
             if (tbodyEl) {
-                tbodyEl.innerHTML = `<tr><td colspan="6" class="loading">加载失败: ${error.message}</td></tr>`;
+                const errorMsg = error.message || '未知错误';
+                tbodyEl.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #ef4444;">加载失败: ${errorMsg}</td></tr>`;
             }
         }
     }
@@ -3031,7 +3060,7 @@ async function fetchMarketDataFromServer() {
         try {
             // 添加超时控制
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 每页10秒超时
+            const timeoutId = setTimeout(() => controller.abort('Request timeout after 10 seconds'), 10000); // 每页10秒超时
             
             const response = await apiFetch(`${API_BASE}/api/market/a/spot?page=${page}&page_size=${pageSize}`, {
                 signal: controller.signal
@@ -3088,8 +3117,8 @@ async function updateWatchlistPrices() {
         // 如果没有缓存或缓存为空，才从服务器获取一次（添加超时控制）
         if (!allStocks || allStocks.length === 0) {
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort('Request timeout after 15 seconds'), 15000); // 15秒超时
                 
                 allStocks = await fetchMarketDataFromServer();
                 
@@ -5507,7 +5536,7 @@ async function updateMarketStatus() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             console.warn('updateMarketStatus: 请求超时，取消请求');
-            controller.abort();
+            controller.abort('市场状态请求超时（10秒）');
         }, 10000); // 10秒超时
         
         console.log('updateMarketStatus: 发送请求到', `${API_BASE}/api/market/status`);
@@ -5566,25 +5595,26 @@ async function updateMarketStatus() {
         }
     } catch (error) {
         console.error('updateMarketStatus: 捕获到错误', error);
-        if (error.name === 'AbortError') {
-            console.warn('获取市场状态超时');
-            // 超时时显示"超时"
-            if (aStatusEl) {
+        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            console.warn('获取市场状态超时或被取消');
+            // 超时时显示"超时"，但不改变"加载中..."状态，等待下次重试
+            // 如果当前是"加载中..."，保持原样，让下次重试时更新
+            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
                 aStatusEl.textContent = '超时';
                 aStatusEl.className = 'market-status-value closed';
             }
-            if (hkStatusEl) {
+            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
                 hkStatusEl.textContent = '超时';
                 hkStatusEl.className = 'market-status-value closed';
             }
         } else {
             console.error('更新市场状态失败:', error);
-            // 显示错误状态
-            if (aStatusEl) {
+            // 显示错误状态，但不改变"加载中..."状态
+            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
                 aStatusEl.textContent = '错误';
                 aStatusEl.className = 'market-status-value closed';
             }
-            if (hkStatusEl) {
+            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
                 hkStatusEl.textContent = '错误';
                 hkStatusEl.className = 'market-status-value closed';
             }
