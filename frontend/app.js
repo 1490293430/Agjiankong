@@ -264,28 +264,44 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
-        // 切换到自选页时，总是从服务器同步最新数据
+        // 切换到自选页时，先使用本地数据快速加载，然后异步同步服务器数据
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，清除缓存并重新加载');
-            // 清除缓存，强制从服务器同步最新数据
+            console.log('[自选] 切换到自选页，先使用本地数据加载，然后同步服务器');
+            // 清除数据缓存（但保留自选列表缓存）
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
-            // 从服务器同步最新数据
+            
+            // 先使用本地数据快速加载（确保用户立即看到最新数据）
+            const localWatchlist = getWatchlist();
+            console.log('[自选] 本地自选列表:', localWatchlist.map(s => s.code));
+            if (localWatchlist.length > 0) {
+                // 使用本地数据立即加载（强制刷新，不使用数据缓存）
+                loadWatchlist(true);
+            }
+            
+            // 然后异步从服务器同步最新数据（后台更新）
             syncWatchlistFromServer().then(serverData => {
                 if (serverData !== null) {
                     console.log('[自选] 切换到自选页，从服务器同步成功，共', serverData.length, '只股票');
-                    // 更新本地缓存
-                    localStorage.setItem('watchlist', JSON.stringify(serverData));
-                    // 加载列表（强制刷新）
-                    loadWatchlist(true);
+                    const localData = getWatchlist();
+                    const localCodes = localData.map(s => s.code).sort().join(',');
+                    const serverCodes = serverData.map(s => s.code).sort().join(',');
+                    
+                    // 如果服务器数据与本地数据不同，更新本地缓存并刷新列表
+                    if (localCodes !== serverCodes) {
+                        console.log('[自选] 检测到服务器数据与本地数据不同，更新并刷新');
+                        localStorage.setItem('watchlist', JSON.stringify(serverData));
+                        // 清除数据缓存，强制重新加载
+                        localStorage.removeItem(WATCHLIST_CACHE_KEY);
+                        loadWatchlist(true);
+                    } else {
+                        console.log('[自选] 服务器数据与本地数据一致，无需更新');
+                    }
                 } else {
-                    // 如果服务器同步失败，使用本地缓存加载
-                    console.log('[自选] 切换到自选页，服务器同步失败，使用本地缓存');
-                    loadWatchlist(false);
+                    console.log('[自选] 切换到自选页，服务器同步失败，继续使用本地数据');
                 }
             }).catch(err => {
                 console.error('[自选] 切换到自选页，服务器同步失败:', err);
-                // 如果服务器同步失败，使用本地缓存加载
-                loadWatchlist(false);
+                // 服务器同步失败不影响，继续使用本地数据
             });
         }
         
