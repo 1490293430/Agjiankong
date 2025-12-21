@@ -128,39 +128,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     
-    // 初始化时根据URL路径设置tab
-    const path = window.location.pathname;
-    if (path && path !== '/') {
-        if (path.startsWith('/kline/')) {
-            // K线图页面，不处理（由其他逻辑处理）
-        } else {
-            const pathTab = path.replace('/', '').split('/')[0];
-            const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
-            if (validTabs.includes(pathTab)) {
-                const savedTab = localStorage.getItem('currentTab');
-                if (savedTab !== pathTab) {
-                    // 使用replaceState更新URL，不添加历史记录
-                    if (window.history && window.history.replaceState) {
-                        window.history.replaceState({ tab: pathTab }, '', `/${pathTab}${window.location.search}`);
-                    }
-                    switchToTab(pathTab, false); // 首次加载，不添加历史记录
-                }
-            } else {
-                // 无效路径，重定向到默认tab
-                if (window.history && window.history.replaceState) {
-                    window.history.replaceState({ tab: 'market' }, '', '/market');
-                }
-                switchToTab('market', false);
-            }
-        }
-    } else {
-        // 根路径，重定向到默认tab
-        const defaultTab = localStorage.getItem('currentTab') || 'market';
-        if (window.history && window.history.replaceState) {
-            window.history.replaceState({ tab: defaultTab }, '', `/${defaultTab}${window.location.search}`);
-        }
-        switchToTab(defaultTab, false);
-    }
+    // 初始化时根据URL路径设置tab（这个逻辑由initTabs处理，这里不需要重复）
+    // 注意：initTabs会在startApp中调用，所以这里不需要处理
 });
 
 function startApp() {
@@ -358,12 +327,19 @@ function initTabs() {
         }
     }
     
-    // 如果当前路径是根路径，立即更新URL
-    if (path === '/' && window.history && window.history.replaceState) {
-        window.history.replaceState({ tab: initialTab }, '', `/${initialTab}${window.location.search}`);
+    // 确保URL路径正确（如果路径不正确，使用replaceState更新）
+    const currentPath = window.location.pathname;
+    const expectedPath = `/${initialTab}`;
+    
+    if (currentPath !== expectedPath && !currentPath.startsWith('/kline/')) {
+        // 如果当前路径与期望的路径不一致，且不是K线图页面，则更新URL
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState({ tab: initialTab }, '', `${expectedPath}${window.location.search}`);
+        }
     }
     
     // 立即切换到初始tab（不添加历史记录，因为这是首次加载）
+    // switchToTab内部也会更新URL，但这里我们已经更新了，避免重复
     switchToTab(initialTab, false);
     
     // 为每个tab按钮添加点击事件
@@ -2374,111 +2350,74 @@ async function loadWatchlist(forceRefresh = false) {
         // 获取自选股代码列表
         const watchlistCodes = watchlist.map(s => String(s.code).trim());
         
-        // 分别从A股和港股获取数据
-        let allStocks = [];
-        
-        // 获取A股数据
+        // 使用批量查询接口，直接查询自选股的行情数据（大幅提升加载速度）
         try {
-            let page = 1;
-            let hasMore = true;
-            const pageSize = 500;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
             
-            while (hasMore && page <= 10) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                const response = await apiFetch(`${API_BASE}/api/market/a/spot?page=${page}&page_size=${pageSize}`, {
-                    signal: controller.signal
+            const response = await apiFetch(`${API_BASE}/api/market/spot/batch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(watchlistCodes),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.code === 0 && Array.isArray(result.data)) {
+                // 构建代码到股票数据的映射（用于快速查找）
+                const stockMap = {};
+                result.data.forEach(stock => {
+                    const code = String(stock.code || '').trim();
+                    if (code) {
+                        stockMap[code] = stock;
+                    }
                 });
                 
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    hasMore = false;
-                    break;
-                }
-                
-                const result = await response.json();
-                
-                if (result.code === 0 && result.data && result.data.length > 0) {
-                    allStocks = allStocks.concat(result.data);
-                    
-                    if (result.pagination) {
-                        hasMore = page < result.pagination.total_pages;
-                    } else {
-                        hasMore = result.data.length === pageSize;
+                // 按照自选列表的顺序构建结果，保持原有顺序
+                const watchlistStocks = watchlistCodes.map(code => {
+                    const stock = stockMap[code];
+                    if (stock) {
+                        return stock;
                     }
-                    page++;
-                } else {
-                    hasMore = false;
-                }
-            }
-        } catch (e) {
-            console.error('获取A股数据失败:', e);
-        }
-        
-        // 获取港股数据
-        try {
-            let page = 1;
-            let hasMore = true;
-            const pageSize = 500;
-            
-            while (hasMore && page <= 10) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                const response = await apiFetch(`${API_BASE}/api/market/hk/spot?page=${page}&page_size=${pageSize}`, {
-                    signal: controller.signal
+                    // 如果找不到，返回基本信息（可能股票已退市或数据不存在）
+                    const watchlistItem = watchlist.find(w => String(w.code).trim() === code);
+                    return {
+                        code: code,
+                        name: watchlistItem?.name || code,
+                        price: null,
+                        pct: null,
+                        volume: null,
+                    };
                 });
                 
-                clearTimeout(timeoutId);
+                // 保存到缓存
+                saveCachedWatchlistData(watchlistStocks);
                 
-                if (!response.ok) {
-                    hasMore = false;
-                    break;
-                }
-                
-                const result = await response.json();
-                
-                if (result.code === 0 && result.data && result.data.length > 0) {
-                    allStocks = allStocks.concat(result.data);
-                    
-                    if (result.pagination) {
-                        hasMore = page < result.pagination.total_pages;
-                    } else {
-                        hasMore = result.data.length === pageSize;
-                    }
-                    page++;
-                } else {
-                    hasMore = false;
-                }
+                // 渲染股票列表
+                renderWatchlistStocks(watchlistStocks);
+                return; // 成功返回
+            } else {
+                throw new Error(result.message || '批量查询失败');
             }
-        } catch (e) {
-            console.error('获取港股数据失败:', e);
+        } catch (fetchError) {
+            console.error('批量查询自选股行情失败:', fetchError);
+            // 如果批量查询失败，尝试使用缓存
+            const cachedData = getCachedWatchlistData();
+            if (cachedData && cachedData.length > 0) {
+                console.log('批量查询失败，使用缓存数据');
+                renderWatchlistStocks(cachedData);
+                return;
+            }
+            // 如果缓存也没有，抛出错误进入下面的错误处理
+            throw fetchError;
         }
-        
-        // 筛选出自选股列表中的股票，保持自选列表的顺序
-        const watchlistStocks = watchlistCodes.map(code => {
-            const stock = allStocks.find(s => String(s.code).trim() === code);
-            if (stock) {
-                return stock;
-            }
-            // 如果找不到，返回基本信息
-            const watchlistItem = watchlist.find(w => String(w.code).trim() === code);
-            return {
-                code: code,
-                name: watchlistItem?.name || code,
-                price: null,
-                pct: null,
-                volume: null,
-            };
-        });
-        
-        // 保存到缓存
-        saveCachedWatchlistData(watchlistStocks);
-        
-        // 渲染股票列表
-        renderWatchlistStocks(watchlistStocks);
         
     } catch (error) {
         console.error('加载自选股失败:', error);
@@ -2633,7 +2572,7 @@ async function saveWatchlist(watchlist) {
     // 先保存到本地缓存（快速响应）
     localStorage.setItem('watchlist', JSON.stringify(watchlist));
     
-    // 异步保存到服务器
+    // 同步保存到服务器（等待响应，确保数据同步）
     try {
         const response = await apiFetch(`${API_BASE}/api/watchlist`, {
             method: 'POST',
@@ -2645,15 +2584,19 @@ async function saveWatchlist(watchlist) {
             const result = await response.json();
             if (result.code === 0) {
                 console.debug('自选股列表已同步到服务器');
+                return true;
             } else {
                 console.warn('保存自选股到服务器失败:', result.message);
+                return false;
             }
         } else {
             console.warn('保存自选股到服务器失败:', response.status);
+            return false;
         }
     } catch (e) {
         console.warn('保存自选股到服务器失败:', e);
         // 即使服务器保存失败，本地已保存，不影响使用
+        return false;
     }
 }
 
@@ -2665,7 +2608,13 @@ async function addToWatchlist(code, name) {
         return;
     }
     watchlist.push({ code, name, addTime: Date.now() });
-    await saveWatchlist(watchlist);
+    
+    // 等待保存到服务器完成（确保数据同步）
+    const saved = await saveWatchlist(watchlist);
+    if (!saved) {
+        // 如果保存失败，提示用户（但不阻止操作，因为本地已保存）
+        console.warn('保存到服务器失败，但已保存到本地');
+    }
     
     // 触发自定义事件，通知当前标签页的其他部分更新
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'add', code, name } }));

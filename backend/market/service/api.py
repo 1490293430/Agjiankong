@@ -1,7 +1,7 @@
 """
 行情API服务
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
 from typing import Optional, List, Dict, Any
 import math
 
@@ -294,6 +294,57 @@ async def get_a_stock_indicators(
     except Exception as e:
         logger.error(f"获取技术指标失败 {code}: {e}", exc_info=True)
         return {"code": 1, "data": {}, "message": str(e)}
+
+
+@router.post("/spot/batch")
+async def get_stocks_by_codes(
+    codes: List[str] = Body(..., description="股票代码列表")
+):
+    """根据股票代码列表批量查询行情数据（用于自选股等场景）
+    
+    Args:
+        codes: 股票代码列表，如 ["000001", "600519", "00700"]
+    
+    Returns:
+        匹配的股票行情数据列表
+    """
+    try:
+        if not codes or len(codes) == 0:
+            return {"code": 0, "data": [], "message": "success"}
+        
+        # 标准化代码（去除空格，转为字符串）
+        codes_set = {str(c).strip() for c in codes if str(c).strip()}
+        if not codes_set:
+            return {"code": 0, "data": [], "message": "success"}
+        
+        # 获取所有行情数据
+        a_stocks = get_json("market:a:spot") or []
+        hk_stocks = get_json("market:hk:spot") or []
+        
+        all_stocks = a_stocks + hk_stocks
+        
+        # 根据代码筛选（保持codes列表的顺序）
+        # 使用字典快速查找
+        stock_map = {}
+        for stock in all_stocks:
+            stock_code = str(stock.get("code", "")).strip()
+            if stock_code:
+                stock_map[stock_code] = stock
+        
+        # 按照codes的顺序返回结果
+        results = []
+        for code in codes:
+            code_str = str(code).strip()
+            if code_str in stock_map:
+                results.append(stock_map[code_str])
+        
+        # 清理数据
+        results = _sanitize_spot_data(results)
+        
+        return {"code": 0, "data": results, "message": "success"}
+    except Exception as e:
+        logger.error(f"批量查询股票行情失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
 
 
 @router.get("/search")
