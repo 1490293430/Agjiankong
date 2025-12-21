@@ -501,16 +501,42 @@ def _fetch_kline_source1(code: str, period: str, adjust: str, start_date: str, e
                     end_date=end_date
                 )
                 try:
-                    df = future.result(timeout=5)  # 5秒超时
+                    df = future.result(timeout=25)  # 增加到25秒超时，给网络更多时间
                     if df.empty:
                         return []
                     return _standardize_kline_data(df, code)
                 except concurrent.futures.TimeoutError:
-                    logger.warning(f"akshare API调用超时 {code}，跳过")
-                    return []
+                    logger.warning(f"akshare API调用超时 {code}（25秒），尝试返回数据库已有数据")
+                    # 超时后尝试返回数据库已有数据
+                    try:
+                        from common.db import get_kline_from_db
+                        from datetime import datetime
+                        # 尝试从数据库获取已有数据
+                        existing_data = get_kline_from_db(code, start_date, end_date or datetime.now().strftime("%Y%m%d"), period)
+                        if existing_data and len(existing_data) > 0:
+                            logger.info(f"超时后返回数据库已有数据: {code}, {len(existing_data)}条")
+                            return existing_data
+                        else:
+                            logger.warning(f"数据库无数据，返回空: {code}")
+                            return []
+                    except Exception as db_error:
+                        logger.warning(f"从数据库获取数据失败 {code}: {db_error}")
+                        return []
                 except Exception as e:
-                    logger.warning(f"akshare API调用失败 {code}: {e}")
-                    return []
+                    logger.warning(f"akshare API调用失败 {code}: {e}，尝试返回数据库已有数据")
+                    # 失败后也尝试返回数据库已有数据
+                    try:
+                        from common.db import get_kline_from_db
+                        from datetime import datetime
+                        existing_data = get_kline_from_db(code, start_date, end_date or datetime.now().strftime("%Y%m%d"), period)
+                        if existing_data and len(existing_data) > 0:
+                            logger.info(f"API失败后返回数据库已有数据: {code}, {len(existing_data)}条")
+                            return existing_data
+                        else:
+                            return []
+                    except Exception as db_error:
+                        logger.warning(f"从数据库获取数据失败 {code}: {db_error}")
+                        return []
     except Exception as e:
         logger.warning(f"数据源1失败 {code}: {str(e)[:200]}")
         return []
@@ -807,12 +833,15 @@ def fetch_a_stock_kline(
         logger.warning(f"从数据库查询失败，返回新获取的数据: {code}")
         return new_kline_data
     else:
-        # 所有数据源都失败，尝试从数据库返回已有数据
+        # 所有数据源都失败，尝试从数据库返回已有数据（即使不完整）
         if not force_full_refresh:
-            existing_data = get_kline_from_db(code, query_start, default_end, period)
-            if existing_data:
-                logger.info(f"数据源获取失败，返回数据库已有数据: {code}, {len(existing_data)}条（{period}）")
-                return existing_data
+            try:
+                existing_data = get_kline_from_db(code, query_start, default_end, period)
+                if existing_data and len(existing_data) > 0:
+                    logger.info(f"数据源获取失败，返回数据库已有数据（可能不完整）: {code}, {len(existing_data)}条（{period}）")
+                    return existing_data
+            except Exception as e:
+                logger.debug(f"从数据库获取已有数据失败 {code}: {e}")
         
         # 对于小时数据，提供更详细的错误信息
         if is_hourly:

@@ -99,6 +99,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# 自选股WebSocket连接管理器（单独管理，避免与其他WebSocket混合）
+watchlist_manager = ConnectionManager()
+
 # 选股进度管理器（使用字典存储每个任务的进度）
 selection_progress: dict = {}
 
@@ -417,4 +420,35 @@ async def websocket_stock(websocket: WebSocket, code: str):
     except Exception as e:
         logger.error(f"股票WebSocket错误: {e}", exc_info=True)
         manager.disconnect(websocket)
+
+
+@router.websocket("/ws/watchlist")
+async def websocket_watchlist(websocket: WebSocket):
+    """自选股同步WebSocket（实时推送自选股变化）"""
+    await watchlist_manager.connect(websocket)
+    
+    try:
+        # 首次连接时立即推送一次当前自选股列表
+        watchlist = get_json("watchlist:default") or []
+        await watchlist_manager.send_personal_message({
+            "type": "watchlist_sync",
+            "action": "init",
+            "data": watchlist
+        }, websocket)
+        
+        # 保持连接，等待服务器推送更新
+        while True:
+            # 等待客户端消息（用于保持连接活跃）
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # 超时是正常的，继续等待
+                pass
+            
+    except WebSocketDisconnect:
+        watchlist_manager.disconnect(websocket)
+        logger.info("自选股WebSocket客户端断开连接")
+    except Exception as e:
+        logger.error(f"自选股WebSocket错误: {e}", exc_info=True)
+        watchlist_manager.disconnect(websocket)
 

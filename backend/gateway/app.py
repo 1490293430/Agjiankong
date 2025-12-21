@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 import asyncio
+import time
 
 # 导入各模块路由
 from market.service.api import router as market_router
@@ -221,6 +222,74 @@ async def get_latest_news():
         return {"code": 0, "data": news or [], "message": "success"}
     except Exception as e:
         logger.error(f"获取资讯失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
+
+
+@api_router.get("/watchlist")
+async def get_watchlist():
+    """获取自选股列表"""
+    try:
+        watchlist = get_json("watchlist:default") or []
+        return {"code": 0, "data": watchlist, "message": "success"}
+    except Exception as e:
+        logger.error(f"获取自选股列表失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
+
+
+@api_router.post("/watchlist")
+async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: BackgroundTasks = None):
+    """保存自选股列表
+    
+    Body参数:
+        stocks: 自选股列表，格式: [{"code": "000001", "name": "平安银行", "addTime": 1234567890}]
+    """
+    try:
+        stocks = data.get("stocks", [])
+        if not isinstance(stocks, list):
+            return {"code": 1, "data": [], "message": "stocks参数必须是数组"}
+        
+        # 验证数据格式
+        validated_stocks = []
+        for stock in stocks:
+            if isinstance(stock, dict) and "code" in stock:
+                validated_stocks.append({
+                    "code": str(stock.get("code", "")).strip(),
+                    "name": str(stock.get("name", stock.get("code", ""))).strip(),
+                    "addTime": stock.get("addTime", int(time.time() * 1000))
+                })
+        
+        # 保存到Redis
+        success = set_json("watchlist:default", validated_stocks)
+        if success:
+            logger.info(f"自选股列表保存成功，共{len(validated_stocks)}只股票")
+            
+            # 通过WebSocket广播给所有连接的客户端（后台任务）
+            async def broadcast_watchlist_update():
+                try:
+                    from market.service.ws import watchlist_manager
+                    await watchlist_manager.broadcast({
+                        "type": "watchlist_sync",
+                        "action": "update",
+                        "data": validated_stocks
+                    })
+                    logger.debug(f"自选股变化已广播给{len(watchlist_manager.active_connections)}个客户端")
+                except Exception as e:
+                    logger.warning(f"广播自选股变化失败: {e}")
+            
+            if background_tasks:
+                background_tasks.add_task(broadcast_watchlist_update)
+            else:
+                # 如果没有background_tasks，直接执行（可能阻塞）
+                try:
+                    await broadcast_watchlist_update()
+                except Exception as e:
+                    logger.warning(f"广播自选股变化失败: {e}")
+            
+            return {"code": 0, "data": validated_stocks, "message": "success"}
+        else:
+            return {"code": 1, "data": [], "message": "保存失败"}
+    except Exception as e:
+        logger.error(f"保存自选股列表失败: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
 
 

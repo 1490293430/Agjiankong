@@ -60,12 +60,19 @@ window.addEventListener('pagehide', closeAllWebSockets);
 document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
     
-    // 监听浏览器返回按钮，用于关闭K线图模态框
+    // 监听浏览器返回按钮，处理页面导航和K线图关闭
     window.addEventListener('popstate', (event) => {
+        const state = event.state || {};
+        const hash = window.location.hash.replace('#', '');
+        
+        // 检查是否从K线图页面返回
+        const wasKlinePage = state.klineModal || hash.startsWith('kline-');
+        const isKlinePage = hash.startsWith('kline-');
+        
+        // 如果从K线图页面返回，关闭模态框
         const modal = document.getElementById('kline-modal');
-        if (modal && modal.style.display !== 'none') {
-            // 如果K线图模态框是打开的，关闭它（但不触发popstate，避免循环）
-            // 直接关闭模态框，不调用 closeKlineModal 避免再次触发历史记录操作
+        if (wasKlinePage && !isKlinePage && modal && modal.style.display !== 'none') {
+            // 关闭K线图模态框
             modal.style.display = 'none';
             
             // 清理图表
@@ -94,12 +101,63 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentKlineName = null;
             currentKlineStockData = null;
         }
+        
+        // 处理tab切换
+        if (state.tab) {
+            switchToTab(state.tab, false); // false表示不添加历史记录
+        } else if (hash) {
+            if (hash.startsWith('kline-')) {
+                // K线图页面，尝试打开对应的K线图
+                const code = hash.replace('kline-', '');
+                // 这里可以尝试恢复K线图，但通常用户返回时是想关闭它
+                // 所以只切换到对应的tab
+                const savedTab = state.tab || localStorage.getItem('currentTab') || 'market';
+                switchToTab(savedTab, false);
+            } else {
+                // 其他hash，尝试切换到对应的tab
+                const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
+                if (validTabs.includes(hash)) {
+                    switchToTab(hash, false);
+                }
+            }
+        } else {
+            // 没有hash，切换到默认tab
+            switchToTab('market', false);
+        }
     });
+    
+    // 初始化时根据URL hash设置tab
+    const hash = window.location.hash.replace('#', '');
+    if (hash && !hash.startsWith('kline-')) {
+        const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
+        if (validTabs.includes(hash)) {
+            const savedTab = localStorage.getItem('currentTab');
+            if (savedTab !== hash) {
+                switchToTab(hash, true); // 首次加载，添加历史记录
+            }
+        }
+    }
 });
 
 function startApp() {
     initTheme();
     const currentTab = initTabs(); // 获取当前激活的tab
+    
+    // 监听自选股变化事件（同一标签页内的同步）
+    window.addEventListener('watchlistChanged', (e) => {
+        const { action, code } = e.detail;
+        console.log(`自选股变化: ${action}, 代码: ${code}`);
+        
+        // 更新按钮状态
+        updateWatchlistButtonStates();
+        
+        // 如果当前在自选页且是添加操作，刷新列表
+        const watchlistTab = document.getElementById('watchlist-tab');
+        if (watchlistTab && watchlistTab.classList.contains('active') && action === 'add') {
+            localStorage.removeItem(WATCHLIST_CACHE_KEY);
+            loadWatchlist(true);
+        }
+    });
     
     // 初始化所有模块
     initMarket(); // 始终初始化行情模块（即使不在行情页，也需要初始化事件监听）
@@ -181,82 +239,94 @@ async function apiFetch(url, options = {}) {
     return fetch(url, { ...options, headers });
 }
 
-// 标签切换
-function initTabs() {
+// 切换到指定tab（支持History API）
+function switchToTab(targetTab, addHistory = true) {
     const tabs = document.querySelectorAll('.tab-btn');
     const contents = document.querySelectorAll('.tab-content');
     
-    // 立即从localStorage恢复上次的tab（避免闪烁）
-    const savedTab = localStorage.getItem('currentTab');
-    if (savedTab) {
-        const savedTabElement = document.querySelector(`.tab-btn[data-tab="${savedTab}"]`);
-        const savedContentElement = document.getElementById(`${savedTab}-tab`);
+    // 移除所有active类
+    tabs.forEach(t => t.classList.remove('active'));
+    contents.forEach(c => c.classList.remove('active'));
+    
+    // 设置目标tab为active
+    const targetBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
+    const targetContent = document.getElementById(`${targetTab}-tab`);
+    
+    if (targetBtn && targetContent) {
+        targetBtn.classList.add('active');
+        targetContent.classList.add('active');
         
-        // 如果保存的tab存在，立即切换到它
-        if (savedTabElement && savedContentElement) {
-            tabs.forEach(t => t.classList.remove('active'));
-            contents.forEach(c => c.classList.remove('active'));
-            
-            savedTabElement.classList.add('active');
-            savedContentElement.classList.add('active');
+        // 保存当前tab到localStorage
+        localStorage.setItem('currentTab', targetTab);
+        
+        // 添加历史记录
+        if (addHistory && window.history && window.history.pushState) {
+            const url = `${window.location.pathname}${window.location.search}#${targetTab}`;
+            window.history.pushState({ tab: targetTab }, '', url);
+        }
+        
+        // 切换到自选页时，检查是否已有数据显示
+        if (targetTab === 'watchlist') {
+            const tbody = document.getElementById('watchlist-stock-list');
+            // 如果表格已存在且有数据，不重新加载
+            if (tbody && tbody.children.length > 0) {
+                console.log('自选页已有数据，跳过加载');
+                return;
+            }
+            // 否则使用缓存加载
+            loadWatchlist(false); // 不强制刷新，使用缓存
+        }
+        
+        // 切换到行情页时，检查是否已有数据显示
+        if (targetTab === 'market') {
+            const tbody = document.getElementById('stock-list');
+            // 如果表格已存在且有数据（不是loading提示），不重新加载
+            if (tbody && tbody.children.length > 0) {
+                const hasLoading = tbody.querySelector('.loading');
+                const hasData = Array.from(tbody.children).some(tr => {
+                    const text = tr.textContent || '';
+                    return text.trim() && !text.includes('加载中') && !text.includes('加载失败');
+                });
+                if (hasData && !hasLoading) {
+                    console.log('行情页已有数据，跳过加载');
+                    return;
+                }
+            }
+            // 如果表格为空或只有loading/错误提示，加载数据
+            // 延迟加载，确保tab切换动画完成
+            setTimeout(() => {
+                // 再次检查是否仍在行情页
+                const marketTab = document.getElementById('market-tab');
+                if (marketTab && marketTab.classList.contains('active')) {
+                    loadMarket();
+                }
+            }, 100);
         }
     }
+}
+
+// 标签切换
+function initTabs() {
+    const tabs = document.querySelectorAll('.tab-btn');
     
+    // 立即从localStorage恢复上次的tab（避免闪烁）
+    const savedTab = localStorage.getItem('currentTab') || 'market';
+    const hash = window.location.hash.replace('#', '');
+    const initialTab = (hash && ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'].includes(hash)) ? hash : savedTab;
+    
+    // 立即切换到初始tab（不添加历史记录，因为这是首次加载）
+    switchToTab(initialTab, false);
+    
+    // 为每个tab按钮添加点击事件
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const targetTab = tab.dataset.tab;
-            
-            tabs.forEach(t => t.classList.remove('active'));
-            contents.forEach(c => c.classList.remove('active'));
-            
-            tab.classList.add('active');
-            document.getElementById(`${targetTab}-tab`).classList.add('active');
-            
-            // 保存当前tab到localStorage
-            localStorage.setItem('currentTab', targetTab);
-            
-            // 切换到自选页时，检查是否已有数据显示
-            if (targetTab === 'watchlist') {
-                const tbody = document.getElementById('watchlist-stock-list');
-                // 如果表格已存在且有数据，不重新加载
-                if (tbody && tbody.children.length > 0) {
-                    console.log('自选页已有数据，跳过加载');
-                    return;
-                }
-                // 否则使用缓存加载
-                loadWatchlist(false); // 不强制刷新，使用缓存
-            }
-            
-            // 切换到行情页时，检查是否已有数据显示
-            if (targetTab === 'market') {
-                const tbody = document.getElementById('stock-list');
-                // 如果表格已存在且有数据（不是loading提示），不重新加载
-                if (tbody && tbody.children.length > 0) {
-                    const hasLoading = tbody.querySelector('.loading');
-                    const hasData = Array.from(tbody.children).some(tr => {
-                        const text = tr.textContent || '';
-                        return text.trim() && !text.includes('加载中') && !text.includes('加载失败');
-                    });
-                    if (hasData && !hasLoading) {
-                        console.log('行情页已有数据，跳过加载');
-                        return;
-                    }
-                }
-                // 如果表格为空或只有loading/错误提示，加载数据
-                // 延迟加载，确保tab切换动画完成
-                setTimeout(() => {
-                    // 再次检查是否仍在行情页
-                    const marketTab = document.getElementById('market-tab');
-                    if (marketTab && marketTab.classList.contains('active')) {
-                        loadMarket();
-                    }
-                }, 100);
-            }
+            switchToTab(targetTab, true); // 点击切换时添加历史记录
         });
     });
     
     // 返回当前激活的tab，供其他模块使用
-    return savedTab || 'market';
+    return initialTab;
 }
 
 // 行情模块
@@ -397,6 +467,9 @@ async function silentRefreshMarket() {
                     }
                 }
             });
+            
+            // 更新所有按钮状态（确保同步）
+            updateWatchlistButtonStates();
         }
     } catch (error) {
         if (error.name !== 'AbortError') {
@@ -771,9 +844,11 @@ function openKlineModal(code, name, stockData = null) {
         });
     }
     
-    // 在移动端，使用 history API 添加一个历史记录，用于处理返回按钮
+    // 使用 history API 添加一个历史记录，用于处理返回按钮
     if (window.history && window.history.pushState) {
-        window.history.pushState({ klineModal: true, code: code, name: name }, '', window.location.href);
+        const currentTab = localStorage.getItem('currentTab') || 'market';
+        const url = `${window.location.pathname}${window.location.search}#kline-${code}`;
+        window.history.pushState({ klineModal: true, code: code, name: name, tab: currentTab }, '', url);
     }
     
     modal.style.display = 'flex';
@@ -914,11 +989,12 @@ function closeKlineModal(event) {
         return false; // 如果已经关闭，直接返回
     }
     
-    // 在移动端，如果当前历史记录是K线图状态，则返回上一页（但不触发popstate）
-    // 使用 replaceState 替换当前历史记录，避免触发返回
-    if (window.history && window.history.state && window.history.state.klineModal) {
-        // 替换当前历史记录，移除K线图状态标记
-        window.history.replaceState({}, '', window.location.href);
+    // 如果当前历史记录是K线图状态，替换为之前的tab页面
+    if (window.history && window.history.replaceState) {
+        const state = window.history.state || {};
+        const currentTab = state.tab || localStorage.getItem('currentTab') || 'market';
+        const url = `${window.location.pathname}${window.location.search}#${currentTab}`;
+        window.history.replaceState({ tab: currentTab }, '', url);
     }
     
     modal.style.display = 'none';
@@ -1977,6 +2053,119 @@ function initWatchlist() {
         });
     }
     
+    // 页面加载时从服务器同步自选股列表
+    syncWatchlistFromServer().then(serverData => {
+        if (serverData !== null) {
+            console.log('自选股列表已从服务器同步');
+            // 如果当前在自选页，刷新列表
+            const watchlistTab = document.getElementById('watchlist-tab');
+            if (watchlistTab && watchlistTab.classList.contains('active')) {
+                localStorage.removeItem(WATCHLIST_CACHE_KEY);
+                loadWatchlist(true);
+            }
+            // 更新按钮状态
+            updateWatchlistButtonStates();
+        }
+    });
+    
+    // 连接WebSocket实时同步自选股变化
+    let watchlistWs = null;
+    function connectWatchlistWebSocket() {
+        try {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/watchlist`;
+            watchlistWs = new WebSocket(wsUrl);
+            
+            watchlistWs.onopen = () => {
+                console.log('自选股WebSocket连接已建立');
+            };
+            
+            watchlistWs.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.type === 'watchlist_sync') {
+                        if (message.action === 'init' || message.action === 'update') {
+                            const serverData = message.data || [];
+                            const localData = getWatchlistFromCache();
+                            const localCodes = localData.map(s => s.code).sort().join(',');
+                            const serverCodes = serverData.map(s => s.code).sort().join(',');
+                            
+                            // 如果数据有变化，更新本地缓存
+                            if (localCodes !== serverCodes) {
+                                console.log('收到自选股变化推送，更新本地数据');
+                                localStorage.setItem('watchlist', JSON.stringify(serverData));
+                                
+                                // 更新按钮状态
+                                updateWatchlistButtonStates();
+                                
+                                // 如果当前在自选页，刷新列表
+                                const watchlistTab = document.getElementById('watchlist-tab');
+                                if (watchlistTab && watchlistTab.classList.contains('active')) {
+                                    localStorage.removeItem(WATCHLIST_CACHE_KEY);
+                                    loadWatchlist(true);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('解析WebSocket消息失败:', e);
+                }
+            };
+            
+            watchlistWs.onerror = (error) => {
+                console.error('自选股WebSocket错误:', error);
+            };
+            
+            watchlistWs.onclose = () => {
+                console.log('自选股WebSocket连接已关闭，5秒后重连...');
+                // 5秒后重连
+                setTimeout(connectWatchlistWebSocket, 5000);
+            };
+            
+            // 每30秒发送一次ping，保持连接活跃
+            setInterval(() => {
+                if (watchlistWs && watchlistWs.readyState === WebSocket.OPEN) {
+                    try {
+                        watchlistWs.send('ping');
+                    } catch (e) {
+                        console.debug('发送WebSocket ping失败:', e);
+                    }
+                }
+            }, 30000);
+            
+        } catch (e) {
+            console.error('连接自选股WebSocket失败:', e);
+            // 5秒后重试
+            setTimeout(connectWatchlistWebSocket, 5000);
+        }
+    }
+    
+    // 建立WebSocket连接
+    connectWatchlistWebSocket();
+    
+    // 监听 localStorage 变化，实现跨标签页同步
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'watchlist') {
+            console.log('检测到自选股列表变化，同步更新');
+            // 更新按钮状态
+            updateWatchlistButtonStates();
+            
+            // 如果当前在自选页，刷新列表
+            const watchlistTab = document.getElementById('watchlist-tab');
+            if (watchlistTab && watchlistTab.classList.contains('active')) {
+                // 清除缓存，强制刷新
+                localStorage.removeItem(WATCHLIST_CACHE_KEY);
+                loadWatchlist(true);
+            }
+            
+            // 如果当前在行情页，更新按钮状态
+            const marketTab = document.getElementById('market-tab');
+            if (marketTab && marketTab.classList.contains('active')) {
+                updateWatchlistButtonStates();
+            }
+        }
+    });
+    
     // 首次加载时使用缓存
     loadWatchlist(false);
 }
@@ -2258,8 +2447,8 @@ function renderWatchlistStocks(watchlistStocks) {
     });
 }
 
-// 获取自选股列表
-function getWatchlist() {
+// 从本地缓存快速获取自选股列表（同步，用于UI渲染）
+function getWatchlistFromCache() {
     try {
         const data = localStorage.getItem('watchlist');
         return data ? JSON.parse(data) : [];
@@ -2268,50 +2457,102 @@ function getWatchlist() {
     }
 }
 
-// 保存自选股列表
-function saveWatchlist(watchlist) {
+// 从服务器同步自选股列表（异步，用于初始化）
+async function syncWatchlistFromServer() {
+    try {
+        const response = await apiFetch(`${API_BASE}/api/watchlist`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.code === 0 && Array.isArray(result.data)) {
+                // 保存到本地缓存
+                localStorage.setItem('watchlist', JSON.stringify(result.data));
+                return result.data;
+            }
+        }
+    } catch (e) {
+        console.debug('从服务器同步自选股失败，使用本地缓存:', e);
+    }
+    return null;
+}
+
+// 获取自选股列表（兼容旧代码，返回本地缓存）
+function getWatchlist() {
+    return getWatchlistFromCache();
+}
+
+// 保存自选股列表（同时保存到服务器和本地）
+async function saveWatchlist(watchlist) {
+    // 先保存到本地缓存（快速响应）
     localStorage.setItem('watchlist', JSON.stringify(watchlist));
+    
+    // 异步保存到服务器
+    try {
+        const response = await apiFetch(`${API_BASE}/api/watchlist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stocks: watchlist })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            if (result.code === 0) {
+                console.debug('自选股列表已同步到服务器');
+            } else {
+                console.warn('保存自选股到服务器失败:', result.message);
+            }
+        } else {
+            console.warn('保存自选股到服务器失败:', response.status);
+        }
+    } catch (e) {
+        console.warn('保存自选股到服务器失败:', e);
+        // 即使服务器保存失败，本地已保存，不影响使用
+    }
 }
 
 // 添加到自选股
-function addToWatchlist(code, name) {
+async function addToWatchlist(code, name) {
     const watchlist = getWatchlist();
     if (watchlist.some(s => s.code === code)) {
         alert('该股票已在自选列表中');
         return;
     }
     watchlist.push({ code, name, addTime: Date.now() });
-    saveWatchlist(watchlist);
+    await saveWatchlist(watchlist);
+    
+    // 触发自定义事件，通知当前标签页的其他部分更新
+    window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'add', code, name } }));
     
     // 更新按钮状态
-    document.querySelectorAll(`.add-watchlist-btn[data-code="${code}"]`).forEach(btn => {
-        btn.textContent = '已添加';
-        btn.style.background = '#94a3b8';
-        btn.disabled = true;
-    });
+    updateWatchlistButtonStates();
     
-            // 如果当前在自选页，刷新列表（清除缓存，强制刷新）
-            if (document.getElementById('watchlist-tab') && document.getElementById('watchlist-tab').classList.contains('active')) {
-                localStorage.removeItem(WATCHLIST_CACHE_KEY);
-                loadWatchlist(true);
-            }
+    // 如果当前在自选页，刷新列表（清除缓存，强制刷新）
+    const watchlistTab = document.getElementById('watchlist-tab');
+    if (watchlistTab && watchlistTab.classList.contains('active')) {
+        localStorage.removeItem(WATCHLIST_CACHE_KEY);
+        loadWatchlist(true);
+    }
 }
 
 // 从自选股移除
-function removeFromWatchlist(code) {
+async function removeFromWatchlist(code) {
     const watchlist = getWatchlist();
     const newWatchlist = watchlist.filter(s => s.code !== code);
-    saveWatchlist(newWatchlist);
+    await saveWatchlist(newWatchlist);
+    
+    // 触发自定义事件，通知当前标签页的其他部分更新
+    window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'remove', code } }));
+    
     // 清除缓存，重新加载
     localStorage.removeItem(WATCHLIST_CACHE_KEY);
-    loadWatchlist(true);
     
-    // 更新行情页按钮状态
-    document.querySelectorAll(`.add-watchlist-btn[data-code="${code}"]`).forEach(btn => {
-        btn.textContent = '加入自选';
-        btn.style.background = '#10b981';
-        btn.disabled = false;
-    });
+    // 如果当前在自选页，刷新列表
+    const watchlistTab = document.getElementById('watchlist-tab');
+    if (watchlistTab && watchlistTab.classList.contains('active')) {
+        loadWatchlist(true);
+    }
+    
+    // 更新按钮状态
+    updateWatchlistButtonStates();
 }
 
 // 行情数据缓存管理
