@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 import json
 import asyncio
+import time
 from common.redis import get_json, get_redis
 from common.logger import get_logger
 
@@ -50,7 +51,6 @@ async def create_sse_stream(
             # 主循环：只等待队列消息，不主动检查数据变化
             # 数据变化时由数据采集器通过broadcast_message自动推送
             heartbeat_interval = 30  # 心跳间隔（秒）
-            last_heartbeat = asyncio.get_event_loop().time()
             
             while True:
                 # 检查是否需要断开连接
@@ -63,13 +63,9 @@ async def create_sse_stream(
                     try:
                         message = await asyncio.wait_for(message_queue.get(), timeout=heartbeat_interval)
                         yield f"data: {json.dumps(message)}\n\n"
-                        last_heartbeat = asyncio.get_event_loop().time()
                     except asyncio.TimeoutError:
                         # 超时，发送心跳
-                        current_time = asyncio.get_event_loop().time()
-                        if current_time - last_heartbeat >= heartbeat_interval:
-                            yield f": heartbeat\n\n"  # SSE心跳消息（以:开头）
-                            last_heartbeat = current_time
+                        yield f": heartbeat\n\n"  # SSE心跳消息（以:开头）
                     
                 except Exception as e:
                     logger.error(f"[SSE] 推送错误: {e}", exc_info=True)

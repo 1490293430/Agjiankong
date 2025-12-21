@@ -79,7 +79,21 @@ function connectSSE(currentTab = null, taskId = null) {
         
         sseConnection.onerror = (error) => {
             console.error('[SSE] 连接错误:', error);
-            // SSE会自动重连，这里可以记录错误
+            // 如果连接断开，尝试重新连接（延迟3秒避免频繁重连）
+            if (sseConnection && sseConnection.readyState === EventSource.CLOSED) {
+                console.log('[SSE] 连接已关闭，3秒后尝试重新连接');
+                setTimeout(() => {
+                    // 只有在当前tab仍然存在时才重连
+                    const currentTabBtn = document.querySelector('.tab-btn.active');
+                    if (currentTabBtn) {
+                        const currentTab = currentTabBtn.getAttribute('data-tab');
+                        if (currentTab && (currentTab === 'market' || currentTab === 'watchlist')) {
+                            console.log(`[SSE] 重新连接到tab: ${currentTab}`);
+                            connectSSE(currentTab);
+                        }
+                    }
+                }, 3000);
+            }
         };
         
     } catch (e) {
@@ -730,11 +744,14 @@ async function loadMarket() {
             controller.abort('Request timeout after 10 seconds');
         }, 10000); // 10秒超时
         
+        console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}`);
         const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}`, {
             signal: controller.signal
         });
         
         clearTimeout(timeoutId);
+        
+        console.log(`[行情] 收到响应: status=${response.status}, ok=${response.ok}`);
         
         // 再次检查行情页是否仍然激活
         if (!marketTab || !marketTab.classList.contains('active')) {
@@ -743,7 +760,12 @@ async function loadMarket() {
             return;
         }
         
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const result = await response.json();
+        console.log(`[行情] 解析结果: code=${result.code}, dataLength=${result.data?.length || 0}`);
         
         // 移除加载提示
         const loadingIndicator = document.getElementById('loading-indicator');
@@ -795,6 +817,8 @@ async function loadMarket() {
             hasMore = false;
         }
     } catch (error) {
+        console.error('[行情] 加载失败:', error);
+        
         // 再次检查行情页是否仍然激活
         if (!marketTab || !marketTab.classList.contains('active')) {
             console.log('行情页已切换，取消错误处理');
@@ -809,13 +833,20 @@ async function loadMarket() {
         }
         
         if (currentPage === 1) {
-            const errorMsg = error.name === 'AbortError' ? '请求超时，请稍后重试' : `加载失败: ${error.message || '网络错误'}`;
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #ef4444;">${errorMsg}</td></tr>`;
+            let errorMsg = '加载失败';
+            if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+                errorMsg = '请求超时，请稍后重试';
+            } else if (error.message) {
+                errorMsg = `加载失败: ${error.message}`;
+            } else {
+                errorMsg = '网络错误，请检查网络连接';
+            }
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #ef4444;">${errorMsg}<br/><button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">刷新页面</button></td></tr>`;
         }
         hasMore = false;
-        console.error('加载行情数据失败:', error);
     } finally {
         isLoading = false;
+        console.log('[行情] loadMarket完成, isLoading=false');
     }
 }
 
@@ -1492,17 +1523,25 @@ async function loadChart(code) {
         let response, result;
         try {
             // 根据市场类型选择对应的API接口
-            response = await apiFetch(`${API_BASE}/api/market/${market}/kline?code=${code}&period=${period}&start_date=${startDateStr}&end_date=${endDateStr}`, {
+            const klineUrl = `${API_BASE}/api/market/${market}/kline?code=${code}&period=${period}&start_date=${startDateStr}&end_date=${endDateStr}`;
+            console.log(`[K线] 请求URL: ${klineUrl}`);
+            
+            response = await apiFetch(klineUrl, {
                 signal: controller.signal
             });
             
             clearTimeout(timeoutId);
             
+            console.log(`[K线] 收到响应: status=${response.status}, ok=${response.ok}`);
+            
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const errorText = await response.text().catch(() => '');
+                console.error(`[K线] HTTP错误: ${response.status}, ${errorText}`);
+                throw new Error(`HTTP ${response.status}: ${response.statusText || errorText}`);
             }
             
             result = await response.json();
+            console.log(`[K线] 解析结果: code=${result.code}, dataLength=${result.data?.length || 0}`);
         } catch (fetchError) {
             clearTimeout(timeoutId);
             
@@ -5527,7 +5566,24 @@ async function updateMarketStatus() {
     
     if (!aStatusEl || !hkStatusEl) {
         console.warn('市场状态元素未找到，aStatusEl:', aStatusEl, 'hkStatusEl:', hkStatusEl);
+        // 如果元素不存在，等待一段时间后重试（可能是DOM还没加载完成）
+        if (!aStatusEl || !hkStatusEl) {
+            setTimeout(() => {
+                console.log('updateMarketStatus: 延迟重试');
+                updateMarketStatus();
+            }, 1000);
+        }
         return;
+    }
+    
+    // 如果元素存在但内容为空，显示"加载中..."
+    if (!aStatusEl.textContent || aStatusEl.textContent === '') {
+        aStatusEl.textContent = '加载中...';
+        aStatusEl.className = 'market-status-value closed';
+    }
+    if (!hkStatusEl.textContent || hkStatusEl.textContent === '') {
+        hkStatusEl.textContent = '加载中...';
+        hkStatusEl.className = 'market-status-value closed';
     }
     
     console.log('updateMarketStatus: 开始请求市场状态', { hasToken: !!apiToken });
