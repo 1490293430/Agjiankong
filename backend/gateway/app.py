@@ -219,7 +219,7 @@ api_router = APIRouter(
 )
 
 
-@api_router.get("/news/latest")
+@api_router.get("/news/latest", dependencies=[])  # 不需要认证，公开接口
 async def get_latest_news():
     """获取最新资讯"""
     try:
@@ -312,7 +312,7 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
         return {"code": 1, "data": [], "message": str(e)}
 
 
-@api_router.get("/market/status")
+@api_router.get("/market/status", dependencies=[])  # 不需要认证，公开接口
 async def get_market_status():
     """获取A股和港股的交易状态"""
     try:

@@ -5849,28 +5849,14 @@ async function updateMarketStatus() {
             const errorText = await res.text().catch(() => '');
             console.error('获取市场状态失败:', res.status, errorText);
             
-            // 如果是401错误，需要登录或token失效
-            if (res.status === 401) {
-                console.warn('市场状态API需要认证');
-                if (aStatusEl) {
-                    aStatusEl.textContent = '需登录';
-                    aStatusEl.className = 'market-status-value closed';
-                }
-                if (hkStatusEl) {
-                    hkStatusEl.textContent = '需登录';
-                    hkStatusEl.className = 'market-status-value closed';
-                }
-                isUpdatingMarketStatus = false;
-                return;
-            }
-            
-            // 其他错误显示"未知"，但不改变"加载中..."状态
-            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
-                aStatusEl.textContent = '未知';
+            // 如果是401错误，可能是认证问题，但市场状态接口应该不需要认证
+            // 显示错误状态
+            if (aStatusEl) {
+                aStatusEl.textContent = '错误';
                 aStatusEl.className = 'market-status-value closed';
             }
-            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
-                hkStatusEl.textContent = '未知';
+            if (hkStatusEl) {
+                hkStatusEl.textContent = '错误';
                 hkStatusEl.className = 'market-status-value closed';
             }
             isUpdatingMarketStatus = false;
