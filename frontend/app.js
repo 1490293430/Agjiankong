@@ -633,6 +633,10 @@ function switchToTab(targetTab, addHistory = true) {
         // 切换到配置页时，加载配置
         if (targetTab === 'config') {
             console.log('[配置] 切换到配置页');
+            // 确保配置模块已初始化（如果还没有初始化）
+            if (!configInitialized) {
+                initConfig();
+            }
             // 如果配置未加载，重新加载
             loadConfig();
         }
@@ -5297,7 +5301,21 @@ function initConfig() {
     }
 
     configInitialized = true;
-    saveBtn.addEventListener('click', saveConfig);
+    
+    // 绑定保存按钮事件，添加错误处理
+    saveBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('[配置] 保存按钮被点击');
+        try {
+            saveConfig();
+        } catch (error) {
+            console.error('[配置] 保存按钮点击处理失败:', error);
+            showToast(`保存失败: ${error.message}`, 'error');
+        }
+    });
+    
+    console.log('[配置] 保存按钮事件已绑定');
     
     // 如果当前在配置页，立即加载
     const configTab = document.getElementById('config-tab');
@@ -5424,32 +5442,46 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
-    const statusEl = document.getElementById('cfg-status');
-    const selectionMarket = document.getElementById('cfg-selection-market').value;
-    const maxCount = parseInt(document.getElementById('cfg-selection-max-count').value);
-    const interval = parseInt(document.getElementById('cfg-collector-interval').value);
-    const klineYears = parseFloat(document.getElementById('cfg-kline-years').value);
+    console.log('[配置] saveConfig函数被调用');
     
-    // 筛选策略配置
-    const filterVolumeRatioMin = parseFloat(document.getElementById('cfg-filter-volume-ratio-min').value);
-    const filterVolumeRatioMax = parseFloat(document.getElementById('cfg-filter-volume-ratio-max').value);
-    const filterRsiMin = parseInt(document.getElementById('cfg-filter-rsi-min').value);
-    const filterRsiMax = parseInt(document.getElementById('cfg-filter-rsi-max').value);
-    const filterWilliamsREnable = document.getElementById('cfg-filter-williams-r-enable').checked;
-    const filterBreakHighEnable = document.getElementById('cfg-filter-break-high-enable').checked;
-    const filterBollEnable = document.getElementById('cfg-filter-boll-enable').checked;
-
-    const channels = [];
-    const telegramEnabled = document.getElementById('cfg-notify-telegram').checked;
-    const emailEnabled = document.getElementById('cfg-notify-email').checked;
-    const wechatEnabled = document.getElementById('cfg-notify-wechat').checked;
-    
-    if (telegramEnabled) channels.push('telegram');
-    if (emailEnabled) channels.push('email');
-    if (wechatEnabled) channels.push('wechat');
-
     try {
+        const statusEl = document.getElementById('cfg-status');
         if (statusEl) statusEl.textContent = '保存中...';
+        
+        // 检查是否在配置页
+        const configTab = document.getElementById('config-tab');
+        if (!configTab || !configTab.classList.contains('active')) {
+            console.warn('[配置] 当前不在配置页，无法保存');
+            if (statusEl) statusEl.textContent = '请先切换到配置页';
+            showToast('请先切换到配置页', 'error');
+            return;
+        }
+        
+        const selectionMarket = document.getElementById('cfg-selection-market')?.value || 'A';
+        const maxCount = parseInt(document.getElementById('cfg-selection-max-count')?.value || '30');
+        const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
+        const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
+        
+        // 筛选策略配置
+        const filterVolumeRatioMin = parseFloat(document.getElementById('cfg-filter-volume-ratio-min')?.value || '1.2');
+        const filterVolumeRatioMax = parseFloat(document.getElementById('cfg-filter-volume-ratio-max')?.value || '5.0');
+        const filterRsiMin = parseInt(document.getElementById('cfg-filter-rsi-min')?.value || '40');
+        const filterRsiMax = parseInt(document.getElementById('cfg-filter-rsi-max')?.value || '65');
+        const filterWilliamsREnable = document.getElementById('cfg-filter-williams-r-enable')?.checked ?? true;
+        const filterBreakHighEnable = document.getElementById('cfg-filter-break-high-enable')?.checked ?? true;
+        const filterBollEnable = document.getElementById('cfg-filter-boll-enable')?.checked ?? true;
+
+        const channels = [];
+        const telegramEnabled = document.getElementById('cfg-notify-telegram')?.checked ?? false;
+        const emailEnabled = document.getElementById('cfg-notify-email')?.checked ?? false;
+        const wechatEnabled = document.getElementById('cfg-notify-wechat')?.checked ?? false;
+        
+        if (telegramEnabled) channels.push('telegram');
+        if (emailEnabled) channels.push('email');
+        if (wechatEnabled) channels.push('wechat');
+
+        console.log('[配置] 准备保存配置', { selectionMarket, maxCount, interval, klineYears });
+        
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -5466,44 +5498,47 @@ async function saveConfig() {
                 collector_interval_seconds: interval,
                 kline_years: klineYears,
                 // AI 配置
-                openai_api_key: document.getElementById('cfg-ai-api-key').value.trim() || null,
-                openai_api_base: document.getElementById('cfg-ai-api-base').value.trim() || null,
-                openai_model: document.getElementById('cfg-ai-model').value.trim() || null,
-                ai_auto_analyze_time: document.getElementById('cfg-ai-auto-analyze-time').value.trim() || null,
+                openai_api_key: document.getElementById('cfg-ai-api-key')?.value?.trim() || null,
+                openai_api_base: document.getElementById('cfg-ai-api-base')?.value?.trim() || null,
+                openai_model: document.getElementById('cfg-ai-model')?.value?.trim() || null,
+                ai_auto_analyze_time: document.getElementById('cfg-ai-auto-analyze-time')?.value?.trim() || null,
                 ai_data_period: document.querySelector('input[name="cfg-ai-data-period"]:checked')?.value || 'daily',
-                ai_data_count: parseInt(document.getElementById('cfg-ai-data-count').value) || 500,
-                ai_batch_size: parseInt(document.getElementById('cfg-ai-batch-size').value) || 5,
-                ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram').checked,
-                ai_notify_email: document.getElementById('cfg-ai-notify-email').checked,
-                ai_notify_wechat: document.getElementById('cfg-ai-notify-wechat').checked,
+                ai_data_count: parseInt(document.getElementById('cfg-ai-data-count')?.value || '500'),
+                ai_batch_size: parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5'),
+                ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram')?.checked ?? false,
+                ai_notify_email: document.getElementById('cfg-ai-notify-email')?.checked ?? false,
+                ai_notify_wechat: document.getElementById('cfg-ai-notify-wechat')?.checked ?? false,
                 notify_channels: channels,
                 notify_telegram_enabled: telegramEnabled,
-                notify_telegram_bot_token: document.getElementById('cfg-telegram-bot-token').value.trim() || null,
-                notify_telegram_chat_id: document.getElementById('cfg-telegram-chat-id').value.trim() || null,
+                notify_telegram_bot_token: document.getElementById('cfg-telegram-bot-token')?.value?.trim() || null,
+                notify_telegram_chat_id: document.getElementById('cfg-telegram-chat-id')?.value?.trim() || null,
                 notify_email_enabled: emailEnabled,
-                notify_email_smtp_host: document.getElementById('cfg-email-smtp-host').value.trim() || null,
-                notify_email_smtp_port: document.getElementById('cfg-email-smtp-port').value ? parseInt(document.getElementById('cfg-email-smtp-port').value) : null,
-                notify_email_user: document.getElementById('cfg-email-user').value.trim() || null,
-                notify_email_password: document.getElementById('cfg-email-password').value.trim() || null, // 如果为空则不更新密码
-                notify_email_to: document.getElementById('cfg-email-to').value.trim() || null,
+                notify_email_smtp_host: document.getElementById('cfg-email-smtp-host')?.value?.trim() || null,
+                notify_email_smtp_port: document.getElementById('cfg-email-smtp-port')?.value ? parseInt(document.getElementById('cfg-email-smtp-port').value) : null,
+                notify_email_user: document.getElementById('cfg-email-user')?.value?.trim() || null,
+                notify_email_password: document.getElementById('cfg-email-password')?.value?.trim() || null, // 如果为空则不更新密码
+                notify_email_to: document.getElementById('cfg-email-to')?.value?.trim() || null,
                 notify_wechat_enabled: wechatEnabled,
-                notify_wechat_webhook_url: document.getElementById('cfg-wechat-webhook-url').value.trim() || null,
+                notify_wechat_webhook_url: document.getElementById('cfg-wechat-webhook-url')?.value?.trim() || null,
             }),
         });
 
+        console.log('[配置] 保存请求已发送，等待响应...', res.status);
+
         if (!res.ok) {
-            const errText = await res.text();
+            const errText = await res.text().catch(() => '');
+            console.error('[配置] 保存失败:', res.status, errText);
             throw new Error(errText || `HTTP ${res.status}`);
         }
 
         const data = await res.json();
-
-        // 选股面板默认值已移除，使用固定值
+        console.log('[配置] 保存成功:', data);
 
         if (statusEl) statusEl.textContent = '配置已保存。若修改了采集间隔，新设置会在下一轮采集后生效。';
         showToast('配置已保存', 'success');
     } catch (error) {
-        console.error('保存配置失败:', error);
+        console.error('[配置] 保存配置失败:', error);
+        const statusEl = document.getElementById('cfg-status');
         if (statusEl) statusEl.textContent = `保存配置失败: ${error.message}`;
         showToast(`保存配置失败: ${error.message}`, 'error');
     }
