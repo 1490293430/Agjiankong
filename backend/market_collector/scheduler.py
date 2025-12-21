@@ -112,6 +112,13 @@ def main():
             if elapsed > 10:  # 只有采集时间超过10秒才记录
                 logger.info(f"本次采集耗时: {elapsed:.2f}秒")
             
+            # 采集完成后，广播市场状态更新（通过SSE）
+            try:
+                from market.service.sse import broadcast_market_status_update
+                broadcast_market_status_update()
+            except Exception as e:
+                logger.debug(f"SSE广播市场状态失败（不影响采集）: {e}")
+            
             # 交易时间内使用正常间隔
             time.sleep(interval)
         else:

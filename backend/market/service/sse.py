@@ -41,12 +41,45 @@ async def create_sse_stream(
                 # 推送市场行情数据
                 a_stocks = get_json("market:a:spot") or []
                 hk_stocks = get_json("market:hk:spot") or []
-                yield f"data: {json.dumps({'type': 'market', 'data': {'a': a_stocks[:100], 'hk': hk_stocks[:100]}})}\n\n"
+                a_stocks_limited = a_stocks[:100]
+                hk_stocks_limited = hk_stocks[:100]
+                market_data = {'type': 'market', 'data': {'a': a_stocks_limited, 'hk': hk_stocks_limited}}
+                market_json = json.dumps(market_data)
+                logger.info(f"[SSE推送] [{client_id}] 推送初始市场行情数据: A股={len(a_stocks_limited)}只, 港股={len(hk_stocks_limited)}只, 数据大小={len(market_json)}字节")
+                if a_stocks_limited:
+                    logger.debug(f"[SSE推送] [{client_id}] A股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in a_stocks_limited[:3]]}")
+                if hk_stocks_limited:
+                    logger.debug(f"[SSE推送] [{client_id}] 港股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in hk_stocks_limited[:3]]}")
+                yield f"data: {market_json}\n\n"
             
             elif current_tab == 'watchlist':
                 # 推送自选股列表
                 watchlist = get_json("watchlist:default") or []
-                yield f"data: {json.dumps({'type': 'watchlist_sync', 'action': 'init', 'data': watchlist})}\n\n"
+                watchlist_data = {'type': 'watchlist_sync', 'action': 'init', 'data': watchlist}
+                watchlist_json = json.dumps(watchlist_data)
+                logger.info(f"[SSE推送] [{client_id}] 推送初始自选股列表: 数量={len(watchlist)}只, 数据大小={len(watchlist_json)}字节")
+                if watchlist:
+                    codes = [s.get('code', 'N/A') for s in watchlist]
+                    logger.debug(f"[SSE推送] [{client_id}] 自选股代码: {codes}")
+                yield f"data: {watchlist_json}\n\n"
+            
+            # 无论哪个tab，都推送市场状态（首次连接时）
+            try:
+                from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
+                is_a_trading = is_a_stock_trading_time()
+                is_hk_trading = is_hk_stock_trading_time()
+                status_data = {
+                    'type': 'market_status',
+                    'data': {
+                        'a': {'is_trading': is_a_trading, 'status': '交易中' if is_a_trading else '已收盘'},
+                        'hk': {'is_trading': is_hk_trading, 'status': '交易中' if is_hk_trading else '已收盘'}
+                    }
+                }
+                status_json = json.dumps(status_data)
+                logger.info(f"[SSE推送] [{client_id}] 推送初始市场状态: A股={'交易中' if is_a_trading else '已收盘'}, 港股={'交易中' if is_hk_trading else '已收盘'}, 数据大小={len(status_json)}字节")
+                yield f"data: {status_json}\n\n"
+            except Exception as e:
+                logger.error(f"[SSE推送] [{client_id}] 推送初始市场状态失败: {e}", exc_info=True)
             
             # 主循环：只等待队列消息，不主动检查数据变化
             # 数据变化时由数据采集器通过broadcast_message自动推送
@@ -62,9 +95,43 @@ async def create_sse_stream(
                     # 等待队列中的消息（最多等待心跳间隔时间）
                     try:
                         message = await asyncio.wait_for(message_queue.get(), timeout=heartbeat_interval)
-                        yield f"data: {json.dumps(message)}\n\n"
+                        message_json = json.dumps(message)
+                        message_type = message.get('type', 'unknown')
+                        message_size = len(message_json)
+                        
+                        # 根据消息类型记录不同的详细信息
+                        if message_type == 'market':
+                            data = message.get('data', {})
+                            a_count = len(data.get('a', []))
+                            hk_count = len(data.get('hk', []))
+                            logger.info(f"[SSE推送] [{client_id}] 推送市场行情更新: A股={a_count}只, 港股={hk_count}只, 数据大小={message_size}字节")
+                            if a_count > 0:
+                                a_samples = [s.get('code', 'N/A') for s in data.get('a', [])[:3]]
+                                logger.debug(f"[SSE推送] [{client_id}] A股示例: {a_samples}")
+                            if hk_count > 0:
+                                hk_samples = [s.get('code', 'N/A') for s in data.get('hk', [])[:3]]
+                                logger.debug(f"[SSE推送] [{client_id}] 港股示例: {hk_samples}")
+                        elif message_type == 'watchlist_sync':
+                            action = message.get('action', 'unknown')
+                            watchlist_data = message.get('data', [])
+                            watchlist_count = len(watchlist_data) if isinstance(watchlist_data, list) else 0
+                            logger.info(f"[SSE推送] [{client_id}] 推送自选股同步: action={action}, 数量={watchlist_count}只, 数据大小={message_size}字节")
+                            if watchlist_count > 0:
+                                codes = [s.get('code', 'N/A') for s in watchlist_data[:10]]
+                                logger.debug(f"[SSE推送] [{client_id}] 自选股代码: {codes}")
+                        elif message_type == 'market_status':
+                            status_data = message.get('data', {})
+                            a_status = status_data.get('a', {}).get('status', 'unknown')
+                            hk_status = status_data.get('hk', {}).get('status', 'unknown')
+                            logger.info(f"[SSE推送] [{client_id}] 推送市场状态更新: A股={a_status}, 港股={hk_status}, 数据大小={message_size}字节")
+                        else:
+                            logger.info(f"[SSE推送] [{client_id}] 推送消息: type={message_type}, 数据大小={message_size}字节")
+                            logger.debug(f"[SSE推送] [{client_id}] 消息内容: {message}")
+                        
+                        yield f"data: {message_json}\n\n"
                     except asyncio.TimeoutError:
                         # 超时，发送心跳
+                        logger.debug(f"[SSE推送] [{client_id}] 发送心跳消息")
                         yield f": heartbeat\n\n"  # SSE心跳消息（以:开头）
                     
                 except Exception as e:
@@ -105,11 +172,19 @@ def broadcast_message(message: Dict[str, Any], filter_type: Optional[str] = None
     广播消息给所有SSE连接
     filter_type: 如果指定，只推送给需要该类型数据的连接（目前不使用，所有连接都接收所有消息）
     """
+    message_type = message.get('type', 'unknown')
+    message_json = json.dumps(message)
+    message_size = len(message_json)
+    
+    logger.info(f"[SSE广播] 开始广播消息: type={message_type}, 数据大小={message_size}字节, 当前连接数={len(sse_connections)}")
+    
     if not sse_connections:
+        logger.warning(f"[SSE广播] 没有活跃连接，消息未发送: type={message_type}")
         return
     
     disconnected = []
     success_count = 0
+    skipped_count = 0
     
     for client_id, queue in sse_connections.items():
         try:
@@ -117,26 +192,35 @@ def broadcast_message(message: Dict[str, Any], filter_type: Optional[str] = None
             # 如果未来需要过滤，可以在这里添加逻辑
             
             # 非阻塞方式添加消息
-            if queue.qsize() < 100:  # 限制队列大小，避免内存溢出
+            queue_size = queue.qsize()
+            if queue_size < 100:  # 限制队列大小，避免内存溢出
                 queue.put_nowait(message)
                 success_count += 1
+                logger.debug(f"[SSE广播] [{client_id}] 消息已加入队列 (队列大小: {queue_size + 1})")
             else:
-                logger.warning(f"[SSE] 队列已满，跳过消息: {client_id}")
+                skipped_count += 1
+                logger.warning(f"[SSE广播] [{client_id}] 队列已满 (队列大小: {queue_size}), 跳过消息")
         except Exception as e:
-            logger.error(f"[SSE] 广播消息失败: {client_id}, {e}")
+            logger.error(f"[SSE广播] [{client_id}] 广播消息失败: {e}", exc_info=True)
             disconnected.append(client_id)
     
     # 清理断开的连接
     for client_id in disconnected:
         if client_id in sse_connections:
             del sse_connections[client_id]
+            logger.info(f"[SSE广播] 清理断开连接: {client_id}")
     
     if sse_connections:
-        logger.info(f"[SSE] 广播消息完成: type={message.get('type')}, 成功={success_count}, 连接数={len(sse_connections)}")
+        logger.info(f"[SSE广播] 广播完成: type={message_type}, 成功={success_count}, 跳过={skipped_count}, 断开={len(disconnected)}, 剩余连接数={len(sse_connections)}")
+    else:
+        logger.warning(f"[SSE广播] 所有连接已断开，消息未发送: type={message_type}")
 
 
 def broadcast_watchlist_update(watchlist: list):
     """广播自选股更新（所有连接都需要接收）"""
+    watchlist_count = len(watchlist) if isinstance(watchlist, list) else 0
+    codes = [s.get('code', 'N/A') for s in watchlist[:10]] if watchlist else []
+    logger.info(f"[SSE广播] 准备广播自选股更新: 数量={watchlist_count}只, 代码={codes}")
     broadcast_message({
         "type": "watchlist_sync",
         "action": "update",
@@ -160,7 +244,44 @@ def broadcast_market_update(market_type: str = "both"):
         data["hk"] = hk_stocks[:100]  # 只推送前100只，避免数据过大
     
     if data:
+        a_count = len(data.get('a', []))
+        hk_count = len(data.get('hk', []))
+        logger.info(f"[SSE广播] 准备广播市场行情更新: market_type={market_type}, A股={a_count}只, 港股={hk_count}只")
+        if a_count > 0:
+            a_samples = [s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in data.get('a', [])[:3]]
+            logger.debug(f"[SSE广播] A股示例: {a_samples}")
+        if hk_count > 0:
+            hk_samples = [s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in data.get('hk', [])[:3]]
+            logger.debug(f"[SSE广播] 港股示例: {hk_samples}")
         broadcast_message({
             "type": "market",
             "data": data
         })
+
+
+def broadcast_market_status_update():
+    """广播市场状态更新（A股和港股交易状态）"""
+    try:
+        from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
+        
+        is_a_trading = is_a_stock_trading_time()
+        is_hk_trading = is_hk_stock_trading_time()
+        
+        a_status = "交易中" if is_a_trading else "已收盘"
+        hk_status = "交易中" if is_hk_trading else "已收盘"
+        logger.info(f"[SSE广播] 准备广播市场状态更新: A股={a_status}, 港股={hk_status}")
+        broadcast_message({
+            "type": "market_status",
+            "data": {
+                "a": {
+                    "is_trading": is_a_trading,
+                    "status": a_status
+                },
+                "hk": {
+                    "is_trading": is_hk_trading,
+                    "status": hk_status
+                }
+            }
+        })
+    except Exception as e:
+        logger.error(f"[SSE] 广播市场状态更新失败: {e}", exc_info=True)

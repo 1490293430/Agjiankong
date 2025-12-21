@@ -167,16 +167,51 @@ function connectSSE(currentTab = null, taskId = null) {
             try {
                 // 跳过心跳消息
                 if (event.data.trim() === '' || event.data.startsWith(':')) {
+                    console.debug('[SSE接收] 收到心跳消息');
                     return;
                 }
                 
                 const message = JSON.parse(event.data);
-                console.log('[SSE] 收到消息:', message.type);
+                const messageType = message.type || 'unknown';
+                const messageSize = event.data.length;
+                
+                // 根据消息类型记录详细信息
+                if (messageType === 'market') {
+                    const data = message.data || {};
+                    const aCount = Array.isArray(data.a) ? data.a.length : 0;
+                    const hkCount = Array.isArray(data.hk) ? data.hk.length : 0;
+                    console.log(`[SSE接收] 收到市场行情更新: A股=${aCount}只, 港股=${hkCount}只, 数据大小=${messageSize}字节`);
+                    if (aCount > 0) {
+                        const aSamples = data.a.slice(0, 3).map(s => `${s.code || 'N/A'}:${s.price || 'N/A'}`);
+                        console.debug(`[SSE接收] A股示例:`, aSamples);
+                    }
+                    if (hkCount > 0) {
+                        const hkSamples = data.hk.slice(0, 3).map(s => `${s.code || 'N/A'}:${s.price || 'N/A'}`);
+                        console.debug(`[SSE接收] 港股示例:`, hkSamples);
+                    }
+                } else if (messageType === 'watchlist_sync') {
+                    const action = message.action || 'unknown';
+                    const watchlistData = message.data || [];
+                    const watchlistCount = Array.isArray(watchlistData) ? watchlistData.length : 0;
+                    console.log(`[SSE接收] 收到自选股同步: action=${action}, 数量=${watchlistCount}只, 数据大小=${messageSize}字节`);
+                    if (watchlistCount > 0) {
+                        const codes = watchlistData.slice(0, 10).map(s => s.code || 'N/A');
+                        console.debug(`[SSE接收] 自选股代码:`, codes);
+                    }
+                } else if (messageType === 'market_status') {
+                    const statusData = message.data || {};
+                    const aStatus = statusData.a?.status || 'unknown';
+                    const hkStatus = statusData.hk?.status || 'unknown';
+                    console.log(`[SSE接收] 收到市场状态更新: A股=${aStatus}, 港股=${hkStatus}, 数据大小=${messageSize}字节`);
+                } else {
+                    console.log(`[SSE接收] 收到消息: type=${messageType}, 数据大小=${messageSize}字节`);
+                    console.debug(`[SSE接收] 消息内容:`, message);
+                }
                 
                 // 根据消息类型处理
                 handleSSEMessage(message);
             } catch (e) {
-                console.error('[SSE] 解析消息失败:', e, '原始数据:', event.data);
+                console.error('[SSE接收] 解析消息失败:', e, '原始数据:', event.data?.substring(0, 200));
             }
         };
         
@@ -230,25 +265,71 @@ function connectSSE(currentTab = null, taskId = null) {
 
 // 处理SSE消息
 function handleSSEMessage(message) {
-    switch (message.type) {
+    const messageType = message.type || 'unknown';
+    console.log(`[SSE处理] 开始处理消息: type=${messageType}`);
+    
+    switch (messageType) {
         case 'market':
             // 市场行情数据更新
+            console.log(`[SSE处理] 处理市场行情更新`);
             handleMarketUpdate(message.data);
             break;
         case 'watchlist_sync':
             // 自选股同步
+            const action = message.action || 'unknown';
+            const dataCount = Array.isArray(message.data) ? message.data.length : 0;
+            console.log(`[SSE处理] 处理自选股同步: action=${action}, 数量=${dataCount}只`);
             handleWatchlistSync(message.action, message.data);
+            break;
+        case 'market_status':
+            // 市场状态更新（A股/港股交易状态）
+            const statusData = message.data || {};
+            const aStatus = statusData.a?.status || 'unknown';
+            const hkStatus = statusData.hk?.status || 'unknown';
+            console.log(`[SSE处理] 处理市场状态更新: A股=${aStatus}, 港股=${hkStatus}`);
+            handleMarketStatusUpdate(message.data);
             break;
         case 'kline_collect_progress':
             // K线采集进度
+            console.log(`[SSE处理] 处理K线采集进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleKlineCollectProgress(message.task_id, message.progress);
             break;
         case 'selection_progress':
             // 选股进度
+            console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleSelectionProgress(message.task_id, message.progress);
             break;
         default:
-            console.log('[SSE] 未知消息类型:', message.type);
+            console.warn(`[SSE处理] 未知消息类型: ${messageType}`, message);
+    }
+    
+    console.log(`[SSE处理] 消息处理完成: type=${messageType}`);
+}
+
+// 处理市场状态更新（SSE推送）
+function handleMarketStatusUpdate(data) {
+    console.log('[SSE] 收到市场状态更新:', data);
+    
+    const aStatusEl = document.getElementById('market-status-a');
+    const hkStatusEl = document.getElementById('market-status-hk');
+    
+    if (!aStatusEl || !hkStatusEl) {
+        console.warn('[SSE] 市场状态元素未找到');
+        return;
+    }
+    
+    if (data && data.a) {
+        const aStatus = data.a;
+        aStatusEl.textContent = aStatus.status || '未知';
+        aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
+        console.log('[SSE] A股状态已更新:', aStatus.status);
+    }
+    
+    if (data && data.hk) {
+        const hkStatus = data.hk;
+        hkStatusEl.textContent = hkStatus.status || '未知';
+        hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
+        console.log('[SSE] 港股状态已更新:', hkStatus.status);
     }
 }
 
@@ -342,7 +423,7 @@ function _doMarketUpdate(data) {
         }
     }
     
-    // 更新按钮状态（只在必要时）
+    // 更新按钮状态（每次市场数据更新后都要更新，因为自选股可能变化）
     updateWatchlistButtonStates();
 }
 
@@ -368,30 +449,102 @@ function handleWatchlistSync(action, data) {
 
 // 执行自选股同步更新（内部函数）
 function _doWatchlistSync(data) {
+    console.log('[SSE] ========== 执行自选股同步更新 ==========');
     const serverData = data || [];
     const localData = getWatchlist();
     const localCodes = localData.map(s => s.code).sort().join(',');
     const serverCodes = serverData.map(s => s.code).sort().join(',');
     
+    console.log('[SSE] 本地自选股:', localCodes);
+    console.log('[SSE] 服务器自选股:', serverCodes);
+    
     // 如果数据有变化，更新本地缓存
     if (localCodes !== serverCodes) {
-        console.log('[SSE] 检测到数据变化，更新本地缓存');
+        console.log('[SSE] ✅ 检测到数据变化，更新本地缓存和UI');
         localStorage.setItem('watchlist', JSON.stringify(serverData));
         
-        // 更新按钮状态
+        // 更新按钮状态（无论在哪一页都要更新）
+        console.log('[SSE] 更新所有页面的按钮状态');
         updateWatchlistButtonStates();
         
-        // 如果当前在自选页，无感刷新列表（先显示缓存，再静默更新）
+        // 如果当前在自选页，直接通过SSE数据更新列表（不需要重新请求）
         const watchlistTab = document.getElementById('watchlist-tab');
         if (watchlistTab && watchlistTab.classList.contains('active')) {
-            console.log('[SSE] 当前在自选页，无感刷新列表');
-            // 清除缓存，强制重新加载
+            console.log('[SSE] 当前在自选页，直接使用SSE数据更新列表');
+            // 清除缓存，使用SSE推送的数据直接渲染
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
-            // 使用静默模式加载，不显示加载提示
-            loadWatchlist(true);
+            // 直接使用SSE推送的数据渲染，不需要重新请求
+            renderWatchlistStocksFromSSE(serverData);
+        } else {
+            console.log('[SSE] 当前不在自选页，只更新按钮状态');
         }
     } else {
-        console.log('[SSE] 数据无变化，跳过更新');
+        console.log('[SSE] ⚠️ 数据无变化，跳过更新');
+    }
+}
+
+// 从SSE数据直接渲染自选股列表（不需要重新请求服务器）
+async function renderWatchlistStocksFromSSE(watchlistData) {
+    console.log('[SSE] 从SSE数据直接渲染自选股列表，数量:', watchlistData.length);
+    
+    if (!watchlistData || watchlistData.length === 0) {
+        const container = document.getElementById('watchlist-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="watchlist-placeholder">
+                    <div style="font-size: 48px; margin-bottom: 16px;">⭐</div>
+                    <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">暂无自选股</div>
+                    <div style="font-size: 14px; color: #64748b;">在行情页点击"加入自选"按钮添加股票</div>
+                </div>
+            `;
+        }
+        return;
+    }
+    
+    // 批量获取股票行情数据
+    const codes = watchlistData.map(s => s.code);
+    console.log('[SSE] 批量获取股票行情，代码:', codes);
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/market/spot/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codes })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        if (result.code === 0) {
+            const stocksWithData = result.data || [];
+            console.log('[SSE] 批量获取成功，共', stocksWithData.length, '只股票有行情数据');
+            
+            // 合并自选股信息和行情数据
+            const watchlistStocks = watchlistData.map(watchlistItem => {
+                const stockData = stocksWithData.find(s => s.code === watchlistItem.code);
+                return {
+                    ...watchlistItem,
+                    ...stockData,
+                    // 确保有基本信息
+                    name: stockData?.name || watchlistItem.name || watchlistItem.code,
+                    code: watchlistItem.code
+                };
+            });
+            
+            // 直接渲染，不显示加载状态
+            renderWatchlistStocks(watchlistStocks, true, true); // forceRender=true, silent=true
+        } else {
+            throw new Error(result.message || '批量查询失败');
+        }
+    } catch (error) {
+        console.error('[SSE] 批量获取股票行情失败:', error);
+        // 即使获取行情失败，也使用基本信息渲染
+        renderWatchlistStocks(watchlistData.map(item => ({
+            ...item,
+            name: item.name || item.code
+        })), true, true);
     }
 }
 
@@ -866,18 +1019,38 @@ function resetAndLoadMarket() {
 // 初始化时更新按钮状态
 function updateWatchlistButtonStates() {
     const watchlist = getWatchlist();
+    const watchlistCodes = new Set(watchlist.map(s => String(s.code).trim()));
+    
+    console.log('[按钮状态] 更新按钮状态，当前自选股:', Array.from(watchlistCodes));
+    
     document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
-        const code = btn.getAttribute('data-code');
-        if (watchlist.some(s => s.code === code)) {
+        const code = String(btn.getAttribute('data-code') || '').trim();
+        if (!code) {
+            console.warn('[按钮状态] 按钮缺少data-code属性:', btn);
+            return;
+        }
+        
+        const isInWatchlist = watchlistCodes.has(code);
+        
+        if (isInWatchlist) {
             btn.textContent = '已添加';
             btn.style.background = '#94a3b8';
             btn.disabled = true;
+            btn.style.cursor = 'not-allowed';
+            btn.style.opacity = '0.6';
         } else {
             btn.textContent = '加入自选';
             btn.style.background = '#10b981';
             btn.disabled = false;
+            btn.style.cursor = 'pointer';
+            btn.style.opacity = '1';
         }
+        
+        // 确保按钮可以点击（移除可能存在的阻止点击的样式）
+        btn.style.pointerEvents = isInWatchlist ? 'none' : 'auto';
     });
+    
+    console.log('[按钮状态] 按钮状态更新完成，共更新', document.querySelectorAll('.add-watchlist-btn').length, '个按钮');
 }
 
 async function loadMarket() {
@@ -1060,7 +1233,7 @@ function appendStockList(stocks) {
             </td>
             <td>${formatVolume(stock.volume)}</td>
             <td>
-                <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: pointer; ${isInWatchlist ? 'opacity: 0.6;' : ''}" onclick="event.stopPropagation();">${isInWatchlist ? '已添加' : '加入自选'}</button>
+                <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: ${isInWatchlist ? 'not-allowed' : 'pointer'}; ${isInWatchlist ? 'opacity: 0.6; pointer-events: none;' : 'opacity: 1; pointer-events: auto;'}" ${isInWatchlist ? 'disabled' : ''}>${isInWatchlist ? '已添加' : '加入自选'}</button>
             </td>
         `;
         
@@ -1080,14 +1253,30 @@ function appendStockList(stocks) {
     
     // 添加自选按钮点击事件
     document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
-        btn.onclick = function(e) {
+        // 移除旧的事件监听器（通过克隆节点）
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        
+        newBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const code = this.getAttribute('data-code');
-            const name = this.getAttribute('data-name');
-            if (!watchlist.some(s => s.code === code)) {
-                addToWatchlist(code, name);
+            const code = String(this.getAttribute('data-code') || '').trim();
+            const name = String(this.getAttribute('data-name') || code).trim();
+            
+            if (!code) {
+                console.error('[自选] 按钮缺少data-code属性');
+                return;
             }
+            
+            // 检查是否已在自选列表中
+            const currentWatchlist = getWatchlist();
+            if (currentWatchlist.some(s => String(s.code).trim() === code)) {
+                console.log('[自选] 股票已在自选列表中:', code);
+                return;
+            }
+            
+            console.log('[自选] 添加股票到自选:', code, name);
+            addToWatchlist(code, name);
         };
     });
 }
@@ -1119,11 +1308,23 @@ async function handleSearch() {
             // 更新按钮状态（检查是否已在自选）
             const watchlist = getWatchlist();
             document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
-                const code = btn.getAttribute('data-code');
-                if (watchlist.some(s => s.code === code)) {
+                const code = String(btn.getAttribute('data-code') || '').trim();
+                const isInWatchlist = watchlist.some(s => String(s.code).trim() === code);
+                
+                if (isInWatchlist) {
                     btn.textContent = '已添加';
                     btn.style.background = '#94a3b8';
                     btn.disabled = true;
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.opacity = '0.6';
+                    btn.style.pointerEvents = 'none';
+                } else {
+                    btn.textContent = '加入自选';
+                    btn.style.background = '#10b981';
+                    btn.disabled = false;
+                    btn.style.cursor = 'pointer';
+                    btn.style.opacity = '1';
+                    btn.style.pointerEvents = 'auto';
                 }
             });
         }
@@ -2701,6 +2902,8 @@ async function loadWatchlist(forceRefresh = false) {
     const watchlistTab = document.getElementById('watchlist-tab');
     if (!watchlistTab || !watchlistTab.classList.contains('active')) {
         console.log('[自选] loadWatchlist: 当前不在自选页，跳过加载');
+        // 即使不在自选页，也要更新按钮状态
+        updateWatchlistButtonStates();
         return;
     }
     
@@ -2982,12 +3185,26 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
         console.log('[自选] renderWatchlistStocks: 渲染完成，共', watchlistStocks.length, '只股票');
     }
     
-    // 绑定移除按钮事件
+    // 更新按钮状态（确保按钮状态正确）
+    updateWatchlistButtonStates();
+    
+    // 绑定移除按钮事件（移除旧的事件监听器，避免重复绑定）
     document.querySelectorAll('.remove-watchlist-btn').forEach(btn => {
-        btn.onclick = function(e) {
+        // 移除旧的事件监听器（通过克隆节点）
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        
+        newBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const code = this.getAttribute('data-code');
+            const code = String(this.getAttribute('data-code') || '').trim();
+            
+            if (!code) {
+                console.error('[自选] 移除按钮缺少data-code属性');
+                return;
+            }
+            
+            console.log('[自选] 移除股票:', code);
             removeFromWatchlist(code);
         };
     });
