@@ -309,9 +309,24 @@ function switchToTab(targetTab, addHistory = true) {
         
         // 切换到行情页时，检查是否已有数据显示，并更新按钮状态
         if (targetTab === 'market') {
-            // 总是更新按钮状态（因为自选股可能在切换页面时已变化）
-            console.log('[行情] 切换到行情页，更新按钮状态');
-            updateWatchlistButtonStates();
+            console.log('[行情] 切换到行情页，先同步自选列表，然后更新按钮状态');
+            
+            // 先同步服务器最新自选列表（确保按钮状态准确）
+            syncWatchlistFromServer().then(serverData => {
+                if (serverData !== null) {
+                    console.log('[行情] 切换到行情页，从服务器同步自选列表成功，共', serverData.length, '只');
+                    // 更新本地缓存
+                    localStorage.setItem('watchlist', JSON.stringify(serverData));
+                }
+                // 无论同步成功与否，都更新按钮状态
+                console.log('[行情] 切换到行情页，更新按钮状态');
+                updateWatchlistButtonStates();
+            }).catch(err => {
+                console.error('[行情] 切换到行情页，同步自选列表失败:', err);
+                // 即使同步失败，也更新按钮状态（使用本地缓存）
+                console.log('[行情] 切换到行情页，使用本地缓存更新按钮状态');
+                updateWatchlistButtonStates();
+            });
             
             const tbody = document.getElementById('stock-list');
             // 如果表格已存在且有数据（不是loading提示），不重新加载
@@ -322,7 +337,7 @@ function switchToTab(targetTab, addHistory = true) {
                     return text.trim() && !text.includes('加载中') && !text.includes('加载失败');
                 });
                 if (hasData && !hasLoading) {
-                    console.log('[行情] 行情页已有数据，跳过加载（按钮状态已更新）');
+                    console.log('[行情] 行情页已有数据，跳过加载（按钮状态会在同步后更新）');
                     return;
                 }
             }
@@ -1376,9 +1391,14 @@ async function loadChart(code) {
         const startDateStr = startDate.toISOString().split('T')[0].replace(/-/g, '');
         const endDateStr = endDate.toISOString().split('T')[0].replace(/-/g, '');
         
-        // 添加超时控制
+        console.log(`[K线] 加载K线数据: ${code}, 市场: ${market}, 周期: ${period}, 日期范围: ${startDateStr} ~ ${endDateStr}`);
+        
+        // 添加超时控制（增加到30秒，避免504超时）
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时（增加超时时间）
+        const timeoutId = setTimeout(() => {
+            console.warn('[K线] 请求超时，取消请求');
+            controller.abort();
+        }, 30000); // 30秒超时（增加超时时间，避免504错误）
         
         let response, result;
         try {
