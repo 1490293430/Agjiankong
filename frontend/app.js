@@ -5759,42 +5759,66 @@ window.toggleConfigSubsection = toggleConfigSubsection;
 let marketStatusInterval = null;
 
 function initMarketStatus() {
-    console.log('initMarketStatus: 初始化市场状态模块');
+    console.log('[市场状态] initMarketStatus: 初始化市场状态模块');
     
     // 清除旧的定时器（如果存在）
     if (marketStatusInterval) {
+        console.log('[市场状态] 清除旧的定时器');
         clearInterval(marketStatusInterval);
         marketStatusInterval = null;
     }
     
+    // 检查DOM元素是否存在
+    const aStatusEl = document.getElementById('market-status-a');
+    const hkStatusEl = document.getElementById('market-status-hk');
+    console.log('[市场状态] DOM元素检查:', { 
+        aStatusEl: !!aStatusEl, 
+        hkStatusEl: !!hkStatusEl,
+        aStatusText: aStatusEl?.textContent,
+        hkStatusText: hkStatusEl?.textContent
+    });
+    
     // 立即更新一次
+    console.log('[市场状态] 立即执行第一次更新');
     updateMarketStatus();
     
     // 每10秒更新一次市场状态
     marketStatusInterval = setInterval(() => {
+        console.log('[市场状态] 定时器触发，执行更新');
         updateMarketStatus();
     }, 10000);
+    
+    console.log('[市场状态] 定时器已设置，每10秒更新一次');
 }
 
 // 市场状态更新锁，防止重复更新
 let isUpdatingMarketStatus = false;
 
 async function updateMarketStatus() {
-    console.log('updateMarketStatus: 函数被调用');
+    console.log('[市场状态] updateMarketStatus: 函数被调用');
     
     // 防止重复更新
     if (isUpdatingMarketStatus) {
-        console.log('updateMarketStatus: 正在更新中，跳过重复请求');
+        console.log('[市场状态] 正在更新中，跳过重复请求');
         return;
     }
     
     const aStatusEl = document.getElementById('market-status-a');
     const hkStatusEl = document.getElementById('market-status-hk');
     
-    console.log('updateMarketStatus: 元素查找结果', { aStatusEl: !!aStatusEl, hkStatusEl: !!hkStatusEl });
+    console.log('[市场状态] 元素查找结果', { 
+        aStatusEl: !!aStatusEl, 
+        hkStatusEl: !!hkStatusEl,
+        aStatusText: aStatusEl?.textContent,
+        hkStatusText: hkStatusEl?.textContent
+    });
     
     if (!aStatusEl || !hkStatusEl) {
-        console.warn('市场状态元素未找到，aStatusEl:', aStatusEl, 'hkStatusEl:', hkStatusEl);
+        console.warn('[市场状态] 元素未找到', { 
+            aStatusEl: !!aStatusEl, 
+            hkStatusEl: !!hkStatusEl,
+            documentReady: document.readyState
+        });
         // 如果元素不存在，等待一段时间后重试（可能是DOM还没加载完成）
         // 最多重试5次
         if (!updateMarketStatus.retryCount) {
@@ -5802,12 +5826,12 @@ async function updateMarketStatus() {
         }
         if (updateMarketStatus.retryCount < 5) {
             updateMarketStatus.retryCount++;
+            console.log('[市场状态] 延迟重试', updateMarketStatus.retryCount, '/5');
             setTimeout(() => {
-                console.log('updateMarketStatus: 延迟重试', updateMarketStatus.retryCount);
                 updateMarketStatus();
             }, 1000);
         } else {
-            console.error('updateMarketStatus: 重试次数过多，停止重试');
+            console.error('[市场状态] 重试次数过多，停止重试');
         }
         return;
     }
@@ -5827,36 +5851,53 @@ async function updateMarketStatus() {
     
     isUpdatingMarketStatus = true;
     
-    console.log('updateMarketStatus: 开始请求市场状态', { hasToken: !!apiToken });
+    const requestUrl = `${API_BASE}/api/market/status`;
+    console.log('[市场状态] 开始请求市场状态', { 
+        url: requestUrl,
+        API_BASE: API_BASE,
+        hasApiToken: !!apiToken,
+        hasAdminToken: !!adminToken,
+        apiToken: apiToken ? apiToken.substring(0, 10) + '...' : null
+    });
+    
     try {
         // 设置超时，避免长时间等待（增加到10秒）
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
-            console.warn('updateMarketStatus: 请求超时，取消请求');
+            console.warn('[市场状态] 请求超时，取消请求');
             controller.abort('市场状态请求超时（10秒）');
         }, 10000); // 10秒超时
         
-        console.log('updateMarketStatus: 发送请求到', `${API_BASE}/api/market/status`, { hasApiToken: !!apiToken, hasAdminToken: !!adminToken });
-        const res = await apiFetch(`${API_BASE}/api/market/status`, {
+        console.log('[市场状态] 发送请求到', requestUrl);
+        const res = await apiFetch(requestUrl, {
             signal: controller.signal
         });
         
-        console.log('updateMarketStatus: 收到响应', res.status, res.ok);
+        console.log('[市场状态] 收到响应', { 
+            status: res.status, 
+            ok: res.ok,
+            statusText: res.statusText,
+            headers: Object.fromEntries(res.headers.entries())
+        });
         
         clearTimeout(timeoutId);
         
         if (!res.ok) {
             const errorText = await res.text().catch(() => '');
-            console.error('获取市场状态失败:', res.status, errorText);
+            console.error('[市场状态] 获取市场状态失败:', { 
+                status: res.status, 
+                statusText: res.statusText,
+                errorText: errorText,
+                url: requestUrl
+            });
             
-            // 如果是401错误，可能是认证问题，但市场状态接口应该不需要认证
             // 显示错误状态
             if (aStatusEl) {
-                aStatusEl.textContent = '错误';
+                aStatusEl.textContent = `错误(${res.status})`;
                 aStatusEl.className = 'market-status-value closed';
             }
             if (hkStatusEl) {
-                hkStatusEl.textContent = '错误';
+                hkStatusEl.textContent = `错误(${res.status})`;
                 hkStatusEl.className = 'market-status-value closed';
             }
             isUpdatingMarketStatus = false;
@@ -5864,22 +5905,31 @@ async function updateMarketStatus() {
         }
         
         const data = await res.json();
-        console.log('updateMarketStatus: 响应数据', data);
+        console.log('[市场状态] 响应数据', JSON.stringify(data, null, 2));
         if (data.code === 0 && data.data) {
             const aStatus = data.data.a;
             const hkStatus = data.data.hk;
             
-            console.log('updateMarketStatus: 更新状态', { aStatus, hkStatus });
+            console.log('[市场状态] 更新状态', { 
+                aStatus: aStatus, 
+                hkStatus: hkStatus,
+                aStatusText: aStatus.status,
+                hkStatusText: hkStatus.status
+            });
             
             // 更新A股状态
-            aStatusEl.textContent = aStatus.status || '未知';
+            const aStatusText = aStatus.status || '未知';
+            aStatusEl.textContent = aStatusText;
             aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
+            console.log('[市场状态] A股状态已更新:', aStatusText, aStatus.is_trading ? '交易中' : '已收盘');
             
             // 更新港股状态
-            hkStatusEl.textContent = hkStatus.status || '未知';
+            const hkStatusText = hkStatus.status || '未知';
+            hkStatusEl.textContent = hkStatusText;
             hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
+            console.log('[市场状态] 港股状态已更新:', hkStatusText, hkStatus.is_trading ? '交易中' : '已收盘');
             
-            console.log('updateMarketStatus: 状态更新完成');
+            console.log('[市场状态] 状态更新完成');
         } else {
             // 显示错误状态
             console.error('市场状态数据格式错误:', data);
@@ -5893,9 +5943,15 @@ async function updateMarketStatus() {
             }
         }
     } catch (error) {
-        console.error('updateMarketStatus: 捕获到错误', error);
+        console.error('[市场状态] 捕获到错误', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            url: requestUrl
+        });
+        
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-            console.warn('获取市场状态超时或被取消');
+            console.warn('[市场状态] 获取市场状态超时或被取消');
             // 超时时显示"超时"
             if (aStatusEl) {
                 aStatusEl.textContent = '超时';
@@ -5906,20 +5962,21 @@ async function updateMarketStatus() {
                 hkStatusEl.className = 'market-status-value closed';
             }
         } else {
-            console.error('更新市场状态失败:', error);
+            console.error('[市场状态] 更新市场状态失败:', error);
             // 显示错误状态
+            const errorMsg = error.message || '错误';
             if (aStatusEl) {
-                aStatusEl.textContent = '错误';
+                aStatusEl.textContent = errorMsg.length > 10 ? '错误' : errorMsg;
                 aStatusEl.className = 'market-status-value closed';
             }
             if (hkStatusEl) {
-                hkStatusEl.textContent = '错误';
+                hkStatusEl.textContent = errorMsg.length > 10 ? '错误' : errorMsg;
                 hkStatusEl.className = 'market-status-value closed';
             }
         }
     } finally {
         isUpdatingMarketStatus = false;
-        console.log('updateMarketStatus: 函数执行完成');
+        console.log('[市场状态] 函数执行完成');
     }
 }
 

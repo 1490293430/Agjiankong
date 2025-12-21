@@ -315,13 +315,14 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
 @api_router.get("/market/status", dependencies=[])  # 不需要认证，公开接口
 async def get_market_status():
     """获取A股和港股的交易状态"""
+    logger.info("[市场状态] 收到市场状态查询请求")
     try:
         from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
         
         is_a_trading = is_a_stock_trading_time()
         is_hk_trading = is_hk_stock_trading_time()
         
-        logger.debug(f"市场状态检查: A股={is_a_trading}, 港股={is_hk_trading}")
+        logger.info(f"[市场状态] 市场状态检查完成: A股={is_a_trading}, 港股={is_hk_trading}")
         
         return {
             "code": 0,
