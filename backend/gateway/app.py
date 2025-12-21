@@ -1602,6 +1602,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     def collect_kline_for_stock(stock):
         nonlocal success_count, failed_count
         from market.service.ws import kline_collect_stop_flags
+        import threading
         
         # 检查停止标志
         if kline_collect_stop_flags.get(task_id, False):
@@ -1615,45 +1616,65 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
             kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
             if kline_data and len(kline_data) > 0:
                 success_count += 1
-                if success_count % 50 == 0:
-                    logger.info(f"[{market}]K线数据采集进度：成功={success_count}，失败={failed_count}，当前={code}")
             else:
                 failed_count += 1
         except Exception as e:
             failed_count += 1
-            logger.debug(f"[{market}]采集K线数据失败 {code}: {e}")
-        finally:
-            current = success_count + failed_count
-            progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
-            if task_id in kline_collect_progress:
-                kline_collect_progress[task_id].update({
-                    "success": success_count,
-                    "failed": failed_count,
-                    "current": current,
-                    "progress": progress_pct,
-                    "message": f"[{market}]采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
-                })
+            # 只记录关键错误，减少日志输出
+            if "timeout" not in str(e).lower() and "连接" not in str(e):
+                logger.debug(f"[{market}]采集K线数据失败 {code}: {e}")
     
     def batch_collect():
         """同步批量采集函数"""
         from market.service.ws import kline_collect_stop_flags
+        import concurrent.futures
+        import time
         
-        executor = ThreadPoolExecutor(max_workers=50)
+        # 动态调整并发数：根据股票数量，但不超过50
+        max_workers = min(50, max(10, len(target_stocks) // 20))
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        
+        # 进度更新计数器（每完成10只股票或每2秒更新一次）
+        last_update_time = time.time()
+        update_interval = 2  # 2秒更新一次进度
+        
         try:
             # 使用线程池并发执行采集任务
-            futures = []
-            for stock in target_stocks:
+            futures = {executor.submit(collect_kline_for_stock, stock): stock for stock in target_stocks}
+            
+            # 使用 as_completed 更快响应完成的任务
+            for future in concurrent.futures.as_completed(futures):
                 # 检查停止标志
                 if kline_collect_stop_flags.get(task_id, False):
                     logger.info(f"收到停止信号，中断批量采集")
+                    # 取消未完成的任务
+                    for f in futures:
+                        f.cancel()
                     break
-                futures.append(executor.submit(collect_kline_for_stock, stock))
-            # 等待所有任务完成
-            for future in futures:
+                
                 try:
                     future.result()
                 except Exception as e:
                     logger.debug(f"[{market}]采集任务异常: {e}")
+                
+                # 批量更新进度（减少更新频率）
+                current_time = time.time()
+                current = success_count + failed_count
+                if (current_time - last_update_time >= update_interval) or (current % 10 == 0):
+                    progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
+                    if task_id in kline_collect_progress:
+                        kline_collect_progress[task_id].update({
+                            "success": success_count,
+                            "failed": failed_count,
+                            "current": current,
+                            "progress": progress_pct,
+                            "message": f"[{market}]采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
+                        })
+                    last_update_time = current_time
+                    
+                    # 每50只股票输出一次日志
+                    if current % 50 == 0:
+                        logger.info(f"[{market}]K线数据采集进度：成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}")
         except Exception as e:
             end_time = datetime.now().isoformat()
             kline_collect_progress[task_id] = {
@@ -2211,17 +2232,40 @@ async def collect_kline_data_api(
         sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
         
         # 检查哪些股票在数据库中还没有数据，优先采集这些股票
-        from common.db import get_stock_list_from_db
+        # 优化：只检查目标股票范围内的代码，减少数据库查询
         try:
-            db_stocks = get_stock_list_from_db(market.upper())
-            db_codes = {s.get("code") for s in db_stocks} if db_stocks else set()
+            # 先按成交额排序取前max_count只，减少需要检查的数量
+            candidate_stocks = sorted_stocks[:max_count * 2]  # 多取一些候选，避免数据筛选后不够
+            candidate_codes = {str(s.get("code", "")) for s in candidate_stocks if s.get("code")}
+            
+            if candidate_codes:
+                # 批量查询这些股票在数据库中的状态（优化：一次查询）
+                from common.db import _create_clickhouse_client
+                client = None
+                try:
+                    client = _create_clickhouse_client()
+                    # 批量查询：检查这些代码中哪些在数据库中有数据
+                    codes_str = ','.join([f"'{c}'" for c in candidate_codes])
+                    query = f"SELECT DISTINCT code FROM kline WHERE code IN ({codes_str}) AND period = 'daily'"
+                    db_result = client.execute(query)
+                    db_codes = {str(row[0]) for row in db_result} if db_result else set()
+                except Exception as e:
+                    logger.warning(f"批量查询数据库股票状态失败: {e}，使用默认策略")
+                    db_codes = set()
+                finally:
+                    if client:
+                        try:
+                            client.disconnect()
+                        except Exception:
+                            pass
+            else:
+                db_codes = set()
             
             # 分离：有数据的股票和没有数据的股票
-            stocks_with_data = [s for s in sorted_stocks if s.get("code") in db_codes]
-            stocks_without_data = [s for s in sorted_stocks if s.get("code") not in db_codes]
+            stocks_with_data = [s for s in candidate_stocks if str(s.get("code", "")) in db_codes]
+            stocks_without_data = [s for s in candidate_stocks if str(s.get("code", "")) not in db_codes]
             
             # 优先采集没有数据的股票，然后是有数据的股票（用于增量更新）
-            # 确保没有数据的股票优先，但总数不超过max_count
             target_stocks = stocks_without_data[:max_count]
             remaining_slots = max_count - len(target_stocks)
             if remaining_slots > 0:
@@ -2240,8 +2284,7 @@ async def collect_kline_data_api(
         
         def collect_kline_for_stock(stock):
             nonlocal success_count, failed_count
-            from market.service.ws import kline_collect_progress, kline_collect_stop_flags
-            from datetime import datetime
+            from market.service.ws import kline_collect_stop_flags
             
             # 检查停止标志
             if kline_collect_stop_flags.get(task_id, False):
@@ -2259,25 +2302,13 @@ async def collect_kline_data_api(
                 # 如果获取到数据，说明采集成功（fetch_kline_func内部已处理增量逻辑）
                 if kline_data and len(kline_data) > 0:
                     success_count += 1
-                    if success_count % 50 == 0:  # 每50只更新一次日志，减少日志输出
-                        logger.info(f"K线数据采集进度：成功={success_count}，失败={failed_count}，当前={code}")
                 else:
                     failed_count += 1
             except Exception as e:
                 failed_count += 1
-                logger.debug(f"采集K线数据失败 {code}: {e}")
-            finally:
-                # 更新进度
-                current = success_count + failed_count
-                progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
-                if task_id in kline_collect_progress:
-                    kline_collect_progress[task_id].update({
-                        "success": success_count,
-                        "failed": failed_count,
-                        "current": current,
-                        "progress": progress_pct,
-                        "message": f"采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
-                    })
+                # 只记录关键错误，减少日志输出
+                if "timeout" not in str(e).lower() and "连接" not in str(e):
+                    logger.debug(f"采集K线数据失败 {code}: {e}")
         
         
         # 使用后台任务异步执行（减少并发数，避免ClickHouse连接冲突）
@@ -2305,21 +2336,56 @@ async def collect_kline_data_api(
         
         async def batch_collect():
             from market.service.ws import kline_collect_stop_flags
+            import time
             
-            # 并发数调整为50，仅在采集时创建线程池；异常也保证销毁
-            executor = ThreadPoolExecutor(max_workers=50)
+            # 动态调整并发数：根据股票数量，但不超过50
+            max_workers = min(50, max(10, len(target_stocks) // 20))
+            executor = ThreadPoolExecutor(max_workers=max_workers)
+            
+            # 进度更新计数器（每完成10只股票或每2秒更新一次）
+            last_update_time = time.time()
+            update_interval = 2  # 2秒更新一次进度
+            
             try:
                 loop = asyncio.get_event_loop()
-                tasks = []
-                for stock in target_stocks:
+                futures = {loop.run_in_executor(executor, collect_kline_for_stock, stock): stock for stock in target_stocks}
+                
+                # 使用 as_completed 更快响应完成的任务
+                completed = 0
+                for future in asyncio.as_completed(futures):
                     # 检查停止标志
                     if kline_collect_stop_flags.get(task_id, False):
                         logger.info(f"收到停止信号，中断批量采集")
+                        # 取消未完成的任务
+                        for f in futures:
+                            f.cancel()
                         break
-                    tasks.append(loop.run_in_executor(executor, collect_kline_for_stock, stock))
-                
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    try:
+                        await future
+                    except Exception as e:
+                        logger.debug(f"采集任务异常: {e}")
+                    
+                    completed += 1
+                    
+                    # 批量更新进度（减少更新频率）
+                    current_time = time.time()
+                    current = success_count + failed_count
+                    if (current_time - last_update_time >= update_interval) or (completed % 10 == 0):
+                        progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
+                        if task_id in kline_collect_progress:
+                            kline_collect_progress[task_id].update({
+                                "success": success_count,
+                                "failed": failed_count,
+                                "current": current,
+                                "progress": progress_pct,
+                                "message": f"采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
+                            })
+                        last_update_time = current_time
+                        
+                        # 每50只股票输出一次日志
+                        if completed % 50 == 0:
+                            logger.info(f"K线数据采集进度：成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}")
             except Exception as e:
                 end_time = datetime.now().isoformat()
                 kline_collect_progress[task_id] = {

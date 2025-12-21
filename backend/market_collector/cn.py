@@ -762,20 +762,16 @@ def fetch_a_stock_kline(
             logger.warning(f"{source_name}获取K线数据失败 {code}: {str(e)[:150]}")
             continue
     
-    # 如果获取到了新数据，保存到数据库（优化：直接保存，不等待，提高速度）
+    # 如果获取到了新数据，保存到数据库
+    # 优化：同步保存，确保数据不丢失（独立连接已优化，性能影响较小）
     # 如果 skip_db=True，跳过保存
     if new_kline_data and not skip_db:
         try:
-            # 优化：直接保存，不等待完成，提高采集速度
-            # 使用线程池异步保存，但不等待结果
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(save_kline_data, new_kline_data, period)
-                # 不等待结果，让采集继续，提高并发效率
-                # 保存操作在后台完成
-                logger.debug(f"K线数据保存任务已提交: {code}, {len(new_kline_data)}条")
+            # 直接同步保存（使用独立连接，不会阻塞其他线程）
+            save_kline_data(new_kline_data, period)
+            logger.debug(f"K线数据保存成功: {code}, {len(new_kline_data)}条")
         except Exception as e:
-            logger.debug(f"提交K线数据保存任务失败 {code}: {e}，继续执行")
+            logger.warning(f"保存K线数据失败 {code}: {e}，继续执行")
     
     # 从数据库查询完整数据返回（包含历史+新增）
     # 如果指定了start_date，按start_date过滤；否则返回所有数据

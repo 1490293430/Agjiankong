@@ -13,6 +13,33 @@ logger = get_logger(__name__)
 _client: Client = None
 
 
+def _create_clickhouse_client() -> Client:
+    """创建独立的ClickHouse连接（用于多线程环境，避免连接冲突）
+    
+    Returns:
+        ClickHouse Client实例
+    """
+    client = Client(
+        host=settings.clickhouse_host,
+        port=settings.clickhouse_port,
+        database=settings.clickhouse_db,
+        user=settings.clickhouse_user,
+        password=settings.clickhouse_password,
+        connect_timeout=5,
+        send_receive_timeout=10
+    )
+    
+    # 设置线程限制，降低CPU占用
+    try:
+        client.execute("SET max_threads = 4")
+        client.execute("SET max_final_threads = 2")
+        client.execute("SET max_parsing_threads = 2")
+    except Exception:
+        pass  # 忽略设置失败，不影响使用
+    
+    return client
+
+
 def get_clickhouse() -> Client:
     """获取ClickHouse连接"""
     global _client
@@ -59,10 +86,12 @@ def get_clickhouse() -> Client:
 
 def init_tables():
     """初始化数据表"""
-    client = get_clickhouse()
-    
-    # K线表（添加period字段以区分不同周期）
-    client.execute("""
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        # K线表（添加period字段以区分不同周期）
+        client.execute("""
         CREATE TABLE IF NOT EXISTS kline
         (
             code String,
@@ -77,49 +106,49 @@ def init_tables():
         )
         ENGINE = MergeTree()
         ORDER BY (code, period, date)
-    """)
-    
-    # 如果表已存在但没有period字段，添加period字段并迁移数据
-    try:
-        # 检查period字段是否存在
-        columns = client.execute("DESCRIBE kline")
-        column_names = [col[0] for col in columns]
+        """)
         
-        if "period" not in column_names:
-            logger.info("检测到kline表缺少period字段，开始迁移...")
-            # 添加period字段，默认值为'daily'（兼容旧数据）
-            client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS period String DEFAULT 'daily'")
+        # 如果表已存在但没有period字段，添加period字段并迁移数据
+        try:
+            # 检查period字段是否存在
+            columns = client.execute("DESCRIBE kline")
+            column_names = [col[0] for col in columns]
             
-            # 更新ORDER BY需要重建表，这里使用更安全的方式
-            # 先创建一个临时表
-            client.execute("""
-                CREATE TABLE IF NOT EXISTS kline_new
-                (
-                    code String,
-                    period String,
-                    date Date,
-                    open Float64,
-                    high Float64,
-                    low Float64,
-                    close Float64,
-                    volume Float64,
-                    amount Float64
-                )
-                ENGINE = MergeTree()
-                ORDER BY (code, period, date)
-            """)
-            
-            # 迁移数据（所有旧数据默认为daily）
-            client.execute("INSERT INTO kline_new SELECT code, 'daily' as period, date, open, high, low, close, volume, amount FROM kline")
-            
-            # 删除旧表并重命名新表（需要先停止写入，这里只是记录日志）
-            logger.warning("已创建新表kline_new，请手动迁移数据后删除旧表kline并重命名kline_new为kline")
-            logger.warning("或者，如果数据量不大，可以直接删除旧表后让系统重新创建")
-    except Exception as e:
-        logger.debug(f"表结构检查/迁移可能已存在或失败: {e}")
-    
-    # 技术指标表（存储预计算的指标，每日更新）
-    client.execute("""
+            if "period" not in column_names:
+                logger.info("检测到kline表缺少period字段，开始迁移...")
+                # 添加period字段，默认值为'daily'（兼容旧数据）
+                client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS period String DEFAULT 'daily'")
+                
+                # 更新ORDER BY需要重建表，这里使用更安全的方式
+                # 先创建一个临时表
+                client.execute("""
+                    CREATE TABLE IF NOT EXISTS kline_new
+                    (
+                        code String,
+                        period String,
+                        date Date,
+                        open Float64,
+                        high Float64,
+                        low Float64,
+                        close Float64,
+                        volume Float64,
+                        amount Float64
+                    )
+                    ENGINE = MergeTree()
+                    ORDER BY (code, period, date)
+                """)
+                
+                # 迁移数据（所有旧数据默认为daily）
+                client.execute("INSERT INTO kline_new SELECT code, 'daily' as period, date, open, high, low, close, volume, amount FROM kline")
+                
+                # 删除旧表并重命名新表（需要先停止写入，这里只是记录日志）
+                logger.warning("已创建新表kline_new，请手动迁移数据后删除旧表kline并重命名kline_new为kline")
+                logger.warning("或者，如果数据量不大，可以直接删除旧表后让系统重新创建")
+        except Exception as e:
+            logger.debug(f"表结构检查/迁移可能已存在或失败: {e}")
+        
+        # 技术指标表（存储预计算的指标，每日更新）
+        client.execute("""
         CREATE TABLE IF NOT EXISTS indicators
         (
             code String,
@@ -170,10 +199,10 @@ def init_tables():
         )
         ENGINE = ReplacingMergeTree(update_time)
         ORDER BY (code, market, date)
-    """)
-    
-    # 交易计划表（使用ReplacingMergeTree支持状态更新）
-    client.execute("""
+        """)
+        
+        # 交易计划表（使用ReplacingMergeTree支持状态更新）
+        client.execute("""
         CREATE TABLE IF NOT EXISTS trade_plan
         (
             id UInt64,
@@ -192,19 +221,19 @@ def init_tables():
         ENGINE = ReplacingMergeTree(updated_at)
         ORDER BY (id, code)
         PRIMARY KEY (id)
-    """)
-    
-    # 尝试添加buy_date字段（如果表已存在且没有该字段）
-    try:
-        client.execute("ALTER TABLE trade_plan ADD COLUMN IF NOT EXISTS buy_date Nullable(Date)")
-        client.execute("ALTER TABLE trade_plan ADD COLUMN IF NOT EXISTS updated_at DateTime DEFAULT now()")
-        # 将旧的status='pending'改为'waiting_buy'
-        client.execute("ALTER TABLE trade_plan UPDATE status = 'waiting_buy' WHERE status = 'pending'")
-    except Exception as e:
-        logger.debug(f"表结构更新可能已存在或失败: {e}")
-    
-    # 交易结果表
-    client.execute("""
+        """)
+        
+        # 尝试添加buy_date字段（如果表已存在且没有该字段）
+        try:
+            client.execute("ALTER TABLE trade_plan ADD COLUMN IF NOT EXISTS buy_date Nullable(Date)")
+            client.execute("ALTER TABLE trade_plan ADD COLUMN IF NOT EXISTS updated_at DateTime DEFAULT now()")
+            # 将旧的status='pending'改为'waiting_buy'
+            client.execute("ALTER TABLE trade_plan UPDATE status = 'waiting_buy' WHERE status = 'pending'")
+        except Exception as e:
+            logger.debug(f"表结构更新可能已存在或失败: {e}")
+        
+        # 交易结果表
+        client.execute("""
         CREATE TABLE IF NOT EXISTS trade_result
         (
             id UInt64,
@@ -220,9 +249,15 @@ def init_tables():
         )
         ENGINE = MergeTree()
         ORDER BY (code, created_at)
-    """)
-    
-    logger.info("数据表初始化完成")
+        """)
+        
+        logger.info("数据表初始化完成")
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_kline_latest_date(code: str, period: str = "daily") -> str | None:
@@ -235,8 +270,9 @@ def get_kline_latest_date(code: str, period: str = "daily") -> str | None:
     Returns:
         最新日期的字符串（YYYYMMDD格式），如果不存在则返回None
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         # 标准化period字段
         period_normalized = period
@@ -276,6 +312,12 @@ def get_kline_latest_date(code: str, period: str = "daily") -> str | None:
     except Exception as e:
         logger.debug(f"查询K线最新日期失败 {code}: {e}")
         return None
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_kline_earliest_date(code: str, period: str = "daily") -> str | None:
@@ -288,8 +330,9 @@ def get_kline_earliest_date(code: str, period: str = "daily") -> str | None:
     Returns:
         最早日期的字符串（YYYYMMDD格式），如果不存在则返回None
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         # 标准化period字段
         period_normalized = period
@@ -329,6 +372,12 @@ def get_kline_earliest_date(code: str, period: str = "daily") -> str | None:
     except Exception as e:
         logger.debug(f"查询K线最早日期失败 {code}: {e}")
         return None
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> bool:
@@ -502,8 +551,9 @@ def cleanup_old_kline_data(code: str, period: str = "daily") -> None:
     
     现在支持按period精确清理，不会误删其他周期的数据。
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         # 标准化period字段
         period_normalized = period
@@ -562,6 +612,12 @@ def cleanup_old_kline_data(code: str, period: str = "daily") -> None:
         
     except Exception as e:
         logger.warning(f"清理K线旧数据失败 {code}: {e}", exc_info=True)
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | None = None, period: str = "daily") -> List[Dict[str, Any]]:
@@ -576,8 +632,9 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
     Returns:
         K线数据列表
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         # 标准化period字段
         period_normalized = period
@@ -699,6 +756,12 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
     except Exception as e:
         logger.warning(f"从数据库查询K线数据失败 {code}: {e}")
         return []
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]) -> bool:
@@ -713,8 +776,9 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
     Returns:
         是否成功
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         # 转换为日期格式
         if len(date) == 8 and "-" not in date:
@@ -808,6 +872,12 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
     except Exception as e:
         logger.error(f"保存指标失败 {code}: {e}", exc_info=True)
         return False
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_indicator_date(code: str, market: str) -> str | None:
@@ -820,8 +890,9 @@ def get_indicator_date(code: str, market: str) -> str | None:
     Returns:
         最新日期的字符串（YYYY-MM-DD格式），如果不存在则返回None
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         query = """
             SELECT max(date) as max_date FROM indicators
             WHERE code = %(code)s AND market = %(market)s
@@ -838,6 +909,12 @@ def get_indicator_date(code: str, market: str) -> str | None:
     except Exception as e:
         logger.debug(f"查询指标最新日期失败 {code}: {e}")
         return None
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, Any] | None:
@@ -851,8 +928,9 @@ def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, 
     Returns:
         指标字典，如果不存在返回None
     """
+    client = None
     try:
-        client = get_clickhouse()
+        client = _create_clickhouse_client()
         
         if date:
             # 转换为日期格式
@@ -905,6 +983,12 @@ def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, 
     except Exception as e:
         logger.debug(f"获取指标失败 {code}: {e}")
         return None
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def batch_get_indicators(codes: List[str], market: str, date: str | None = None) -> Dict[str, Dict[str, Any]]:
@@ -921,13 +1005,9 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
     if not codes:
         return {}
     
+    client = None
     try:
-        client = get_clickhouse()
-    except Exception as e:
-        logger.warning(f"ClickHouse连接失败，无法获取指标缓存: {e}")
-        return {}  # 返回空字典，让调用方知道缓存不可用
-    
-    try:
+        client = _create_clickhouse_client()
         
         if date:
             if len(date) == 8 and "-" not in date:
@@ -1034,6 +1114,12 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
     except Exception as e:
         logger.error(f"批量获取指标失败: {e}", exc_info=True)
         return {}
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
 def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
@@ -1045,13 +1131,9 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
     Returns:
         股票列表，每个股票包含：code, name, price, pct, volume, amount等字段
     """
+    client = None
     try:
-        client = get_clickhouse()
-    except Exception as e:
-        logger.warning(f"ClickHouse连接失败，无法获取股票列表: {e}")
-        return []
-    
-    try:
+        client = _create_clickhouse_client()
         # 先检查表中是否有数据
         count_result = client.execute("SELECT COUNT(*) FROM kline")
         total_count = count_result[0][0] if count_result and len(count_result) > 0 else 0
@@ -1147,4 +1229,10 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"从ClickHouse获取股票列表失败: {e}", exc_info=True)
         return []
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 

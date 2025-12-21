@@ -8,6 +8,54 @@ let candleSeries = null;
 let volumeSeries = null;
 let ws = null;
 
+// 全局WebSocket连接管理器（避免重复连接）
+const wsConnections = {
+    klineCollect: null,
+    selection: null,
+    market: null,
+    stock: {}
+};
+
+// 关闭所有WebSocket连接
+function closeAllWebSockets() {
+    if (wsConnections.klineCollect) {
+        try {
+            wsConnections.klineCollect.close();
+        } catch (e) {
+            console.warn('关闭K线采集WebSocket失败:', e);
+        }
+        wsConnections.klineCollect = null;
+    }
+    if (wsConnections.selection) {
+        try {
+            wsConnections.selection.close();
+        } catch (e) {
+            console.warn('关闭选股WebSocket失败:', e);
+        }
+        wsConnections.selection = null;
+    }
+    if (wsConnections.market) {
+        try {
+            wsConnections.market.close();
+        } catch (e) {
+            console.warn('关闭行情WebSocket失败:', e);
+        }
+        wsConnections.market = null;
+    }
+    Object.keys(wsConnections.stock).forEach(code => {
+        try {
+            wsConnections.stock[code].close();
+        } catch (e) {
+            console.warn(`关闭股票${code} WebSocket失败:`, e);
+        }
+        delete wsConnections.stock[code];
+    });
+}
+
+// 页面卸载时关闭所有WebSocket连接
+window.addEventListener('beforeunload', closeAllWebSockets);
+window.addEventListener('pagehide', closeAllWebSockets);
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
@@ -2417,9 +2465,22 @@ function checkRunningCollectionTask() {
     if (!statusEl) return;
     
     // 直接连接WebSocket检查最新任务状态，如果发现运行中的任务，就继续使用这个连接
+    // 如果已有连接，先关闭旧连接
+    if (wsConnections.klineCollect) {
+        try {
+            wsConnections.klineCollect.close();
+        } catch (e) {
+            console.warn('关闭旧K线采集WebSocket失败:', e);
+        }
+        wsConnections.klineCollect = null;
+    }
+    
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = wsProtocol + '//' + window.location.host;
     const ws = new WebSocket(`${wsBase}/ws/kline/collect/progress`);
+    
+    // 保存到全局管理器
+    wsConnections.klineCollect = ws;
     
     let hasRunningTask = false;
     let checkTimeout = null;
@@ -2516,6 +2577,10 @@ function checkRunningCollectionTask() {
         if (checkTimeout) {
             clearTimeout(checkTimeout);
         }
+        // 清理全局连接
+        if (wsConnections.klineCollect === ws) {
+            wsConnections.klineCollect = null;
+        }
     };
 }
 
@@ -2547,12 +2612,24 @@ async function runSelection() {
     `;
     
     // 连接WebSocket获取进度
+    // 如果已有连接，先关闭旧连接
+    if (wsConnections.selection) {
+        try {
+            wsConnections.selection.close();
+        } catch (e) {
+            console.warn('关闭旧选股WebSocket失败:', e);
+        }
+        wsConnections.selection = null;
+    }
+    
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/selection/progress`;
     let ws = null;
     
     try {
         ws = new WebSocket(wsUrl);
+        // 保存到全局管理器
+        wsConnections.selection = ws;
         
         ws.onopen = () => {
             // 发送任务ID
@@ -2576,6 +2653,10 @@ async function runSelection() {
         
         ws.onclose = () => {
             console.log('WebSocket连接关闭');
+            // 清理全局连接
+            if (wsConnections.selection === ws) {
+                wsConnections.selection = null;
+            }
         };
     } catch (e) {
         console.error('WebSocket连接失败:', e);
@@ -2980,9 +3061,22 @@ async function stopKlineCollect() {
 }
 
 function connectKlineCollectProgress(taskId, statusEl, btn) {
+    // 如果已有连接，先关闭旧连接
+    if (wsConnections.klineCollect) {
+        try {
+            wsConnections.klineCollect.close();
+        } catch (e) {
+            console.warn('关闭旧K线采集WebSocket失败:', e);
+        }
+        wsConnections.klineCollect = null;
+    }
+    
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsBase = wsProtocol + '//' + window.location.host;
     const ws = new WebSocket(`${wsBase}/ws/kline/collect/progress`);
+    
+    // 保存到全局管理器
+    wsConnections.klineCollect = ws;
     
     ws.onopen = () => {
         // 发送task_id（如果有则发送，否则监听最新任务）
@@ -3144,6 +3238,10 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
     
     ws.onclose = () => {
         console.log('K线采集进度WebSocket连接已关闭');
+        // 清理全局连接
+        if (wsConnections.klineCollect === ws) {
+            wsConnections.klineCollect = null;
+        }
     };
 }
 

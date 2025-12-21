@@ -13,26 +13,74 @@ router = APIRouter()
 
 
 class ConnectionManager:
-    """WebSocket连接管理器"""
+    """WebSocket连接管理器（优化版：支持连接去重和自动清理）"""
     
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        # 记录每个连接的客户端标识（用于去重）
+        self.connection_clients: dict = {}  # websocket -> client_id
+    
+    def _get_client_id(self, websocket: WebSocket) -> str:
+        """获取客户端标识（基于连接的一些特征）"""
+        try:
+            # 使用客户端IP和User-Agent组合作为标识
+            client = websocket.client
+            if client:
+                ip = getattr(client, 'host', 'unknown')
+                # 简化标识，避免User-Agent过长
+                return f"{ip}"
+        except Exception:
+            pass
+        # 如果无法获取，使用对象id作为fallback
+        return f"client_{id(websocket)}"
     
     async def connect(self, websocket: WebSocket):
+        client_id = self._get_client_id(websocket)
+        
+        # 检查是否有来自同一客户端的旧连接（同一个IP）
+        # 如果有，先关闭旧连接（避免重复连接）
+        old_connections = []
+        for conn, cid in list(self.connection_clients.items()):
+            if cid == client_id and conn != websocket:
+                # 直接标记为需要清理（在accept之前关闭，避免发送无效消息）
+                old_connections.append(conn)
+        
+        # 清理旧连接
+        for conn in old_connections:
+            try:
+                # 尝试关闭旧连接
+                await conn.close(code=1000, reason="Duplicate connection")
+            except Exception:
+                pass  # 连接可能已经关闭，忽略错误
+            finally:
+                # 从列表中移除
+                if conn in self.active_connections:
+                    self.active_connections.remove(conn)
+                if conn in self.connection_clients:
+                    del self.connection_clients[conn]
+        
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"WebSocket连接建立，当前连接数: {len(self.active_connections)}")
+        self.connection_clients[websocket] = client_id
+        logger.info(f"WebSocket连接建立，客户端={client_id}，当前连接数={len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        logger.info(f"WebSocket连接断开，当前连接数: {len(self.active_connections)}")
+        if websocket in self.connection_clients:
+            client_id = self.connection_clients.pop(websocket)
+            logger.info(f"WebSocket连接断开，客户端={client_id}，当前连接数={len(self.active_connections)}")
+        else:
+            logger.info(f"WebSocket连接断开，当前连接数={len(self.active_connections)}")
     
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         try:
+            # 检查连接是否仍然在活跃列表中
+            if websocket not in self.active_connections:
+                return
             await websocket.send_json(message)
         except Exception as e:
-            logger.error(f"发送消息失败: {e}")
+            logger.debug(f"发送消息失败: {e}")
             self.disconnect(websocket)
     
     async def broadcast(self, message: dict):
