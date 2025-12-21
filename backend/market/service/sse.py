@@ -36,45 +36,44 @@ async def create_sse_stream(
     
     async def event_generator():
         try:
-            # 首次连接时，根据current_tab推送初始数据
-            if current_tab == 'market':
-                # 推送市场行情数据
-                a_stocks = get_json("market:a:spot") or []
-                hk_stocks = get_json("market:hk:spot") or []
-                a_stocks_limited = a_stocks[:100]
-                hk_stocks_limited = hk_stocks[:100]
-                market_data = {'type': 'market', 'data': {'a': a_stocks_limited, 'hk': hk_stocks_limited}}
-                market_json = json.dumps(market_data)
-                logger.info(f"[SSE推送] [{client_id}] 推送初始市场行情数据: A股={len(a_stocks_limited)}只, 港股={len(hk_stocks_limited)}只, 数据大小={len(market_json)}字节")
-                if a_stocks_limited:
-                    logger.debug(f"[SSE推送] [{client_id}] A股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in a_stocks_limited[:3]]}")
-                if hk_stocks_limited:
-                    logger.debug(f"[SSE推送] [{client_id}] 港股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in hk_stocks_limited[:3]]}")
-                yield f"data: {market_json}\n\n"
+            # 首次连接时，推送所有类型的初始数据（不依赖current_tab）
+            logger.info(f"[SSE推送] [{client_id}] 推送所有类型的初始数据（不依赖current_tab）")
             
-            elif current_tab == 'watchlist':
-                # 推送自选股列表
-                watchlist = get_json("watchlist:default") or []
-                watchlist_data = {'type': 'watchlist_sync', 'action': 'init', 'data': watchlist}
-                watchlist_json = json.dumps(watchlist_data)
-                logger.info(f"[SSE推送] [{client_id}] 推送初始自选股列表: 数量={len(watchlist)}只, 数据大小={len(watchlist_json)}字节")
-                if watchlist:
-                    codes = [s.get('code', 'N/A') for s in watchlist]
-                    logger.debug(f"[SSE推送] [{client_id}] 自选股代码: {codes}")
-                yield f"data: {watchlist_json}\n\n"
+            # 1. 推送市场行情数据
+            a_stocks = get_json("market:a:spot") or []
+            hk_stocks = get_json("market:hk:spot") or []
+            a_stocks_limited = a_stocks[:100]
+            hk_stocks_limited = hk_stocks[:100]
+            market_data = {'type': 'market', 'data': {'a': a_stocks_limited, 'hk': hk_stocks_limited}}
+            market_json = json.dumps(market_data)
+            logger.info(f"[SSE推送] [{client_id}] 推送初始市场行情数据: A股={len(a_stocks_limited)}只, 港股={len(hk_stocks_limited)}只, 数据大小={len(market_json)}字节")
+            if a_stocks_limited:
+                logger.debug(f"[SSE推送] [{client_id}] A股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in a_stocks_limited[:3]]}")
+            if hk_stocks_limited:
+                logger.debug(f"[SSE推送] [{client_id}] 港股示例: {[s.get('code', 'N/A') + ':' + str(s.get('price', 'N/A')) for s in hk_stocks_limited[:3]]}")
+            yield f"data: {market_json}\n\n"
             
-            elif current_tab == 'news':
-                # 推送资讯数据
-                news = get_json("news:latest") or []
-                news_data = {'type': 'news', 'action': 'init', 'data': news}
-                news_json = json.dumps(news_data)
-                logger.info(f"[SSE推送] [{client_id}] 推送初始资讯列表: 数量={len(news)}条, 数据大小={len(news_json)}字节")
-                if news:
-                    titles = [n.get('title', 'N/A')[:30] for n in news[:3]]
-                    logger.debug(f"[SSE推送] [{client_id}] 资讯标题示例: {titles}")
-                yield f"data: {news_json}\n\n"
+            # 2. 推送自选股列表
+            watchlist = get_json("watchlist:default") or []
+            watchlist_data = {'type': 'watchlist_sync', 'action': 'init', 'data': watchlist}
+            watchlist_json = json.dumps(watchlist_data)
+            logger.info(f"[SSE推送] [{client_id}] 推送初始自选股列表: 数量={len(watchlist)}只, 数据大小={len(watchlist_json)}字节")
+            if watchlist:
+                codes = [s.get('code', 'N/A') for s in watchlist]
+                logger.debug(f"[SSE推送] [{client_id}] 自选股代码: {codes}")
+            yield f"data: {watchlist_json}\n\n"
             
-            # 无论哪个tab，都推送市场状态（首次连接时）
+            # 3. 推送资讯数据
+            news = get_json("news:latest") or []
+            news_data = {'type': 'news', 'action': 'init', 'data': news}
+            news_json = json.dumps(news_data)
+            logger.info(f"[SSE推送] [{client_id}] 推送初始资讯列表: 数量={len(news)}条, 数据大小={len(news_json)}字节")
+            if news:
+                titles = [n.get('title', 'N/A')[:30] for n in news[:3]]
+                logger.debug(f"[SSE推送] [{client_id}] 资讯标题示例: {titles}")
+            yield f"data: {news_json}\n\n"
+            
+            # 4. 推送市场状态（首次连接时）
             try:
                 from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
                 is_a_trading = is_a_stock_trading_time()

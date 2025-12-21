@@ -94,16 +94,17 @@ function closeSSEConnection() {
 }
 
 // 连接SSE（统一推送服务）
-function connectSSE(currentTab = null, taskId = null) {
-    // 如果连接已存在且参数相同，不需要重新连接
+// 全局SSE连接，推送所有类型数据，不依赖current_tab
+function connectSSE() {
+    // 如果连接已存在且正常，不需要重新连接
     if (sseConnection) {
         const isOpen = sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING;
-        if (isOpen && currentSseTab === currentTab && sseTaskId === taskId) {
-            console.log('[SSE] 连接已存在且参数相同，跳过重新连接', { readyState: sseConnection.readyState, currentTab, taskId });
-            // 更新状态显示（确保显示正确）
+        if (isOpen) {
+            console.log('[SSE] 全局连接已存在且正常，跳过重新连接', { readyState: sseConnection.readyState });
+            // 更新状态显示
             if (sseConnection.readyState === EventSource.OPEN) {
                 updateSSEStatus('connected');
-            } else if (sseConnection.readyState === EventSource.CONNECTING) {
+            } else {
                 updateSSEStatus('connecting');
             }
             return;
@@ -113,10 +114,6 @@ function connectSSE(currentTab = null, taskId = null) {
         if (sseConnection.readyState === EventSource.CLOSED) {
             console.log('[SSE] 连接已关闭，清理状态');
             sseConnection = null;
-        } else if (currentSseTab !== currentTab || sseTaskId !== taskId) {
-            // 如果tab或taskId不同，需要关闭旧连接
-            console.log('[SSE] 参数变化，关闭旧连接', { oldTab: currentSseTab, newTab: currentTab, oldTaskId: sseTaskId, newTaskId: taskId });
-            closeSSEConnection();
         }
     }
     
@@ -126,34 +123,14 @@ function connectSSE(currentTab = null, taskId = null) {
         sseReconnectTimer = null;
     }
     
-    // 只有在连接不存在或已关闭时才创建新连接
-    if (sseConnection && (sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING)) {
-        console.log('[SSE] 连接已存在且正常，跳过创建', { readyState: sseConnection.readyState });
-        // 更新状态显示
-        if (sseConnection.readyState === EventSource.OPEN) {
-            updateSSEStatus('connected');
-        } else {
-            updateSSEStatus('connecting');
-        }
-        return;
-    }
-    
-    // 构建SSE URL
-    const params = new URLSearchParams();
-    if (currentTab) {
-        params.append('current_tab', currentTab);
-    }
-    if (taskId) {
-        params.append('task_id', taskId);
-    }
-    
-    const sseUrl = `${API_BASE}/api/sse/stream${params.toString() ? '?' + params.toString() : ''}`;
-    console.log('[SSE] 连接SSE:', sseUrl);
+    // 构建SSE URL（不传current_tab，让服务器推送所有数据）
+    const sseUrl = `${API_BASE}/api/sse/stream`;
+    console.log('[SSE] 建立全局SSE连接（推送所有类型数据）:', sseUrl);
     
     try {
         sseConnection = new EventSource(sseUrl);
-        currentSseTab = currentTab;
-        sseTaskId = taskId;
+        currentSseTab = null; // 不再跟踪tab，因为推送所有数据
+        sseTaskId = null;
         
         sseConnection.onopen = () => {
             console.log('[SSE] 连接已建立:', sseUrl);
@@ -242,16 +219,10 @@ function connectSSE(currentTab = null, taskId = null) {
                 updateSSEStatus('connecting');
                 
                 sseReconnectTimer = setTimeout(() => {
-                    // 只有在当前tab仍然存在时才重连
-                    const currentTabBtn = document.querySelector('.tab-btn.active');
-                    if (currentTabBtn) {
-                        const currentTab = currentTabBtn.getAttribute('data-tab');
-                        if (currentTab && (currentTab === 'market' || currentTab === 'watchlist' || currentTab === 'news')) {
-                            console.log(`[SSE] 重新连接到tab: ${currentTab}`);
-                            sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000); // 最大30秒
-                            connectSSE(currentTab);
-                        }
-                    }
+                    // 重新连接全局SSE（不依赖tab）
+                    console.log(`[SSE] 重新连接全局SSE`);
+                    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000); // 最大30秒
+                    connectSSE();
                     sseReconnectTimer = null;
                 }, sseReconnectDelay);
             }
@@ -263,26 +234,35 @@ function connectSSE(currentTab = null, taskId = null) {
     }
 }
 
-// 处理SSE消息
+// 处理SSE消息（根据当前激活的tab决定是否处理）
 function handleSSEMessage(message) {
     const messageType = message.type || 'unknown';
-    console.log(`[SSE处理] 开始处理消息: type=${messageType}`);
+    
+    // 获取当前激活的tab
+    const currentTabBtn = document.querySelector('.tab-btn.active');
+    const currentTab = currentTabBtn ? currentTabBtn.getAttribute('data-tab') : null;
+    
+    console.log(`[SSE处理] 收到消息: type=${messageType}, 当前tab=${currentTab}`);
     
     switch (messageType) {
         case 'market':
-            // 市场行情数据更新
-            console.log(`[SSE处理] 处理市场行情更新`);
-            handleMarketUpdate(message.data);
+            // 市场行情数据更新（只在行情页处理）
+            if (currentTab === 'market') {
+                console.log(`[SSE处理] 处理市场行情更新`);
+                handleMarketUpdate(message.data);
+            } else {
+                console.log(`[SSE处理] 跳过市场行情更新（当前不在行情页）`);
+            }
             break;
         case 'watchlist_sync':
-            // 自选股同步
+            // 自选股同步（始终处理，因为会影响按钮状态）
             const action = message.action || 'unknown';
             const dataCount = Array.isArray(message.data) ? message.data.length : 0;
             console.log(`[SSE处理] 处理自选股同步: action=${action}, 数量=${dataCount}只`);
             handleWatchlistSync(message.action, message.data);
             break;
         case 'market_status':
-            // 市场状态更新（A股/港股交易状态）
+            // 市场状态更新（始终处理，因为显示在顶部）
             const statusData = message.data || {};
             const aStatus = statusData.a?.status || 'unknown';
             const hkStatus = statusData.hk?.status || 'unknown';
@@ -290,27 +270,29 @@ function handleSSEMessage(message) {
             handleMarketStatusUpdate(message.data);
             break;
         case 'news':
-            // 资讯更新
-            const newsAction = message.action || 'unknown';
-            const newsCount = Array.isArray(message.data) ? message.data.length : 0;
-            console.log(`[SSE处理] 处理资讯更新: action=${newsAction}, 数量=${newsCount}条`);
-            handleNewsUpdate(message.action, message.data);
+            // 资讯更新（只在资讯页处理）
+            if (currentTab === 'news') {
+                const newsAction = message.action || 'unknown';
+                const newsCount = Array.isArray(message.data) ? message.data.length : 0;
+                console.log(`[SSE处理] 处理资讯更新: action=${newsAction}, 数量=${newsCount}条`);
+                handleNewsUpdate(message.action, message.data);
+            } else {
+                console.log(`[SSE处理] 跳过资讯更新（当前不在资讯页）`);
+            }
             break;
         case 'kline_collect_progress':
-            // K线采集进度
+            // K线采集进度（始终处理）
             console.log(`[SSE处理] 处理K线采集进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleKlineCollectProgress(message.task_id, message.progress);
             break;
         case 'selection_progress':
-            // 选股进度
+            // 选股进度（始终处理）
             console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleSelectionProgress(message.task_id, message.progress);
             break;
         default:
             console.warn(`[SSE处理] 未知消息类型: ${messageType}`, message);
     }
-    
-    console.log(`[SSE处理] 消息处理完成: type=${messageType}`);
 }
 
 // 处理市场状态更新（SSE推送）
@@ -490,7 +472,7 @@ function _doWatchlistSync(data) {
     }
 }
 
-// 从SSE数据直接渲染自选股列表（不需要重新请求服务器）
+// 从SSE数据直接渲染自选股列表（不需要重新请求服务器，支持无限滚动）
 async function renderWatchlistStocksFromSSE(watchlistData) {
     console.log('[SSE] 从SSE数据直接渲染自选股列表，数量:', watchlistData.length);
     
@@ -505,6 +487,8 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
                 </div>
             `;
         }
+        watchlistAllStocks = [];
+        watchlistRenderedCount = 0;
         return;
     }
     
@@ -540,14 +524,14 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
                 };
             });
             
-            // 直接渲染，不显示加载状态
-            renderWatchlistStocks(watchlistStocks, true, true); // forceRender=true, silent=true
+            // 使用无限滚动渲染（forceRender=true重置状态，silent=true不显示日志）
+            renderWatchlistStocks(watchlistStocks, true, true);
         } else {
             throw new Error(result.message || '批量查询失败');
         }
     } catch (error) {
         console.error('[SSE] 批量获取股票行情失败:', error);
-        // 即使获取行情失败，也使用基本信息渲染
+        // 即使获取行情失败，也使用基本信息渲染（支持无限滚动）
         renderWatchlistStocks(watchlistData.map(item => ({
             ...item,
             name: item.name || item.code
@@ -555,17 +539,17 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
     }
 }
 
-// 处理资讯更新（SSE推送，无感刷新）
+// 处理资讯更新（SSE推送，无感刷新，支持无限滚动）
 function handleNewsUpdate(action, data) {
     console.log('[SSE] ========== 处理资讯更新（无感刷新） ==========');
     const newsData = data || [];
     console.log('[SSE] 收到资讯数据:', action, '数量:', newsData.length);
     
     if (action === 'init' || action === 'update') {
-        // 如果当前在资讯页，无感更新列表
+        // 如果当前在资讯页，无感更新列表（支持无限滚动）
         const newsTab = document.getElementById('news-tab');
         if (newsTab && newsTab.classList.contains('active')) {
-            console.log('[SSE] 当前在资讯页，使用SSE数据无感更新列表（不显示加载状态）');
+            console.log('[SSE] 当前在资讯页，使用SSE数据无感更新列表（支持无限滚动）');
             renderNews(newsData);
         } else {
             console.log('[SSE] 当前不在资讯页，跳过更新');
@@ -721,19 +705,27 @@ function startApp() {
             if (!hasData) {
                 loadMarket(); // 首次加载后会连接SSE
             } else {
-                // 如果已有数据，立即连接SSE
-                connectSSE('market');
+                // SSE已全局连接，无需重新连接
             }
         }
     } else if (currentTab === 'watchlist') {
-        // 如果当前是自选页，只连接SSE，不手动加载（依赖SSE推送初始数据）
-        console.log('[自选] 切换到自选页，连接SSE等待推送数据（无感刷新）');
-        connectSSE('watchlist');
+        // 如果当前是自选页，先显示缓存数据，SSE会推送更新
+        console.log('[自选] 当前是自选页，先显示缓存数据');
+        const cachedData = getCachedWatchlistData();
+        const localWatchlist = getWatchlist();
+        if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
+            renderWatchlistStocks(cachedData, false, true);
+        } else if (localWatchlist.length > 0) {
+            loadWatchlist(false);
+        }
     } else if (currentTab === 'news') {
-        // 如果当前是资讯页，只连接SSE，不手动加载（依赖SSE推送初始数据）
-        console.log('[资讯] 切换到资讯页，连接SSE等待推送数据（无感刷新）');
-        connectSSE('news');
+        // 如果当前是资讯页，等待SSE推送数据
+        console.log('[资讯] 当前是资讯页，等待SSE推送数据');
     }
+    
+    // 建立全局SSE连接（推送所有类型数据，不依赖tab）
+    console.log('[启动] 建立全局SSE连接');
+    connectSSE();
     
         initKlineModal();
         initStrategy();
@@ -858,7 +850,7 @@ function switchToTab(targetTab, addHistory = true) {
         
         // 切换到自选页时，先显示缓存数据，通过SSE实时推送更新
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，使用SSE实时推送');
+            console.log('[自选] 切换到自选页，使用SSE实时推送（SSE已连接，无需重连）');
             
             // 先使用缓存数据快速显示（如果存在）
             const cachedData = getCachedWatchlistData();
@@ -878,13 +870,12 @@ function switchToTab(targetTab, addHistory = true) {
                 loadWatchlist(false);
             }
             
-            // 连接SSE实时推送（会在connectSSE内部检查是否需要重新连接）
-            connectSSE('watchlist');
+            // SSE已全局连接，无需重新连接
         }
         
-        // 切换到行情页时，连接SSE实时推送
+        // 切换到行情页时，使用SSE实时推送
         if (targetTab === 'market') {
-            console.log('[行情] 切换到行情页，连接SSE实时推送');
+            console.log('[行情] 切换到行情页，使用SSE实时推送（SSE已连接，无需重连）');
             
             // 直接使用本地缓存更新按钮状态（避免频繁同步）
             updateWatchlistButtonStates();
@@ -907,20 +898,13 @@ function switchToTab(targetTab, addHistory = true) {
                 }
             }
             
-            // 连接SSE实时推送
-            connectSSE('market');
+            // SSE已全局连接，无需重新连接
         }
         
-        // 切换到资讯页时，只连接SSE，不手动加载（依赖SSE推送数据）
+        // 切换到资讯页时，使用SSE实时推送
         if (targetTab === 'news') {
-            console.log('[资讯] 切换到资讯页，连接SSE等待推送数据（无感刷新）');
-            connectSSE('news');
-        }
-        
-        // 切换到自选页时，只连接SSE，不手动加载（依赖SSE推送数据）
-        if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，连接SSE等待推送数据（无感刷新）');
-            connectSSE('watchlist');
+            console.log('[资讯] 切换到资讯页，使用SSE实时推送（SSE已连接，无需重连）');
+            // SSE已全局连接，无需重新连接
         }
         
         // 切换到配置页时，加载配置
@@ -2852,6 +2836,39 @@ const SYNC_COOLDOWN = 5000; // 5秒冷却时间
 function initWatchlist() {
     console.log('[自选] 初始化自选股模块');
     
+    // 初始化自选页无限滚动（使用window滚动事件，因为容器可能没有独立滚动）
+    let watchlistScrollTimer = null;
+    window.addEventListener('scroll', () => {
+        const watchlistTab = document.getElementById('watchlist-tab');
+        if (!watchlistTab || !watchlistTab.classList.contains('active')) {
+            return;
+        }
+        
+        // 防抖处理
+        if (watchlistScrollTimer) {
+            clearTimeout(watchlistScrollTimer);
+        }
+        
+        watchlistScrollTimer = setTimeout(() => {
+            // 检查是否滚动到底部
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const scrollHeight = document.documentElement.scrollHeight;
+            const clientHeight = window.innerHeight;
+            
+            // 距离底部200px时加载下一批
+            if (scrollTop + clientHeight >= scrollHeight - 200 && 
+                !watchlistIsLoading && 
+                watchlistRenderedCount < watchlistAllStocks.length) {
+                console.log('[自选] 触发无限滚动，加载下一批');
+                watchlistIsLoading = true;
+                requestAnimationFrame(() => {
+                    renderWatchlistStocksBatch();
+                    watchlistIsLoading = false;
+                });
+            }
+        }, 100);
+    });
+    
     // 页面加载时从服务器同步自选股列表（带防抖）
     console.log('[自选] 开始从服务器同步自选股列表...');
     
@@ -3103,7 +3120,13 @@ async function loadWatchlist(forceRefresh = false) {
     }
 }
 
-// 渲染自选股列表（复用函数）
+// 自选股无限滚动相关变量
+let watchlistAllStocks = []; // 所有自选股数据
+let watchlistRenderedCount = 0; // 已渲染的数量
+let watchlistPageSize = 30; // 每批渲染的数量
+let watchlistIsLoading = false; // 是否正在加载
+
+// 渲染自选股列表（支持无限滚动）
 function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = false) {
     const tbodyEl = document.getElementById('watchlist-stock-list');
     
@@ -3111,9 +3134,16 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
         console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票, forceRender=', forceRender);
     }
     
-    // 如果强制渲染，跳过数据比较
-    if (!forceRender && tbodyEl && tbodyEl.children.length > 0) {
-        const existingRows = Array.from(tbodyEl.querySelectorAll('tr'));
+    // 如果强制渲染，重置无限滚动状态
+    if (forceRender) {
+        watchlistAllStocks = watchlistStocks;
+        watchlistRenderedCount = 0;
+        if (tbodyEl) {
+            tbodyEl.innerHTML = '';
+        }
+    } else {
+        // 如果不是强制渲染，检查数据是否有变化
+        const existingRows = tbodyEl ? Array.from(tbodyEl.querySelectorAll('tr')) : [];
         const existingCodes = existingRows.map(tr => {
             const firstTd = tr.querySelector('td:first-child');
             return firstTd ? firstTd.textContent.trim() : null;
@@ -3122,17 +3152,25 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
         const newCodes = watchlistStocks.map(s => String(s.code).trim());
         
         if (!silent) {
-            console.log('[自选] renderWatchlistStocks: 现有代码:', existingCodes, '新代码:', newCodes);
+            console.log('[自选] renderWatchlistStocks: 现有代码:', existingCodes.length, '新代码:', newCodes.length);
         }
         
-        // 如果数据相同，不重新渲染（无感更新）
+        // 如果数据相同且已全部渲染，不重新渲染（无感更新）
         if (existingCodes.length === newCodes.length && 
             existingCodes.length > 0 &&
-            existingCodes.every((code, idx) => code === newCodes[idx])) {
+            existingCodes.every((code, idx) => code === newCodes[idx]) &&
+            watchlistRenderedCount >= watchlistAllStocks.length) {
             if (!silent) {
-                console.log('[自选] renderWatchlistStocks: 数据未变化，跳过渲染');
+                console.log('[自选] renderWatchlistStocks: 数据未变化且已全部渲染，跳过渲染');
             }
             return;
+        }
+        
+        // 数据有变化，更新全部数据并重置渲染
+        watchlistAllStocks = watchlistStocks;
+        watchlistRenderedCount = 0;
+        if (tbodyEl) {
+            tbodyEl.innerHTML = '';
         }
     }
     
@@ -3164,14 +3202,59 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
     const finalTbodyEl = document.getElementById('watchlist-stock-list');
     if (!finalTbodyEl) return;
     
-    finalTbodyEl.innerHTML = '';
-    
-    if (watchlistStocks.length === 0) {
+    if (watchlistAllStocks.length === 0) {
         finalTbodyEl.innerHTML = '<tr><td colspan="6" class="loading">暂无数据</td></tr>';
         return;
     }
     
-    watchlistStocks.forEach(stock => {
+    // 渲染第一批数据（无限滚动）
+    renderWatchlistStocksBatch();
+    
+    if (!silent) {
+        console.log('[自选] renderWatchlistStocks: 开始分批渲染，总数:', watchlistAllStocks.length);
+    }
+    
+    // 更新按钮状态（确保按钮状态正确）
+    updateWatchlistButtonStates();
+}
+
+// 分批渲染自选股（无限滚动）
+function renderWatchlistStocksBatch() {
+    if (watchlistIsLoading) return;
+    
+    const tbodyEl = document.getElementById('watchlist-stock-list');
+    if (!tbodyEl) return;
+    
+    const watchlistTab = document.getElementById('watchlist-tab');
+    if (!watchlistTab || !watchlistTab.classList.contains('active')) {
+        return; // 不在自选页，不渲染
+    }
+    
+    // 计算本次要渲染的范围
+    const start = watchlistRenderedCount;
+    const end = Math.min(start + watchlistPageSize, watchlistAllStocks.length);
+    const batch = watchlistAllStocks.slice(start, end);
+    
+    if (batch.length === 0) {
+        // 已全部渲染完成
+        if (watchlistRenderedCount > 0 && watchlistRenderedCount >= watchlistAllStocks.length) {
+            // 移除加载提示
+            const loadingRow = tbodyEl.querySelector('tr.loading-more');
+            if (loadingRow) {
+                loadingRow.remove();
+            }
+        }
+        return;
+    }
+    
+    // 移除之前的加载提示
+    const loadingRow = tbodyEl.querySelector('tr.loading-more');
+    if (loadingRow) {
+        loadingRow.remove();
+    }
+    
+    // 渲染本批数据
+    batch.forEach(stock => {
         const tr = document.createElement('tr');
         tr.setAttribute('data-stock', JSON.stringify(stock));
         tr.style.cursor = 'pointer';
@@ -3198,17 +3281,12 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
             openKlineModal(stockData.code, stockData.name, stockData);
         });
         
-        finalTbodyEl.appendChild(tr);
+        tbodyEl.appendChild(tr);
     });
     
-    if (!silent) {
-        console.log('[自选] renderWatchlistStocks: 渲染完成，共', watchlistStocks.length, '只股票');
-    }
+    watchlistRenderedCount = end;
     
-    // 更新按钮状态（确保按钮状态正确）
-    updateWatchlistButtonStates();
-    
-    // 绑定移除按钮事件（移除旧的事件监听器，避免重复绑定）
+    // 绑定移除按钮事件
     document.querySelectorAll('.remove-watchlist-btn').forEach(btn => {
         // 移除旧的事件监听器（通过克隆节点）
         const newBtn = btn.cloneNode(true);
@@ -3228,6 +3306,16 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
             removeFromWatchlist(code);
         };
     });
+    
+    // 如果还有更多数据，添加加载提示
+    if (watchlistRenderedCount < watchlistAllStocks.length) {
+        const loadingTr = document.createElement('tr');
+        loadingTr.className = 'loading-more';
+        loadingTr.innerHTML = '<td colspan="6" style="text-align: center; padding: 10px; color: #94a3b8;">加载中...</td>';
+        tbodyEl.appendChild(loadingTr);
+    }
+    
+    console.log(`[自选] 已渲染 ${watchlistRenderedCount}/${watchlistAllStocks.length} 只股票`);
 }
 
 // 从本地缓存快速获取自选股列表（同步，用于UI渲染）
@@ -3687,6 +3775,35 @@ function initStrategy() {
     }
     if (loadSelectedBtn) {
         loadSelectedBtn.addEventListener('click', loadSelectedStocks);
+    }
+    
+    // 初始化选股页无限滚动
+    const selectedStocksContainer = document.getElementById('selected-stocks');
+    if (selectedStocksContainer) {
+        // 使用window滚动事件（因为selected-stocks可能没有独立的滚动容器）
+        window.addEventListener('scroll', () => {
+            const strategyTab = document.getElementById('strategy-tab');
+            if (!strategyTab || !strategyTab.classList.contains('active')) {
+                return;
+            }
+            
+            // 检查是否滚动到底部
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const scrollHeight = document.documentElement.scrollHeight;
+            const clientHeight = window.innerHeight;
+            
+            // 距离底部200px时加载下一批
+            if (scrollTop + clientHeight >= scrollHeight - 200 && 
+                !selectedIsLoading && 
+                selectedRenderedCount < selectedAllStocks.length) {
+                console.log('[选股] 触发无限滚动，加载下一批');
+                selectedIsLoading = true;
+                requestAnimationFrame(() => {
+                    renderSelectedStocksBatch();
+                    selectedIsLoading = false;
+                });
+            }
+        });
     }
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
@@ -4544,20 +4661,73 @@ async function loadSelectedStocks() {
     }
 }
 
+// 选股页无限滚动相关变量
+let selectedAllStocks = []; // 所有选股结果
+let selectedRenderedCount = 0; // 已渲染的数量
+let selectedPageSize = 20; // 每批渲染的数量
+let selectedIsLoading = false; // 是否正在加载
+
 function renderSelectedStocks(stocks) {
     const container = document.getElementById('selected-stocks');
     
     if (stocks.length === 0) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">未选出符合条件的股票</div>';
+        selectedAllStocks = [];
+        selectedRenderedCount = 0;
         return;
     }
     
-    container.innerHTML = stocks.map(stock => {
+    // 重置无限滚动状态
+    selectedAllStocks = stocks;
+    selectedRenderedCount = 0;
+    container.innerHTML = '';
+    
+    // 渲染第一批数据（无限滚动）
+    renderSelectedStocksBatch();
+    
+    console.log(`[选股] 开始分批渲染，总数: ${stocks.length}`);
+}
+
+// 分批渲染选股结果（无限滚动）
+function renderSelectedStocksBatch() {
+    if (selectedIsLoading) return;
+    
+    const container = document.getElementById('selected-stocks');
+    if (!container) return;
+    
+    const strategyTab = document.getElementById('strategy-tab');
+    if (!strategyTab || !strategyTab.classList.contains('active')) {
+        return; // 不在选股页，不渲染
+    }
+    
+    // 计算本次要渲染的范围
+    const start = selectedRenderedCount;
+    const end = Math.min(start + selectedPageSize, selectedAllStocks.length);
+    const batch = selectedAllStocks.slice(start, end);
+    
+    if (batch.length === 0) {
+        // 已全部渲染完成
+        const loadingDiv = container.querySelector('.loading-more');
+        if (loadingDiv) {
+            loadingDiv.remove();
+        }
+        return;
+    }
+    
+    // 移除之前的加载提示
+    const loadingDiv = container.querySelector('.loading-more');
+    if (loadingDiv) {
+        loadingDiv.remove();
+    }
+    
+    // 渲染本批数据
+    batch.forEach(stock => {
         const indicators = stock.indicators || {};
         const indicatorsInfo = indicators.ma60 ? `MA60: ${indicators.ma60?.toFixed(2)} | 量比: ${indicators.vol_ratio?.toFixed(2)} | RSI: ${indicators.rsi?.toFixed(1)}` : '';
         
-        return `
-        <div class="stock-card">
+        const stockCard = document.createElement('div');
+        stockCard.className = 'stock-card';
+        stockCard.innerHTML = `
             <div class="info">
                 <div style="font-size: 18px; font-weight: 600; color: #60a5fa;">
                     ${stock.name} (${stock.code})
@@ -4568,9 +4738,22 @@ function renderSelectedStocks(stocks) {
                 </div>
                 ${indicatorsInfo ? `<div style="margin-top: 4px; font-size: 12px; color: #64748b;">${indicatorsInfo}</div>` : ''}
             </div>
-        </div>
-    `;
-    }).join('');
+        `;
+        container.appendChild(stockCard);
+    });
+    
+    selectedRenderedCount = end;
+    
+    // 如果还有更多数据，添加加载提示
+    if (selectedRenderedCount < selectedAllStocks.length) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-more';
+        loadingDiv.style.cssText = 'text-align: center; padding: 20px; color: #94a3b8;';
+        loadingDiv.textContent = '加载中...';
+        container.appendChild(loadingDiv);
+    }
+    
+    console.log(`[选股] 已渲染 ${selectedRenderedCount}/${selectedAllStocks.length} 只股票`);
 }
 
 // AI分析模块
@@ -5515,7 +5698,7 @@ function initNews() {
     if (newsInitialized) {
         return; // 已经初始化过，避免重复初始化
     }
-    
+
     const refreshBtn = document.getElementById('refresh-news-btn');
     if (!refreshBtn) {
         console.warn('[资讯] 刷新按钮不存在，将在DOM加载后重试');
@@ -5531,6 +5714,31 @@ function initNews() {
     refreshBtn.addEventListener('click', () => {
         console.log('[资讯] 用户主动点击刷新按钮');
         loadNews();
+    });
+    
+    // 初始化资讯页无限滚动
+    window.addEventListener('scroll', () => {
+        const newsTab = document.getElementById('news-tab');
+        if (!newsTab || !newsTab.classList.contains('active')) {
+            return;
+        }
+        
+        // 检查是否滚动到底部
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const scrollHeight = document.documentElement.scrollHeight;
+        const clientHeight = window.innerHeight;
+        
+        // 距离底部200px时加载下一批
+        if (scrollTop + clientHeight >= scrollHeight - 200 && 
+            !newsIsLoading && 
+            newsRenderedCount < newsAllItems.length) {
+            console.log('[资讯] 触发无限滚动，加载下一批');
+            newsIsLoading = true;
+            requestAnimationFrame(() => {
+                renderNewsBatch();
+                newsIsLoading = false;
+            });
+        }
     });
     
     // 不再自动加载，依赖SSE推送数据（无感刷新）
@@ -5575,12 +5783,63 @@ async function loadNews() {
     }
 }
 
+// 资讯页无限滚动相关变量
+let newsAllItems = []; // 所有资讯数据
+let newsRenderedCount = 0; // 已渲染的数量
+let newsPageSize = 20; // 每批渲染的数量
+let newsIsLoading = false; // 是否正在加载
+
 function renderNews(newsList) {
     const container = document.getElementById('news-list');
     
     if (newsList.length === 0) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">暂无资讯</div>';
+        newsAllItems = [];
+        newsRenderedCount = 0;
         return;
+    }
+    
+    // 重置无限滚动状态
+    newsAllItems = newsList;
+    newsRenderedCount = 0;
+    container.innerHTML = '';
+    
+    // 渲染第一批数据（无限滚动）
+    renderNewsBatch();
+    
+    console.log(`[资讯] 开始分批渲染，总数: ${newsList.length}`);
+}
+
+// 分批渲染资讯（无限滚动）
+function renderNewsBatch() {
+    if (newsIsLoading) return;
+    
+    const container = document.getElementById('news-list');
+    if (!container) return;
+    
+    const newsTab = document.getElementById('news-tab');
+    if (!newsTab || !newsTab.classList.contains('active')) {
+        return; // 不在资讯页，不渲染
+    }
+    
+    // 计算本次要渲染的范围
+    const start = newsRenderedCount;
+    const end = Math.min(start + newsPageSize, newsAllItems.length);
+    const batch = newsAllItems.slice(start, end);
+    
+    if (batch.length === 0) {
+        // 已全部渲染完成
+        const loadingDiv = container.querySelector('.loading-more');
+        if (loadingDiv) {
+            loadingDiv.remove();
+        }
+        return;
+    }
+    
+    // 移除之前的加载提示
+    const loadingDiv = container.querySelector('.loading-more');
+    if (loadingDiv) {
+        loadingDiv.remove();
     }
     
     // 转义HTML特殊字符，避免XSS
@@ -5591,8 +5850,9 @@ function renderNews(newsList) {
         return div.innerHTML;
     };
     
-    // 显示所有资讯（不限制数量），内容长度增加到500字符
-    container.innerHTML = newsList.map((news, index) => {
+    // 渲染本批数据
+    batch.forEach((news, batchIndex) => {
+        const index = start + batchIndex; // 全局索引
         const content = news.content || '';
         // 如果内容超过500字符，显示前500字符并提供展开功能
         const shouldTruncate = content.length > 500;
@@ -5600,30 +5860,46 @@ function renderNews(newsList) {
         const contentId = `news-content-${index}`;
         const btnId = `news-expand-btn-${index}`;
         
-        return `
-        <div class="news-item">
+        const newsItem = document.createElement('div');
+        newsItem.className = 'news-item';
+        newsItem.innerHTML = `
             <h4>${escapeHtml(news.title || '-')}</h4>
             <div class="news-content" id="${contentId}">${escapeHtml(displayContent)}${shouldTruncate ? '...' : ''}</div>
             ${shouldTruncate ? `<button class="news-expand-btn" id="${btnId}" data-full-content="${escapeHtml(content)}">展开全文</button>` : ''}
             <div class="meta">
                 ${escapeHtml(news.publish_time || news.collect_time || '-')} | ${escapeHtml(news.source || '未知来源')}
             </div>
-        </div>
         `;
-    }).join('');
-    
-    // 绑定展开按钮事件
-    container.querySelectorAll('.news-expand-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const contentId = this.id.replace('news-expand-btn-', 'news-content-');
-            const contentDiv = document.getElementById(contentId);
-            const fullContent = this.getAttribute('data-full-content');
-            if (contentDiv && fullContent) {
-                contentDiv.textContent = fullContent;
-                this.remove();
+        container.appendChild(newsItem);
+        
+        // 绑定展开按钮事件
+        if (shouldTruncate) {
+            const expandBtn = document.getElementById(btnId);
+            if (expandBtn) {
+                expandBtn.addEventListener('click', function() {
+                    const contentDiv = document.getElementById(contentId);
+                    const fullContent = this.getAttribute('data-full-content');
+                    if (contentDiv && fullContent) {
+                        contentDiv.textContent = fullContent;
+                        this.remove();
+                    }
+                });
             }
-        });
+        }
     });
+    
+    newsRenderedCount = end;
+    
+    // 如果还有更多数据，添加加载提示
+    if (newsRenderedCount < newsAllItems.length) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-more';
+        loadingDiv.style.cssText = 'text-align: center; padding: 20px; color: #94a3b8;';
+        loadingDiv.textContent = '加载中...';
+        container.appendChild(loadingDiv);
+    }
+    
+    console.log(`[资讯] 已渲染 ${newsRenderedCount}/${newsAllItems.length} 条资讯`);
 }
 
 // 全局函数
