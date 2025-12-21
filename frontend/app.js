@@ -2276,8 +2276,9 @@ function initWatchlist() {
     function connectWatchlistWebSocket() {
         try {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // 注意：WebSocket路径是 /ws/watchlist，不是 /api/ws/watchlist
             const wsUrl = `${wsProtocol}//${window.location.host}/ws/watchlist`;
-            console.log('[自选] WebSocket连接URL:', wsUrl);
+            console.log('[自选] WebSocket连接URL:', wsUrl, '(注意：应该是/ws/watchlist，不是/api/ws/watchlist)');
             watchlistWs = new WebSocket(wsUrl);
             
             watchlistWs.onopen = () => {
@@ -2326,10 +2327,26 @@ function initWatchlist() {
             
             watchlistWs.onerror = (error) => {
                 console.error('[自选] WebSocket错误:', error, 'URL:', wsUrl, 'readyState:', watchlistWs?.readyState);
+                // 检查URL是否正确
+                if (wsUrl.includes('/api/ws/watchlist')) {
+                    console.error('[自选] ❌ 错误：URL包含/api/ws/watchlist，应该是/ws/watchlist！');
+                    console.error('[自选] ❌ 这通常是浏览器缓存了旧代码。请强制刷新浏览器（Ctrl+Shift+R 或 Cmd+Shift+R）');
+                }
             };
             
             watchlistWs.onclose = (event) => {
-                console.log('[自选] WebSocket连接已关闭，code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, '5秒后重连...');
+                console.log('[自选] WebSocket连接已关闭，code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, 'URL:', wsUrl);
+                // 如果是403错误（code 1008或1006），说明路径不正确，可能是缓存问题
+                if (event.code === 1008 || event.code === 1006 || (!event.wasClean && event.code !== 1000)) {
+                    if (wsUrl.includes('/api/ws/watchlist')) {
+                        console.error('[自选] ❌ 连接被拒绝，URL路径不正确。当前URL:', wsUrl);
+                        console.error('[自选] ❌ 应该是: ws://' + window.location.host + '/ws/watchlist');
+                        console.error('[自选] ❌ 这通常是浏览器缓存了旧代码。请强制刷新浏览器（Ctrl+Shift+R 或 Cmd+Shift+R）');
+                    } else {
+                        console.warn('[自选] WebSocket连接失败，可能的原因：路径错误、服务器未启动、或网络问题');
+                    }
+                }
+                console.log('[自选] 5秒后重连...');
                 // 5秒后重连
                 setTimeout(connectWatchlistWebSocket, 5000);
             };
