@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 import json
 import asyncio
 import time
+import math
 from common.redis import get_json, get_redis
 from common.logger import get_logger
 
@@ -16,6 +17,31 @@ router = APIRouter()
 
 # 全局变量：存储所有活跃的SSE连接
 sse_connections: Dict[str, asyncio.Queue] = {}
+
+
+def _sanitize_spot_data(data: Optional[list]) -> list:
+    """
+    处理行情数据中的 NaN/Inf，避免 JSON 序列化报错：
+    "Out of range float values are not JSON compliant"
+    """
+    if not data:
+        return []
+    
+    sanitized = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        new_item = {}
+        for k, v in item.items():
+            if isinstance(v, float):
+                if not math.isfinite(v):
+                    new_item[k] = None  # 将 NaN/Inf 替换为 None
+                else:
+                    new_item[k] = v
+            else:
+                new_item[k] = v
+        sanitized.append(new_item)
+    return sanitized
 
 
 async def create_sse_stream(
@@ -42,8 +68,9 @@ async def create_sse_stream(
             # 1. 推送市场行情数据
             a_stocks = get_json("market:a:spot") or []
             hk_stocks = get_json("market:hk:spot") or []
-            a_stocks_limited = a_stocks[:100]
-            hk_stocks_limited = hk_stocks[:100]
+            # 清理 NaN/Inf 值，避免 JSON 序列化错误
+            a_stocks_limited = _sanitize_spot_data(a_stocks[:100])
+            hk_stocks_limited = _sanitize_spot_data(hk_stocks[:100])
             market_data = {'type': 'market', 'data': {'a': a_stocks_limited, 'hk': hk_stocks_limited}}
             market_json = json.dumps(market_data)
             logger.info(f"[SSE推送] [{client_id}] 推送初始市场行情数据: A股={len(a_stocks_limited)}只, 港股={len(hk_stocks_limited)}只, 数据大小={len(market_json)}字节")
@@ -247,11 +274,13 @@ def broadcast_market_update(market_type: str = "both"):
     
     if market_type in ["a", "both"]:
         a_stocks = get_json("market:a:spot") or []
-        data["a"] = a_stocks[:100]  # 只推送前100只，避免数据过大
+        # 清理 NaN/Inf 值，避免 JSON 序列化错误
+        data["a"] = _sanitize_spot_data(a_stocks[:100])  # 只推送前100只，避免数据过大
     
     if market_type in ["hk", "both"]:
         hk_stocks = get_json("market:hk:spot") or []
-        data["hk"] = hk_stocks[:100]  # 只推送前100只，避免数据过大
+        # 清理 NaN/Inf 值，避免 JSON 序列化错误
+        data["hk"] = _sanitize_spot_data(hk_stocks[:100])  # 只推送前100只，避免数据过大
     
     if data:
         a_count = len(data.get('a', []))

@@ -28,6 +28,12 @@ let sseTaskId = null;  // 当前SSE连接的任务ID
 let sseReconnectTimer = null;
 let sseReconnectDelay = 1000; // 初始延迟1秒
 
+// WebSocket连接管理器（用于K线采集和选股进度）
+let wsConnections = {
+    klineCollect: null,  // K线采集进度WebSocket连接
+    selection: null      // 选股进度WebSocket连接
+};
+
 // 更新SSE连接状态显示
 function updateSSEStatus(status) {
     const indicator = document.getElementById('sse-status-indicator');
@@ -148,7 +154,14 @@ function connectSSE() {
                     return;
                 }
                 
-                const message = JSON.parse(event.data);
+                // 处理JSON中的NaN值（JSON.parse不支持NaN，需要先替换）
+                let dataStr = event.data;
+                // 替换 NaN、Infinity、-Infinity 为 null（JSON标准不支持这些值）
+                dataStr = dataStr.replace(/:\s*NaN\s*([,}])/g, ': null$1');
+                dataStr = dataStr.replace(/:\s*Infinity\s*([,}])/g, ': null$1');
+                dataStr = dataStr.replace(/:\s*-Infinity\s*([,}])/g, ': null$1');
+                
+                const message = JSON.parse(dataStr);
                 const messageType = message.type || 'unknown';
                 const messageSize = event.data.length;
                 
@@ -1120,6 +1133,7 @@ async function initMarket() {
     }
     
     // 设置滚动监听器（延迟设置，确保DOM已完全加载）
+    let scrollListenersSetup = false;
     function setupScrollListeners() {
         const currentContainer = document.querySelector('.stock-list-container');
         
@@ -1132,15 +1146,19 @@ async function initMarket() {
             console.log('[行情] ✅ 已设置容器滚动监听器', {
                 clientHeight: currentContainer.clientHeight,
                 scrollHeight: currentContainer.scrollHeight,
-                canScroll: currentContainer.scrollHeight > currentContainer.clientHeight
+                canScroll: currentContainer.scrollHeight > currentContainer.clientHeight,
+                rowCount: document.getElementById('stock-list')?.children.length || 0
             });
         } else {
             console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
         }
         
-        // 同时监听window滚动（作为备用）
-        window.addEventListener('scroll', handleMarketScroll, { passive: true });
-        console.log('[行情] ✅ 已设置window滚动监听器');
+        // window滚动监听器只设置一次（避免重复添加）
+        if (!scrollListenersSetup) {
+            window.addEventListener('scroll', handleMarketScroll, { passive: true });
+            console.log('[行情] ✅ 已设置window滚动监听器');
+            scrollListenersSetup = true;
+        }
     }
     
     // 立即设置一次
@@ -1311,19 +1329,31 @@ async function loadMarket() {
                 // 如果是第一页且首次加载，连接SSE实时推送
                 if (currentPage === 1) {
                     connectSSE('market');
-                    // 第一页加载完成后，重新设置滚动监听器（确保容器高度正确）
-                    setTimeout(() => {
-                        const container = document.querySelector('.stock-list-container');
-                        if (container) {
-                            console.log('[行情] 第一页加载完成，容器状态:', {
-                                clientHeight: container.clientHeight,
-                                scrollHeight: container.scrollHeight,
-                                canScroll: container.scrollHeight > container.clientHeight,
-                                rowCount: tbody.children.length
-                            });
-                        }
-                    }, 100);
                 }
+                
+                // 数据加载完成后，检查容器状态并重新设置滚动监听器
+                setTimeout(() => {
+                    const container = document.querySelector('.stock-list-container');
+                    const tbodyEl = document.getElementById('stock-list');
+                    if (container && tbodyEl) {
+                        const rowCount = tbodyEl.children.length;
+                        const canScroll = container.scrollHeight > container.clientHeight + 10;
+                        console.log('[行情] 数据加载完成，容器状态:', {
+                            clientHeight: container.clientHeight,
+                            scrollHeight: container.scrollHeight,
+                            scrollTop: container.scrollTop,
+                            canScroll: canScroll,
+                            rowCount: rowCount,
+                            currentPage: currentPage,
+                            hasMore: hasMore
+                        });
+                        
+                        // 如果容器可以滚动，确保滚动监听器已设置
+                        if (canScroll) {
+                            setupScrollListeners();
+                        }
+                    }
+                }, 200);
                 
                 // 检查是否还有更多数据
                 if (result.pagination) {
