@@ -1,12 +1,23 @@
+console.log('[全局] app.js 开始加载...');
+
+console.log('[全局] ========== app.js 开始加载 ==========');
+console.log('[全局] 当前时间:', new Date().toISOString());
+console.log('[全局] 页面URL:', window.location.href);
+
 const { createChart, ColorType } = window.LightweightCharts || {};
+console.log('[全局] LightweightCharts 可用:', !!createChart);
 
 const API_BASE = window.location.origin;
+console.log('[全局] API_BASE:', API_BASE);
+
 let apiToken = null;
 let adminToken = null;
 let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
 let ws = null;
+
+console.log('[全局] app.js 全局变量初始化完成');
 
 // 全局SSE连接管理器（单条SSE连接推送所有数据）
 let sseConnection = null;
@@ -16,6 +27,42 @@ let sseTaskId = null;  // 当前SSE连接的任务ID
 // SSE重连延迟控制（防止频繁重连）
 let sseReconnectTimer = null;
 let sseReconnectDelay = 1000; // 初始延迟1秒
+
+// 更新SSE连接状态显示
+function updateSSEStatus(status) {
+    const indicator = document.getElementById('sse-status-indicator');
+    const statusText = document.getElementById('sse-status-text');
+    
+    if (!indicator || !statusText) {
+        // 如果元素不存在，延迟重试
+        setTimeout(() => updateSSEStatus(status), 100);
+        return;
+    }
+    
+    // 移除所有状态类
+    indicator.classList.remove('connected', 'connecting', 'disconnected');
+    
+    switch (status) {
+        case 'connected':
+            indicator.classList.add('connected');
+            statusText.textContent = '已连接';
+            statusText.className = 'market-status-value';
+            break;
+        case 'connecting':
+            indicator.classList.add('connecting');
+            statusText.textContent = '连接中...';
+            statusText.className = 'market-status-value loading';
+            break;
+        case 'disconnected':
+        default:
+            indicator.classList.add('disconnected');
+            statusText.textContent = '未连接';
+            statusText.className = 'market-status-value closed';
+            break;
+    }
+    
+    console.log('[SSE状态] 更新状态:', status);
+}
 
 // 关闭SSE连接
 function closeSSEConnection() {
@@ -41,6 +88,9 @@ function closeSSEConnection() {
         clearTimeout(sseReconnectTimer);
         sseReconnectTimer = null;
     }
+    
+    // 更新状态显示
+    updateSSEStatus('disconnected');
 }
 
 // 连接SSE（统一推送服务）
@@ -50,6 +100,12 @@ function connectSSE(currentTab = null, taskId = null) {
         const isOpen = sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING;
         if (isOpen && currentSseTab === currentTab && sseTaskId === taskId) {
             console.log('[SSE] 连接已存在且参数相同，跳过重新连接', { readyState: sseConnection.readyState, currentTab, taskId });
+            // 更新状态显示（确保显示正确）
+            if (sseConnection.readyState === EventSource.OPEN) {
+                updateSSEStatus('connected');
+            } else if (sseConnection.readyState === EventSource.CONNECTING) {
+                updateSSEStatus('connecting');
+            }
             return;
         }
         
@@ -73,6 +129,12 @@ function connectSSE(currentTab = null, taskId = null) {
     // 只有在连接不存在或已关闭时才创建新连接
     if (sseConnection && (sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING)) {
         console.log('[SSE] 连接已存在且正常，跳过创建', { readyState: sseConnection.readyState });
+        // 更新状态显示
+        if (sseConnection.readyState === EventSource.OPEN) {
+            updateSSEStatus('connected');
+        } else {
+            updateSSEStatus('connecting');
+        }
         return;
     }
     
@@ -97,6 +159,8 @@ function connectSSE(currentTab = null, taskId = null) {
             console.log('[SSE] 连接已建立:', sseUrl);
             // 连接成功后重置重连延迟
             sseReconnectDelay = 1000;
+            // 更新SSE状态显示
+            updateSSEStatus('connected');
         };
         
         sseConnection.onmessage = (event) => {
@@ -118,6 +182,18 @@ function connectSSE(currentTab = null, taskId = null) {
         
         sseConnection.onerror = (error) => {
             console.error('[SSE] 连接错误:', error, 'readyState:', sseConnection?.readyState);
+            
+            // 根据连接状态更新显示
+            if (sseConnection) {
+                if (sseConnection.readyState === EventSource.CONNECTING) {
+                    updateSSEStatus('connecting');
+                } else if (sseConnection.readyState === EventSource.CLOSED) {
+                    updateSSEStatus('disconnected');
+                }
+            } else {
+                updateSSEStatus('disconnected');
+            }
+            
             // 如果连接断开，尝试重新连接（使用指数退避避免频繁重连）
             if (sseConnection && sseConnection.readyState === EventSource.CLOSED) {
                 console.log(`[SSE] 连接已关闭，${sseReconnectDelay/1000}秒后尝试重新连接`);
@@ -126,6 +202,9 @@ function connectSSE(currentTab = null, taskId = null) {
                 if (sseReconnectTimer) {
                     clearTimeout(sseReconnectTimer);
                 }
+                
+                // 显示重连中状态
+                updateSSEStatus('connecting');
                 
                 sseReconnectTimer = setTimeout(() => {
                     // 只有在当前tab仍然存在时才重连
@@ -145,6 +224,7 @@ function connectSSE(currentTab = null, taskId = null) {
         
     } catch (e) {
         console.error('[SSE] 连接失败:', e);
+        updateSSEStatus('disconnected');
     }
 }
 
@@ -335,7 +415,21 @@ window.addEventListener('pagehide', closeSSEConnection);
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
-    await initAuth();
+    console.log('[全局] DOMContentLoaded 事件触发');
+    try {
+        console.log('[全局] 开始初始化认证...');
+        await initAuth();
+        console.log('[全局] 认证初始化完成');
+    } catch (error) {
+        console.error('[全局] 初始化认证失败:', error);
+        // 即使认证失败，也尝试启动应用
+        try {
+            console.log('[全局] 尝试直接启动应用（无认证）');
+            startApp();
+        } catch (e) {
+            console.error('[全局] 启动应用失败:', e);
+        }
+    }
     
     // 监听浏览器返回按钮，处理页面导航和K线图关闭
     window.addEventListener('popstate', (event) => {
@@ -410,8 +504,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function startApp() {
-    initTheme();
-    const currentTab = initTabs(); // 获取当前激活的tab
+    console.log('[启动] startApp函数被调用');
+    try {
+        initTheme();
+        const currentTab = initTabs(); // 获取当前激活的tab
+        console.log('[启动] 当前tab:', currentTab);
     
     // 监听自选股变化事件（同一标签页内的同步）
     window.addEventListener('watchlistChanged', (e) => {
@@ -460,12 +557,28 @@ function startApp() {
         connectSSE('watchlist');
     }
     
-    initKlineModal();
-    initStrategy();
-    initAI();
-    initNews();
-    initConfig();
-    initMarketStatus();
+        initKlineModal();
+        initStrategy();
+        initAI();
+        initNews();
+        initConfig();
+        console.log('[启动] 准备初始化市场状态模块');
+        initMarketStatus();
+        
+        // 初始化SSE状态显示（初始状态为未连接）
+        updateSSEStatus('disconnected');
+        
+        console.log('[启动] startApp函数执行完成');
+    } catch (error) {
+        console.error('[启动] startApp执行出错:', error);
+        // 即使出错也尝试初始化市场状态
+        try {
+            console.log('[启动] 尝试单独初始化市场状态模块');
+            initMarketStatus();
+        } catch (e) {
+            console.error('[启动] 初始化市场状态模块失败:', e);
+        }
+    }
 }
 
 // 主题切换
@@ -5759,47 +5872,69 @@ window.toggleConfigSubsection = toggleConfigSubsection;
 let marketStatusInterval = null;
 
 function initMarketStatus() {
-    console.log('[市场状态] initMarketStatus: 初始化市场状态模块');
+    console.log('[市场状态] ========== initMarketStatus: 开始初始化市场状态模块 ==========');
     
-    // 清除旧的定时器（如果存在）
-    if (marketStatusInterval) {
-        console.log('[市场状态] 清除旧的定时器');
-        clearInterval(marketStatusInterval);
-        marketStatusInterval = null;
-    }
-    
-    // 检查DOM元素是否存在
-    const aStatusEl = document.getElementById('market-status-a');
-    const hkStatusEl = document.getElementById('market-status-hk');
-    console.log('[市场状态] DOM元素检查:', { 
-        aStatusEl: !!aStatusEl, 
-        hkStatusEl: !!hkStatusEl,
-        aStatusText: aStatusEl?.textContent,
-        hkStatusText: hkStatusEl?.textContent
-    });
-    
-    // 立即更新一次
-    console.log('[市场状态] 立即执行第一次更新');
-    updateMarketStatus();
-    
-    // 每10秒更新一次市场状态
-    marketStatusInterval = setInterval(() => {
-        console.log('[市场状态] 定时器触发，执行更新');
+    try {
+        // 清除旧的定时器（如果存在）
+        if (marketStatusInterval) {
+            console.log('[市场状态] 清除旧的定时器');
+            clearInterval(marketStatusInterval);
+            marketStatusInterval = null;
+        }
+        
+        // 检查DOM元素是否存在
+        const aStatusEl = document.getElementById('market-status-a');
+        const hkStatusEl = document.getElementById('market-status-hk');
+        
+        console.log('[市场状态] DOM元素检查:', { 
+            aStatusEl: !!aStatusEl, 
+            hkStatusEl: !!hkStatusEl,
+            aStatusText: aStatusEl?.textContent,
+            hkStatusText: hkStatusEl?.textContent,
+            documentReady: document.readyState,
+            bodyExists: !!document.body
+        });
+        
+        if (!aStatusEl || !hkStatusEl) {
+            console.error('[市场状态] DOM元素未找到！', {
+                aStatusEl: aStatusEl,
+                hkStatusEl: hkStatusEl,
+                allElements: document.querySelectorAll('[id*="market-status"]').length
+            });
+            // 延迟重试
+            setTimeout(() => {
+                console.log('[市场状态] 延迟重试初始化');
+                initMarketStatus();
+            }, 500);
+            return;
+        }
+        
+        // 立即更新一次
+        console.log('[市场状态] 立即执行第一次更新');
         updateMarketStatus();
-    }, 10000);
-    
-    console.log('[市场状态] 定时器已设置，每10秒更新一次');
+        
+        // 每10秒更新一次市场状态
+        marketStatusInterval = setInterval(() => {
+            console.log('[市场状态] 定时器触发，执行更新');
+            updateMarketStatus();
+        }, 10000);
+        
+        console.log('[市场状态] ========== 初始化完成，定时器已设置（每10秒更新一次） ==========');
+    } catch (error) {
+        console.error('[市场状态] 初始化失败:', error);
+        console.error('[市场状态] 错误堆栈:', error.stack);
+    }
 }
 
 // 市场状态更新锁，防止重复更新
 let isUpdatingMarketStatus = false;
 
 async function updateMarketStatus() {
-    console.log('[市场状态] updateMarketStatus: 函数被调用');
+    console.log('[市场状态] ========== updateMarketStatus: 函数被调用 ==========');
     
     // 防止重复更新
     if (isUpdatingMarketStatus) {
-        console.log('[市场状态] 正在更新中，跳过重复请求');
+        console.log('[市场状态] ⚠️ 正在更新中，跳过重复请求');
         return;
     }
     
@@ -5976,9 +6111,12 @@ async function updateMarketStatus() {
         }
     } finally {
         isUpdatingMarketStatus = false;
-        console.log('[市场状态] 函数执行完成');
+        console.log('[市场状态] ========== updateMarketStatus 函数执行完成 ==========');
     }
 }
+
+// 在脚本加载完成后立即检查
+console.log('[全局] app.js 脚本加载完成，等待DOMContentLoaded...');
 
 // 登录模块
 async function initAuth() {

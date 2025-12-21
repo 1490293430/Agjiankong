@@ -101,6 +101,77 @@ body {
     color: #3b82f6;
 }
 
+/* SSE状态指示灯 */
+.sse-status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 4px currentColor;
+}
+
+.sse-status-indicator.connected {
+    background-color: #10b981;
+    color: #10b981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    animation: pulse-green 2s ease-in-out infinite;
+}
+
+.sse-status-indicator.connecting {
+    background-color: #f59e0b;
+    color: #f59e0b;
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+    animation: pulse-yellow 1.5s ease-in-out infinite;
+}
+
+.sse-status-indicator.disconnected {
+    background-color: #ef4444;
+    color: #ef4444;
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes pulse-green {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+@keyframes pulse-yellow {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.6;
+        transform: scale(1.15);
+    }
+}
+
+body.light-mode .sse-status-indicator.connected {
+    background-color: #059669;
+    color: #059669;
+    box-shadow: 0 0 6px rgba(5, 150, 105, 0.5);
+}
+
+body.light-mode .sse-status-indicator.connecting {
+    background-color: #d97706;
+    color: #d97706;
+    box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+}
+
+body.light-mode .sse-status-indicator.disconnected {
+    background-color: #dc2626;
+    color: #dc2626;
+    box-shadow: 0 0 4px rgba(220, 38, 38, 0.4);
+}
+
 body.light-mode .market-status {
     background: #f1f5f9;
     border-color: #e2e8f0;
