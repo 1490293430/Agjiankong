@@ -1054,6 +1054,7 @@ async function initMarket() {
     
     // 监听滚动事件实现无限加载（支持桌面端和移动端）
     let marketScrollTimer = null;
+    let lastScrollSource = null; // 记录上次使用的滚动源（'container' 或 'window'）
     
     function handleMarketScroll() {
         // 检查行情页是否激活
@@ -1071,8 +1072,8 @@ async function initMarket() {
             let scrollTop, scrollHeight, clientHeight;
             let isContainerScroll = false;
             
-            // 检查容器是否有滚动（移动端或桌面端）
-            if (container) {
+            // 优先使用上次成功的滚动源，如果容器存在且可以滚动，使用容器滚动
+            if (container && (lastScrollSource === 'container' || lastScrollSource === null)) {
                 const containerScrollHeight = container.scrollHeight;
                 const containerClientHeight = container.clientHeight;
                 
@@ -1082,15 +1083,17 @@ async function initMarket() {
                     scrollHeight = containerScrollHeight;
                     clientHeight = containerClientHeight;
                     isContainerScroll = true;
-                    console.log('[行情] 使用容器滚动:', { scrollTop, scrollHeight, clientHeight });
+                    lastScrollSource = 'container';
+                    console.log('[行情] 使用容器滚动:', { scrollTop, scrollHeight, clientHeight, scrollHeight: containerScrollHeight, clientHeight: containerClientHeight });
                 }
             }
             
-            // 如果不是容器滚动，使用window滚动（桌面端）
+            // 如果容器无法滚动，使用window滚动（桌面端）
             if (!isContainerScroll) {
                 scrollTop = window.pageYOffset || document.documentElement.scrollTop;
                 scrollHeight = document.documentElement.scrollHeight;
                 clientHeight = window.innerHeight;
+                lastScrollSource = 'window';
                 console.log('[行情] 使用window滚动:', { scrollTop, scrollHeight, clientHeight });
             }
             
@@ -1101,6 +1104,7 @@ async function initMarket() {
                 isLoading, 
                 hasMore, 
                 currentPage,
+                scrollSource: lastScrollSource,
                 shouldLoad: distanceToBottom <= 100 && !isLoading && hasMore
             });
             
@@ -1114,7 +1118,7 @@ async function initMarket() {
     // 监听容器滚动（移动端和桌面端都监听容器）
     if (container) {
         container.addEventListener('scroll', handleMarketScroll, { passive: true });
-        console.log('[行情] 已设置容器滚动监听器，容器高度:', container.clientHeight, 'px');
+        console.log('[行情] 已设置容器滚动监听器，容器高度:', container.clientHeight, 'px, scrollHeight:', container.scrollHeight, 'px');
     } else {
         console.warn('[行情] 容器不存在，无法设置滚动监听');
     }
@@ -1122,6 +1126,55 @@ async function initMarket() {
     // 同时监听window滚动（作为备用，某些情况下容器可能不滚动）
     window.addEventListener('scroll', handleMarketScroll, { passive: true });
     console.log('[行情] 已设置window滚动监听器');
+    
+    // 监听窗口大小变化，重新检测滚动方式
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        if (resizeTimer) {
+            clearTimeout(resizeTimer);
+        }
+        resizeTimer = setTimeout(() => {
+            // 重置滚动源，让系统重新检测
+            lastScrollSource = null;
+            console.log('[行情] 窗口大小变化，重置滚动源检测');
+            // 触发一次滚动检测
+            handleMarketScroll();
+        }, 300);
+    });
+    
+    // 定期检查容器是否可以滚动（处理F12打开/关闭的情况）
+    let checkScrollInterval = null;
+    function checkScrollCapability() {
+        const marketTab = document.getElementById('market-tab');
+        if (!marketTab || !marketTab.classList.contains('active')) {
+            return;
+        }
+        
+        if (container) {
+            const containerScrollHeight = container.scrollHeight;
+            const containerClientHeight = container.clientHeight;
+            const canScroll = containerScrollHeight > containerClientHeight + 5;
+            
+            // 如果滚动能力发生变化，重置滚动源
+            if (canScroll && lastScrollSource === 'window') {
+                console.log('[行情] 检测到容器可以滚动，切换到容器滚动');
+                lastScrollSource = null; // 重置，让下次滚动时重新检测
+            } else if (!canScroll && lastScrollSource === 'container') {
+                console.log('[行情] 检测到容器无法滚动，切换到window滚动');
+                lastScrollSource = null; // 重置，让下次滚动时重新检测
+            }
+        }
+    }
+    
+    // 每2秒检查一次滚动能力（F12打开/关闭会改变布局）
+    checkScrollInterval = setInterval(checkScrollCapability, 2000);
+    
+    // 页面卸载时清理定时器
+    window.addEventListener('beforeunload', () => {
+        if (checkScrollInterval) {
+            clearInterval(checkScrollInterval);
+        }
+    });
     
     // 注意：不在这里加载数据，由startApp()根据当前tab决定是否加载
     // 不再使用定时刷新，改用WebSocket实时推送

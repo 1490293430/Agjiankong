@@ -86,9 +86,12 @@ cp backend/.env.example backend/.env
 编辑 `backend/.env`，可以配置以下选项（均为可选）：
 
 ```env
-# Redis配置（如果使用Docker Compose，保持默认即可）
-REDIS_HOST=localhost
+# Redis配置
+# ⚠️ 重要：如果使用 Docker Compose，REDIS_HOST 应该设置为 "redis"（Docker 服务名）
+# 如果直接运行 Python（不使用 Docker），则使用 "localhost"
+REDIS_HOST=redis  # Docker Compose 环境使用 "redis"，本地开发使用 "localhost"
 REDIS_PORT=6379
+REDIS_PASSWORD=  # 可选，设置 Redis 密码以提高安全性
 
 # ClickHouse 配置（生产环境务必设置安全密码）
 CLICKHOUSE_HOST=localhost
@@ -139,8 +142,10 @@ docker-compose up -d
 服务启动后：
 - API服务：http://localhost:8000
 - 前端页面：http://localhost:8000
-- Redis：localhost:6379
+- Redis：仅 Docker 内部访问（不暴露到公网，提高安全性）
 - ClickHouse：localhost:8123（可选）
+
+⚠️ **安全说明**：Redis 已配置为仅允许 Docker 内部访问，不暴露到公网。如果需要从宿主机访问 Redis（仅用于调试），可以临时修改 `docker-compose.yml` 中的 Redis 配置，添加 `ports: - "127.0.0.1:6379:6379"`。
 
 ### 4. 手动部署
 
@@ -154,8 +159,8 @@ pip install -r requirements.txt
 #### 启动Redis
 
 ```bash
-# 使用Docker
-docker run -d -p 6379:6379 redis:7-alpine
+# 使用Docker（生产环境建议：只绑定到本地回环地址，不暴露到公网）
+docker run -d -p 127.0.0.1:6379:6379 redis:7-alpine
 
 # 或使用系统服务
 redis-server

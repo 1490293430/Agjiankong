@@ -272,10 +272,18 @@ body.light-mode .market-status-value.loading {
     border-radius: 8px;
     overflow-y: auto;
     overflow-x: hidden;
-    max-height: calc(100vh - 300px); /* 限制最大高度，确保可以滚动 */
+    /* 使用更灵活的高度计算，确保在不同情况下都能滚动 */
+    max-height: calc(100vh - 250px); /* 减少固定值，给更多空间 */
     min-height: 400px; /* 设置最小高度，确保有足够空间显示内容 */
+    height: auto; /* 允许自动调整高度 */
     -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
     position: relative; /* 确保滚动定位正确 */
+}
+
+/* 确保表格内容可以撑开容器 */
+.stock-list-container .stock-table {
+    width: 100%;
+    table-layout: auto; /* 允许表格自动调整 */
 }
 
 .stock-table {

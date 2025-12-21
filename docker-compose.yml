@@ -2,8 +2,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: stock_redis
-    ports:
-      - "6379:6379"
+    # 🔒 安全配置：Redis 仅允许 Docker 内部访问，不暴露到公网
+    # 移除了 ports 映射，Redis 只能通过 Docker 内部网络访问
+    # Docker 网络内的其他服务（stock_api、stock_collector）可以通过服务名 "redis" 访问
+    # 如果需要从宿主机访问 Redis（仅用于调试），可以临时添加：
+    # ports:
+    #   - "127.0.0.1:6379:6379"  # 只绑定到本地回环地址，不暴露到公网
+    expose:
+      - "6379"  # 仅暴露给 Docker 网络内的其他容器
     volumes:
       - redis_data:/data
     restart: always
@@ -18,12 +24,13 @@ services:
     # --save 300 100: 如果300秒内至少有100个key发生变化，则保存RDB快照
     # --save 900 1: 如果900秒内至少有1个key发生变化，则保存RDB快照
     # --requirepass: 如果设置了 REDIS_PASSWORD 环境变量，则启用密码认证
+    # --bind 0.0.0.0: 允许 Docker 网络内的所有容器访问（默认行为）
     command: >
       sh -c "
       if [ -n \"$$REDIS_PASSWORD\" ]; then
-        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\"
+        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\" --bind 0.0.0.0
       else
-        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1
+        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --bind 0.0.0.0
       fi
       "
 
