@@ -13,12 +13,21 @@ let sseConnection = null;
 let currentSseTab = null;  // 当前SSE连接的页面
 let sseTaskId = null;  // 当前SSE连接的任务ID
 
+// SSE重连延迟控制（防止频繁重连）
+let sseReconnectTimer = null;
+let sseReconnectDelay = 1000; // 初始延迟1秒
+
 // 关闭SSE连接
 function closeSSEConnection() {
     if (sseConnection) {
         try {
-            sseConnection.close();
-            console.log('[SSE] 关闭SSE连接');
+            // 只有在连接状态不是CLOSED时才关闭
+            if (sseConnection.readyState !== EventSource.CLOSED) {
+                sseConnection.close();
+                console.log('[SSE] 关闭SSE连接, readyState:', sseConnection.readyState);
+            } else {
+                console.log('[SSE] 连接已关闭，无需再次关闭');
+            }
         } catch (e) {
             console.warn('[SSE] 关闭SSE连接失败:', e);
         }
@@ -26,18 +35,46 @@ function closeSSEConnection() {
     }
     currentSseTab = null;
     sseTaskId = null;
+    
+    // 清除重连定时器
+    if (sseReconnectTimer) {
+        clearTimeout(sseReconnectTimer);
+        sseReconnectTimer = null;
+    }
 }
 
 // 连接SSE（统一推送服务）
 function connectSSE(currentTab = null, taskId = null) {
     // 如果连接已存在且参数相同，不需要重新连接
-    if (sseConnection && currentSseTab === currentTab && sseTaskId === taskId) {
-        console.log('[SSE] 连接已存在且参数相同，跳过重新连接');
-        return;
+    if (sseConnection) {
+        const isOpen = sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING;
+        if (isOpen && currentSseTab === currentTab && sseTaskId === taskId) {
+            console.log('[SSE] 连接已存在且参数相同，跳过重新连接', { readyState: sseConnection.readyState, currentTab, taskId });
+            return;
+        }
+        
+        // 如果连接状态不正常，先关闭
+        if (sseConnection.readyState === EventSource.CLOSED) {
+            console.log('[SSE] 连接已关闭，清理状态');
+            sseConnection = null;
+        } else if (currentSseTab !== currentTab || sseTaskId !== taskId) {
+            // 如果tab或taskId不同，需要关闭旧连接
+            console.log('[SSE] 参数变化，关闭旧连接', { oldTab: currentSseTab, newTab: currentTab, oldTaskId: sseTaskId, newTaskId: taskId });
+            closeSSEConnection();
+        }
     }
     
-    // 关闭旧连接
-    closeSSEConnection();
+    // 清除重连定时器
+    if (sseReconnectTimer) {
+        clearTimeout(sseReconnectTimer);
+        sseReconnectTimer = null;
+    }
+    
+    // 只有在连接不存在或已关闭时才创建新连接
+    if (sseConnection && (sseConnection.readyState === EventSource.OPEN || sseConnection.readyState === EventSource.CONNECTING)) {
+        console.log('[SSE] 连接已存在且正常，跳过创建', { readyState: sseConnection.readyState });
+        return;
+    }
     
     // 构建SSE URL
     const params = new URLSearchParams();
@@ -58,6 +95,8 @@ function connectSSE(currentTab = null, taskId = null) {
         
         sseConnection.onopen = () => {
             console.log('[SSE] 连接已建立:', sseUrl);
+            // 连接成功后重置重连延迟
+            sseReconnectDelay = 1000;
         };
         
         sseConnection.onmessage = (event) => {
@@ -78,21 +117,29 @@ function connectSSE(currentTab = null, taskId = null) {
         };
         
         sseConnection.onerror = (error) => {
-            console.error('[SSE] 连接错误:', error);
-            // 如果连接断开，尝试重新连接（延迟3秒避免频繁重连）
+            console.error('[SSE] 连接错误:', error, 'readyState:', sseConnection?.readyState);
+            // 如果连接断开，尝试重新连接（使用指数退避避免频繁重连）
             if (sseConnection && sseConnection.readyState === EventSource.CLOSED) {
-                console.log('[SSE] 连接已关闭，3秒后尝试重新连接');
-                setTimeout(() => {
+                console.log(`[SSE] 连接已关闭，${sseReconnectDelay/1000}秒后尝试重新连接`);
+                
+                // 清除之前的重连定时器
+                if (sseReconnectTimer) {
+                    clearTimeout(sseReconnectTimer);
+                }
+                
+                sseReconnectTimer = setTimeout(() => {
                     // 只有在当前tab仍然存在时才重连
                     const currentTabBtn = document.querySelector('.tab-btn.active');
                     if (currentTabBtn) {
                         const currentTab = currentTabBtn.getAttribute('data-tab');
                         if (currentTab && (currentTab === 'market' || currentTab === 'watchlist')) {
                             console.log(`[SSE] 重新连接到tab: ${currentTab}`);
+                            sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000); // 最大30秒
                             connectSSE(currentTab);
                         }
                     }
-                }, 3000);
+                    sseReconnectTimer = null;
+                }, sseReconnectDelay);
             }
         };
         
@@ -425,22 +472,30 @@ function startApp() {
 function initTheme() {
     const body = document.body;
     const btn = document.getElementById('theme-toggle');
+    
+    if (!btn) {
+        console.warn('[主题] 主题切换按钮不存在');
+        return;
+    }
+    
     const saved = localStorage.getItem('theme');
     // 如果主题已在页面加载前设置（通过head中的脚本），这里只是确保应用（不会重复添加）
     if (saved === 'light' && !body.classList.contains('light-mode')) {
         body.classList.add('light-mode');
     }
+    
     updateThemeButtonText(btn, body);
-    if (btn) {
-        btn.addEventListener('click', () => {
-            body.classList.toggle('light-mode');
-            const mode = body.classList.contains('light-mode') ? 'light' : 'dark';
-            localStorage.setItem('theme', mode);
-            updateThemeButtonText(btn, body);
-            // 主题切换时更新图表主题
-            updateChartTheme();
-        });
-    }
+    
+    // 绑定点击事件（移除旧的事件监听器，避免重复绑定）
+    btn.onclick = () => {
+        body.classList.toggle('light-mode');
+        const mode = body.classList.contains('light-mode') ? 'light' : 'dark';
+        localStorage.setItem('theme', mode);
+        updateThemeButtonText(btn, body);
+        // 主题切换时更新图表主题
+        updateChartTheme();
+        console.log('[主题] 主题已切换为:', mode);
+    };
 }
 
 function updateThemeButtonText(btn, body) {
@@ -512,25 +567,16 @@ function switchToTab(targetTab, addHistory = true) {
                 // 先渲染缓存数据（无感显示）
                 renderWatchlistStocks(cachedData, false, true);
             } else if (localWatchlist.length > 0) {
-                // 如果没有缓存但有自选列表，先同步一次数据
-                console.log('[自选] 无缓存数据，先同步一次');
-                syncWatchlistFromServer().then(serverData => {
-                    if (serverData !== null) {
-                        localStorage.setItem('watchlist', JSON.stringify(serverData));
-                        loadWatchlist(true);
-                    } else {
-                        loadWatchlist(true);
-                    }
-                }).catch(() => {
-                    loadWatchlist(true);
-                });
+                // 如果没有缓存但有自选列表，直接加载（不强制同步，避免频繁请求）
+                console.log('[自选] 无缓存数据，直接加载');
+                loadWatchlist(false); // 使用现有数据，通过SSE实时更新
             } else {
                 // 如果自选列表为空，显示占位符
                 console.log('[自选] 自选列表为空');
                 loadWatchlist(false);
             }
             
-            // 连接SSE实时推送
+            // 连接SSE实时推送（会在connectSSE内部检查是否需要重新连接）
             connectSSE('watchlist');
         }
         
@@ -538,22 +584,8 @@ function switchToTab(targetTab, addHistory = true) {
         if (targetTab === 'market') {
             console.log('[行情] 切换到行情页，连接SSE实时推送');
             
-            // 先同步服务器最新自选列表（确保按钮状态准确）
-            syncWatchlistFromServer().then(serverData => {
-                if (serverData !== null) {
-                    console.log('[行情] 切换到行情页，从服务器同步自选列表成功，共', serverData.length, '只');
-                    // 更新本地缓存
-                    localStorage.setItem('watchlist', JSON.stringify(serverData));
-                }
-                // 无论同步成功与否，都更新按钮状态
-                console.log('[行情] 切换到行情页，更新按钮状态');
-                updateWatchlistButtonStates();
-            }).catch(err => {
-                console.error('[行情] 切换到行情页，同步自选列表失败:', err);
-                // 即使同步失败，也更新按钮状态（使用本地缓存）
-                console.log('[行情] 切换到行情页，使用本地缓存更新按钮状态');
-                updateWatchlistButtonStates();
-            });
+            // 直接使用本地缓存更新按钮状态（避免频繁同步）
+            updateWatchlistButtonStates();
             
             // 如果表格为空，先加载一次初始数据
             const tbody = document.getElementById('stock-list');
@@ -562,10 +594,36 @@ function switchToTab(targetTab, addHistory = true) {
                 currentPage = 1;
                 hasMore = true;
                 loadMarket();
+            } else {
+                // 如果已有数据，检查是否需要刷新（避免频繁请求）
+                const firstRow = tbody.querySelector('tr');
+                if (!firstRow || firstRow.textContent.includes('加载中') || firstRow.textContent.includes('加载失败')) {
+                    console.log('[行情] 行情页数据异常，重新加载');
+                    currentPage = 1;
+                    hasMore = true;
+                    loadMarket();
+                }
             }
             
             // 连接SSE实时推送
             connectSSE('market');
+        }
+        
+        // 切换到资讯页时，加载资讯
+        if (targetTab === 'news') {
+            console.log('[资讯] 切换到资讯页');
+            // 如果容器为空或显示加载中，重新加载
+            const container = document.getElementById('news-list');
+            if (!container || container.innerHTML.trim() === '' || container.innerHTML.includes('加载中')) {
+                loadNews();
+            }
+        }
+        
+        // 切换到配置页时，加载配置
+        if (targetTab === 'config') {
+            console.log('[配置] 切换到配置页');
+            // 如果配置未加载，重新加载
+            loadConfig();
         }
     }
 }
@@ -2430,12 +2488,35 @@ function saveCachedWatchlistData(data) {
 }
 
 // 自选股模块
+// 同步锁，防止重复同步
+let isSyncingWatchlist = false;
+let lastSyncTime = 0;
+const SYNC_COOLDOWN = 5000; // 5秒冷却时间
+
 function initWatchlist() {
     console.log('[自选] 初始化自选股模块');
     
-    // 页面加载时从服务器同步自选股列表
+    // 页面加载时从服务器同步自选股列表（带防抖）
     console.log('[自选] 开始从服务器同步自选股列表...');
+    
+    // 检查冷却时间
+    const now = Date.now();
+    if (now - lastSyncTime < SYNC_COOLDOWN) {
+        console.log('[自选] 同步冷却中，跳过本次同步');
+        return;
+    }
+    
+    // 如果正在同步，跳过
+    if (isSyncingWatchlist) {
+        console.log('[自选] 正在同步中，跳过重复请求');
+        return;
+    }
+    
+    isSyncingWatchlist = true;
+    lastSyncTime = now;
+    
     syncWatchlistFromServer().then(serverData => {
+        isSyncingWatchlist = false;
         if (serverData !== null) {
             console.log('[自选] 从服务器同步成功，共', serverData.length, '只股票');
             // 如果当前在自选页，刷新列表
@@ -2451,6 +2532,7 @@ function initWatchlist() {
             console.log('[自选] 从服务器同步失败或数据为空，使用本地缓存');
         }
     }).catch(err => {
+        isSyncingWatchlist = false;
         console.error('[自选] 从服务器同步失败:', err);
     });
     
@@ -5069,25 +5151,53 @@ async function scheduleAutoAnalyze() {
 
 // 资讯模块
 function initNews() {
-    document.getElementById('refresh-news-btn').addEventListener('click', loadNews);
-    loadNews();
+    const refreshBtn = document.getElementById('refresh-news-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadNews);
+    }
+    
+    // 如果当前在资讯页，立即加载
+    const newsTab = document.getElementById('news-tab');
+    if (newsTab && newsTab.classList.contains('active')) {
+        loadNews();
+    }
 }
 
 async function loadNews() {
     const container = document.getElementById('news-list');
+    if (!container) {
+        console.warn('[资讯] 资讯容器不存在');
+        return;
+    }
+    
+    // 检查是否在资讯页
+    const newsTab = document.getElementById('news-tab');
+    if (!newsTab || !newsTab.classList.contains('active')) {
+        console.log('[资讯] 当前不在资讯页，跳过加载');
+        return;
+    }
+    
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
     
     try {
+        console.log('[资讯] 开始加载资讯');
         const response = await apiFetch(`${API_BASE}/api/news/latest`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const result = await response.json();
+        console.log('[资讯] 收到响应:', result.code, '数据数量:', result.data?.length || 0);
         
         if (result.code === 0) {
-            renderNews(result.data);
+            renderNews(result.data || []);
         } else {
-            container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">加载失败: ${result.message}</div>`;
+            container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">加载失败: ${result.message || '未知错误'}</div>`;
         }
     } catch (error) {
-        container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">加载失败: ${error.message}</div>`;
+        console.error('[资讯] 加载失败:', error);
+        container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">加载失败: ${error.message || '网络错误'}<br/><button onclick="loadNews()" style="margin-top: 10px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">重试</button></div>`;
     }
 }
 
@@ -5148,10 +5258,18 @@ window.loadChart = loadChart;
 // 配置模块
 function initConfig() {
     const saveBtn = document.getElementById('cfg-save-btn');
-    if (!saveBtn) return;
+    if (!saveBtn) {
+        console.warn('[配置] 保存按钮不存在');
+        return;
+    }
 
     saveBtn.addEventListener('click', saveConfig);
-    loadConfig();
+    
+    // 如果当前在配置页，立即加载
+    const configTab = document.getElementById('config-tab');
+    if (configTab && configTab.classList.contains('active')) {
+        loadConfig();
+    }
 
     const testBtn = document.getElementById('cfg-notify-test-btn');
     if (testBtn) {
@@ -5166,11 +5284,34 @@ function initConfig() {
 }
 
 async function loadConfig() {
+    // 检查是否在配置页
+    const configTab = document.getElementById('config-tab');
+    if (!configTab || !configTab.classList.contains('active')) {
+        console.log('[配置] 当前不在配置页，跳过加载');
+        return;
+    }
+    
     const statusEl = document.getElementById('cfg-status');
+    if (statusEl) {
+        statusEl.textContent = '加载中...';
+    }
+    
     try {
+        console.log('[配置] 开始加载配置');
         const res = await apiFetch(`${API_BASE}/api/config`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        if (!res.ok) {
+            const errorText = await res.text().catch(() => '');
+            console.error('[配置] 加载失败:', res.status, errorText);
+            
+            if (res.status === 401) {
+                throw new Error('需要管理员权限，请重新登录');
+            }
+            throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+        }
+        
         const data = await res.json();
+        console.log('[配置] 配置加载成功');
 
         document.getElementById('cfg-selection-market').value = data.selection_market ?? 'A';
         document.getElementById('cfg-selection-max-count').value = data.selection_max_count ?? 30;
@@ -5557,8 +5698,18 @@ function initMarketStatus() {
     marketStatusInterval = setInterval(updateMarketStatus, 10000);
 }
 
+// 市场状态更新锁，防止重复更新
+let isUpdatingMarketStatus = false;
+
 async function updateMarketStatus() {
     console.log('updateMarketStatus: 函数被调用');
+    
+    // 防止重复更新
+    if (isUpdatingMarketStatus) {
+        console.log('updateMarketStatus: 正在更新中，跳过重复请求');
+        return;
+    }
+    
     const aStatusEl = document.getElementById('market-status-a');
     const hkStatusEl = document.getElementById('market-status-hk');
     
@@ -5567,12 +5718,10 @@ async function updateMarketStatus() {
     if (!aStatusEl || !hkStatusEl) {
         console.warn('市场状态元素未找到，aStatusEl:', aStatusEl, 'hkStatusEl:', hkStatusEl);
         // 如果元素不存在，等待一段时间后重试（可能是DOM还没加载完成）
-        if (!aStatusEl || !hkStatusEl) {
-            setTimeout(() => {
-                console.log('updateMarketStatus: 延迟重试');
-                updateMarketStatus();
-            }, 1000);
-        }
+        setTimeout(() => {
+            console.log('updateMarketStatus: 延迟重试');
+            updateMarketStatus();
+        }, 1000);
         return;
     }
     
@@ -5586,6 +5735,8 @@ async function updateMarketStatus() {
         hkStatusEl.className = 'market-status-value closed';
     }
     
+    isUpdatingMarketStatus = true;
+    
     console.log('updateMarketStatus: 开始请求市场状态', { hasToken: !!apiToken });
     try {
         // 设置超时，避免长时间等待（增加到10秒）
@@ -5595,7 +5746,7 @@ async function updateMarketStatus() {
             controller.abort('市场状态请求超时（10秒）');
         }, 10000); // 10秒超时
         
-        console.log('updateMarketStatus: 发送请求到', `${API_BASE}/api/market/status`);
+        console.log('updateMarketStatus: 发送请求到', `${API_BASE}/api/market/status`, { hasApiToken: !!apiToken, hasAdminToken: !!adminToken });
         const res = await apiFetch(`${API_BASE}/api/market/status`, {
             signal: controller.signal
         });
@@ -5607,20 +5758,32 @@ async function updateMarketStatus() {
         if (!res.ok) {
             const errorText = await res.text().catch(() => '');
             console.error('获取市场状态失败:', res.status, errorText);
-            // 如果是401错误，需要登录或token失效，显示"未登录"
+            
+            // 如果是401错误，需要登录或token失效
             if (res.status === 401) {
                 console.warn('市场状态API需要认证');
-                aStatusEl.textContent = '需登录';
-                aStatusEl.className = 'market-status-value closed';
-                hkStatusEl.textContent = '需登录';
-                hkStatusEl.className = 'market-status-value closed';
+                if (aStatusEl) {
+                    aStatusEl.textContent = '需登录';
+                    aStatusEl.className = 'market-status-value closed';
+                }
+                if (hkStatusEl) {
+                    hkStatusEl.textContent = '需登录';
+                    hkStatusEl.className = 'market-status-value closed';
+                }
+                isUpdatingMarketStatus = false;
                 return;
             }
-            // 其他错误显示"未知"
-            aStatusEl.textContent = '未知';
-            aStatusEl.className = 'market-status-value closed';
-            hkStatusEl.textContent = '未知';
-            hkStatusEl.className = 'market-status-value closed';
+            
+            // 其他错误显示"未知"，但不改变"加载中..."状态
+            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
+                aStatusEl.textContent = '未知';
+                aStatusEl.className = 'market-status-value closed';
+            }
+            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
+                hkStatusEl.textContent = '未知';
+                hkStatusEl.className = 'market-status-value closed';
+            }
+            isUpdatingMarketStatus = false;
             return;
         }
         
@@ -5644,38 +5807,42 @@ async function updateMarketStatus() {
         } else {
             // 显示错误状态
             console.error('市场状态数据格式错误:', data);
-            aStatusEl.textContent = '未知';
-            aStatusEl.className = 'market-status-value closed';
-            hkStatusEl.textContent = '未知';
-            hkStatusEl.className = 'market-status-value closed';
+            if (aStatusEl) {
+                aStatusEl.textContent = '未知';
+                aStatusEl.className = 'market-status-value closed';
+            }
+            if (hkStatusEl) {
+                hkStatusEl.textContent = '未知';
+                hkStatusEl.className = 'market-status-value closed';
+            }
         }
     } catch (error) {
         console.error('updateMarketStatus: 捕获到错误', error);
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
             console.warn('获取市场状态超时或被取消');
-            // 超时时显示"超时"，但不改变"加载中..."状态，等待下次重试
-            // 如果当前是"加载中..."，保持原样，让下次重试时更新
-            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
+            // 超时时显示"超时"
+            if (aStatusEl) {
                 aStatusEl.textContent = '超时';
                 aStatusEl.className = 'market-status-value closed';
             }
-            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
+            if (hkStatusEl) {
                 hkStatusEl.textContent = '超时';
                 hkStatusEl.className = 'market-status-value closed';
             }
         } else {
             console.error('更新市场状态失败:', error);
-            // 显示错误状态，但不改变"加载中..."状态
-            if (aStatusEl && aStatusEl.textContent !== '加载中...') {
+            // 显示错误状态
+            if (aStatusEl) {
                 aStatusEl.textContent = '错误';
                 aStatusEl.className = 'market-status-value closed';
             }
-            if (hkStatusEl && hkStatusEl.textContent !== '加载中...') {
+            if (hkStatusEl) {
                 hkStatusEl.textContent = '错误';
                 hkStatusEl.className = 'market-status-value closed';
             }
         }
     } finally {
+        isUpdatingMarketStatus = false;
         console.log('updateMarketStatus: 函数执行完成');
     }
 }
