@@ -477,52 +477,58 @@ body.light-mode textarea {
     border: none !important; /* 移除边框 */
 }
 
+/* K线图头部 - 重构版 */
 .kline-modal-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
-    padding: 10px 16px; /* 增加padding，给内容更多空间 */
+    align-items: flex-start;
+    padding: 12px 16px;
     border-bottom: 1px solid #334155;
-    flex-shrink: 0; /* 不收缩，保持固定高度 */
-    margin: 0 !important;
-    flex-wrap: wrap; /* 允许换行 */
-    gap: 8px; /* 添加gap，确保元素之间有间距 */
+    flex-shrink: 0;
+    gap: 12px;
+    background: #1e293b;
 }
 
-.kline-modal-header h3 {
+.kline-header-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.kline-title {
     margin: 0;
     color: #60a5fa;
-    font-size: 16px;  /* 稍微增大字体 */
+    font-size: 18px;
     font-weight: 600;
-    white-space: nowrap; /* 标题不换行 */
+    line-height: 1.2;
 }
 
-/* 标题左侧：标题 + 内联股票详情 */
-.kline-header-left {
+.kline-header-actions {
     display: flex;
-    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
-    gap: 12px;
-    min-width: 0;
-    flex: 1; /* 占据剩余空间 */
-    flex-wrap: wrap; /* 允许换行 */
-}
-
-.kline-header-right {
-    display: flex;
-    align-items: flex-start; /* 改为flex-start，与左侧对齐 */
+    align-items: flex-start;
     gap: 8px;
-    flex-shrink: 0; /* 不收缩，保持按钮大小 */
+    flex-shrink: 0;
+}
+
+.kline-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 13px;
+    white-space: nowrap;
 }
 
 .kline-refresh-btn {
     background: #3b82f6;
-    border: none;
     color: white;
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
 }
 
 .kline-refresh-btn:hover {
@@ -535,24 +541,26 @@ body.light-mode textarea {
 
 .kline-modal-close {
     background: transparent;
-    border: none;
     color: #94a3b8;
-    font-size: 32px;
+    font-size: 24px;
     line-height: 1;
-    cursor: pointer;
-    padding: 0;
+    padding: 4px;
     width: 32px;
     height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: all 0.2s;
+    min-width: 32px;
 }
 
 .kline-modal-close:hover {
     background: #334155;
     color: #cbd5f5;
+}
+
+.kline-action-btn .btn-icon {
+    display: inline-block;
+}
+
+.kline-action-btn .btn-text {
+    display: inline-block;
 }
 
 .kline-modal-body {
@@ -567,116 +575,164 @@ body.light-mode textarea {
     border: none !important; /* 移除边框 */
 }
 
-/* 日线/周线 + 成交量/EMA 控制排成一排（位于标题下方） */
-.kline-controls-row {
-    display: flex;
-    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
-    gap: 10px;
-    flex-wrap: nowrap;      /* 尽量保持在一排 */
-    font-size: 12px;
-    min-height: 32px;
-    padding: 4px 10px; /* 添加最小padding，保持控制按钮可见 */
-    flex-shrink: 0; /* 不收缩，保持固定高度 */
-    margin: 0 !important;
-    position: relative; /* 为绝对定位的content提供定位上下文 */
-}
-
-.kline-indicators-inline {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    font-size: 12px;
-    position: relative; /* 为绝对定位的子元素提供定位上下文 */
-}
-
-.indicator-collapse {
-    background: #1e293b;
-    border-radius: 8px;
-    border: 1px solid #475569;
-    cursor: pointer;
-    position: relative; /* 为content提供定位上下文 */
-}
-
-.indicator-collapse-header {
+/* 控制栏 - 重构版 */
+.kline-controls-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.kline-controls-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.control-label {
+    font-size: 12px;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+.kline-select {
+    background: #334155;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #cbd5f5;
     padding: 6px 10px;
     font-size: 13px;
-    color: #cbd5f5;
+    cursor: pointer;
+    transition: all 0.2s;
     min-width: 80px;
 }
 
-.indicator-arrow {
-    font-size: 12px;
-    color: #94a3b8;
+.kline-select:hover {
+    border-color: #64748b;
 }
 
-.indicator-collapse-content {
-    position: absolute; /* 绝对定位，浮在K线图上方 */
-    top: 100%; /* 位于按钮下方 */
-    left: 0;
-    z-index: 1000; /* 确保在K线图上方 */
-    background: #1e293b;
-    border-radius: 0 0 8px 8px;
+.kline-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.kline-indicators-group {
+    position: relative;
+}
+
+.indicator-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #334155;
     border: 1px solid #475569;
-    border-top: none;
-    padding: 8px 10px;
-    display: none; /* 默认折叠 */
-    min-width: 150px; /* 设置最小宽度 */
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); /* 添加阴影，更明显 */
-    margin-top: 2px; /* 与按钮之间的小间距 */
-    white-space: nowrap; /* 防止内容换行 */
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 13px;
+    color: #cbd5f5;
+    white-space: nowrap;
 }
 
-/* EMA控制内容需要更宽的宽度 */
-#ema-controls.indicator-collapse-content {
+.indicator-toggle:hover {
+    background: #475569;
+    border-color: #64748b;
+}
+
+.indicator-toggle.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.indicator-label {
+    font-weight: 500;
+}
+
+.indicator-arrow {
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.indicator-toggle.active .indicator-arrow {
+    transform: rotate(180deg);
+}
+
+.indicator-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 1000;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 12px;
     min-width: 200px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    display: none;
 }
 
-/* K线图容器，占据剩余所有空间 */
+.indicator-panel.active {
+    display: block;
+}
+
+#ema-controls.indicator-panel {
+    min-width: 250px;
+}
+
+/* K线图容器 - 重构版 */
 .kline-chart-container {
     position: relative;
     width: 100%;
-    flex: 1 1 auto; /* 占据剩余所有空间 */
+    flex: 1;
     min-height: 0;
-    overflow: visible; /* 确保成交量区域可见 */
-    margin: 0 !important; /* 移除所有margin */
-    padding: 0 !important; /* 移除所有padding */
-    border: none !important; /* 移除边框 */
-    z-index: 1; /* 确保下拉内容可以显示在上方 */
+    overflow: hidden;
+    background: #0f172a;
 }
 
-/* 确保图表内部元素也没有边距 */
 .kline-chart-container > div,
 .kline-chart-container canvas {
-    margin: 0 !important;
-    padding: 0 !important;
+    margin: 0;
+    padding: 0;
 }
 
-/* 标题行中的紧凑股票详情 */
-.stock-detail-inline {
-    padding: 6px 12px;
+/* 指标信息栏 */
+.indicators-info-bar {
+    padding: 8px 16px;
+    background: #1e293b;
+    border-top: 1px solid #334155;
+    font-size: 12px;
+    color: #94a3b8;
+    flex-shrink: 0;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+/* 股票详情信息 - 重构版 */
+.stock-detail-info {
+    padding: 8px 12px;
     background: rgba(15, 23, 42, 0.85);
-    border-radius: 8px; /* 改为圆角矩形，更易显示多行内容 */
+    border-radius: 8px;
     border: 1px solid #475569;
     font-size: 12px;
     color: #e2e8f0;
-    max-width: 100%; /* 允许占满可用宽度 */
-    overflow: visible; /* 改为visible，确保内容可见 */
-    white-space: normal; /* 允许换行 */
-    line-height: 1.6; /* 增加行高，提高可读性 */
-    display: block; /* 改为block，确保完整显示 */
-    flex: 1; /* 占据剩余空间 */
-    min-width: 0; /* 允许缩小 */
+    width: 100%;
+    overflow: visible;
 }
 
 .stock-detail-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px 16px; /* 减小gap，让内容更紧凑 */
+    gap: 12px 16px;
     align-items: center;
-    width: 100%; /* 确保占满宽度 */
+    width: 100%;
 }
 
 .detail-item-inline {
@@ -684,7 +740,7 @@ body.light-mode textarea {
     align-items: center;
     gap: 4px;
     white-space: nowrap;
-    flex-shrink: 0; /* 防止收缩 */
+    flex-shrink: 0;
 }
 
 .detail-label-inline {
@@ -1565,24 +1621,38 @@ body.light-mode .ai-analysis-table tbody tr:hover {
 
 /* 桌面端优化 - 确保K线图头部布局正确 */
 @media (min-width: 769px) {
+    /* 桌面端K线图优化 */
     .kline-modal-header {
-        flex-wrap: nowrap; /* 桌面端不换行 */
-        align-items: center; /* 垂直居中 */
+        flex-direction: row;
+        align-items: center;
     }
     
-    .kline-header-left {
-        flex-wrap: nowrap; /* 桌面端不换行 */
-        align-items: center; /* 垂直居中 */
+    .kline-header-main {
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
     }
     
-    .stock-detail-inline {
-        max-width: calc(100vw - 300px); /* 限制最大宽度，避免超出屏幕 */
-        overflow-x: auto; /* 如果内容太宽，允许横向滚动 */
-        overflow-y: visible;
+    .kline-title {
+        font-size: 20px;
+        white-space: nowrap;
+    }
+    
+    .stock-detail-info {
+        max-width: calc(100vw - 400px);
+        overflow-x: auto;
     }
     
     .stock-detail-row {
-        gap: 10px 14px; /* 桌面端使用更小的gap */
+        gap: 10px 16px;
+    }
+    
+    .kline-controls-bar {
+        flex-wrap: nowrap;
+    }
+    
+    .kline-action-btn .btn-text {
+        display: inline-block;
     }
 }
 
@@ -1738,50 +1808,39 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         border-radius: 0;
     }
     
-    /* K线图头部在移动端的布局调整 */
+    /* 移动端K线图优化 */
     .kline-modal-header {
         flex-direction: column;
-        align-items: flex-start;
-        padding: 8px 12px;
-        gap: 8px;
+        align-items: stretch;
+        padding: 10px 12px;
+        gap: 10px;
     }
     
-    .kline-header-left {
+    .kline-header-main {
         width: 100%;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
     }
     
-    .kline-header-left h3 {
+    .kline-title {
         font-size: 16px;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
     }
     
-    /* 股票详情信息在移动端显示 */
-    .stock-detail-inline {
+    .stock-detail-info {
         width: 100%;
-        max-width: 100%;
-        padding: 8px 12px;
+        padding: 8px 10px;
         font-size: 11px;
-        line-height: 1.5;
-        max-height: none; /* 移除高度限制，允许完整显示 */
-        display: block; /* 改为block，确保显示 */
-        overflow: visible; /* 允许内容溢出 */
-        white-space: normal; /* 允许换行 */
-        -webkit-line-clamp: unset; /* 移除行数限制 */
     }
     
     .stock-detail-row {
         flex-direction: column;
-        gap: 8px;
-        align-items: flex-start;
+        gap: 6px;
+        align-items: stretch;
     }
     
     .detail-item-inline {
         width: 100%;
         justify-content: space-between;
-        padding: 4px 0;
+        padding: 2px 0;
     }
     
     .detail-label-inline {
@@ -1792,40 +1851,56 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         font-size: 13px;
     }
     
-    .kline-header-right {
+    .kline-header-actions {
         width: 100%;
         justify-content: space-between;
-        margin-top: 4px;
     }
     
-    .kline-refresh-btn {
-        font-size: 11px;
-        padding: 6px 12px;
+    .kline-action-btn {
+        font-size: 12px;
+        padding: 8px 12px;
+    }
+    
+    .kline-action-btn .btn-text {
+        display: inline-block;
     }
     
     .kline-modal-close {
         font-size: 28px;
-        width: 28px;
-        height: 28px;
+        width: 36px;
+        height: 36px;
     }
     
-    /* K线控制行在移动端的调整 */
-    .kline-controls-row {
-        flex-wrap: wrap;
+    /* 控制栏在移动端 */
+    .kline-controls-bar {
+        flex-direction: column;
+        align-items: stretch;
         padding: 8px 12px;
         gap: 8px;
     }
     
-    .kline-controls select {
-        font-size: 12px;
-        padding: 6px 10px;
+    .kline-controls-group {
+        width: 100%;
+        justify-content: space-between;
     }
     
-    /* 指标折叠按钮在移动端调整 */
-    .indicator-collapse-header {
-        font-size: 11px;
-        padding: 4px 8px;
-        min-width: 60px;
+    .kline-select {
+        flex: 1;
+        max-width: 200px;
+    }
+    
+    .indicator-toggle {
+        width: 100%;
+        justify-content: space-between;
+        padding: 8px 12px;
+    }
+    
+    .indicator-panel {
+        position: static;
+        width: 100%;
+        margin-top: 8px;
+        box-shadow: none;
+        border-radius: 6px;
     }
 }
 
@@ -1887,17 +1962,18 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         padding: 10px;
     }
     
+    /* 超小屏幕K线图优化 */
     .kline-modal-header {
-        padding: 6px 10px;
+        padding: 8px 10px;
     }
     
-    .kline-header-left h3 {
+    .kline-title {
         font-size: 14px;
     }
     
-    .stock-detail-inline {
+    .stock-detail-info {
         font-size: 10px;
-        padding: 6px 10px;
+        padding: 6px 8px;
     }
     
     .detail-label-inline {
@@ -1908,17 +1984,22 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         font-size: 12px;
     }
     
-    .kline-refresh-btn {
-        font-size: 10px;
-        padding: 5px 10px;
-    }
-    
-    .kline-controls-row {
+    .kline-action-btn {
+        font-size: 11px;
         padding: 6px 10px;
     }
     
-    .kline-controls select {
+    .kline-controls-bar {
+        padding: 6px 10px;
+    }
+    
+    .kline-select {
         font-size: 11px;
         padding: 5px 8px;
+    }
+    
+    .indicator-toggle {
+        font-size: 11px;
+        padding: 6px 10px;
     }
 }

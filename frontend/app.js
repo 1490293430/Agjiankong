@@ -63,11 +63,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 监听浏览器返回按钮，处理页面导航和K线图关闭
     window.addEventListener('popstate', (event) => {
         const state = event.state || {};
-        const hash = window.location.hash.replace('#', '');
+        const path = window.location.pathname;
         
         // 检查是否从K线图页面返回
-        const wasKlinePage = state.klineModal || hash.startsWith('kline-');
-        const isKlinePage = hash.startsWith('kline-');
+        const wasKlinePage = state.klineModal || path.startsWith('/kline/');
+        const isKlinePage = path.startsWith('/kline/');
         
         // 如果从K线图页面返回，关闭模态框
         const modal = document.getElementById('kline-modal');
@@ -102,40 +102,56 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentKlineStockData = null;
         }
         
-        // 处理tab切换
+        // 处理tab切换（根据路径判断）
         if (state.tab) {
             switchToTab(state.tab, false); // false表示不添加历史记录
-        } else if (hash) {
-            if (hash.startsWith('kline-')) {
-                // K线图页面，尝试打开对应的K线图
-                const code = hash.replace('kline-', '');
-                // 这里可以尝试恢复K线图，但通常用户返回时是想关闭它
-                // 所以只切换到对应的tab
+        } else if (path && path !== '/') {
+            // 解析路径，如 /market, /watchlist, /kline/000001
+            if (path.startsWith('/kline/')) {
+                // K线图页面，切换到对应的tab
                 const savedTab = state.tab || localStorage.getItem('currentTab') || 'market';
                 switchToTab(savedTab, false);
             } else {
-                // 其他hash，尝试切换到对应的tab
+                // 其他路径，尝试切换到对应的tab
+                const pathTab = path.replace('/', '').split('/')[0]; // 获取第一个路径段
                 const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
-                if (validTabs.includes(hash)) {
-                    switchToTab(hash, false);
+                if (validTabs.includes(pathTab)) {
+                    switchToTab(pathTab, false);
+                } else {
+                    // 无效路径，切换到默认tab
+                    switchToTab('market', false);
                 }
             }
         } else {
-            // 没有hash，切换到默认tab
+            // 根路径，切换到默认tab
             switchToTab('market', false);
         }
     });
     
-    // 初始化时根据URL hash设置tab
-    const hash = window.location.hash.replace('#', '');
-    if (hash && !hash.startsWith('kline-')) {
-        const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
-        if (validTabs.includes(hash)) {
-            const savedTab = localStorage.getItem('currentTab');
-            if (savedTab !== hash) {
-                switchToTab(hash, true); // 首次加载，添加历史记录
+    // 初始化时根据URL路径设置tab
+    const path = window.location.pathname;
+    if (path && path !== '/') {
+        if (path.startsWith('/kline/')) {
+            // K线图页面，不处理（由其他逻辑处理）
+        } else {
+            const pathTab = path.replace('/', '').split('/')[0];
+            const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
+            if (validTabs.includes(pathTab)) {
+                const savedTab = localStorage.getItem('currentTab');
+                if (savedTab !== pathTab) {
+                    switchToTab(pathTab, false); // 首次加载，不添加历史记录（因为URL已经是对的了）
+                }
+            } else {
+                // 无效路径，重定向到默认tab
+                switchToTab('market', true);
             }
         }
+    } else {
+        // 根路径，重定向到默认tab
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState({ tab: 'market' }, '', '/market');
+        }
+        switchToTab('market', false);
     }
 });
 
@@ -239,7 +255,7 @@ async function apiFetch(url, options = {}) {
     return fetch(url, { ...options, headers });
 }
 
-// 切换到指定tab（支持History API）
+// 切换到指定tab（支持History API，使用路径模式）
 function switchToTab(targetTab, addHistory = true) {
     const tabs = document.querySelectorAll('.tab-btn');
     const contents = document.querySelectorAll('.tab-content');
@@ -259,9 +275,9 @@ function switchToTab(targetTab, addHistory = true) {
         // 保存当前tab到localStorage
         localStorage.setItem('currentTab', targetTab);
         
-        // 添加历史记录
+        // 添加历史记录（使用路径模式，如 /market, /watchlist）
         if (addHistory && window.history && window.history.pushState) {
-            const url = `${window.location.pathname}${window.location.search}#${targetTab}`;
+            const url = `/${targetTab}${window.location.search}`;
             window.history.pushState({ tab: targetTab }, '', url);
         }
         
@@ -311,8 +327,22 @@ function initTabs() {
     
     // 立即从localStorage恢复上次的tab（避免闪烁）
     const savedTab = localStorage.getItem('currentTab') || 'market';
-    const hash = window.location.hash.replace('#', '');
-    const initialTab = (hash && ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'].includes(hash)) ? hash : savedTab;
+    const path = window.location.pathname;
+    
+    // 根据路径确定初始tab
+    let initialTab = savedTab;
+    if (path && path !== '/') {
+        if (path.startsWith('/kline/')) {
+            // K线图页面，使用保存的tab
+            initialTab = savedTab;
+        } else {
+            const pathTab = path.replace('/', '').split('/')[0];
+            const validTabs = ['market', 'watchlist', 'strategy', 'ai', 'news', 'config'];
+            if (validTabs.includes(pathTab)) {
+                initialTab = pathTab;
+            }
+        }
+    }
     
     // 立即切换到初始tab（不添加历史记录，因为这是首次加载）
     switchToTab(initialTab, false);
@@ -844,10 +874,10 @@ function openKlineModal(code, name, stockData = null) {
         });
     }
     
-    // 使用 history API 添加一个历史记录，用于处理返回按钮
+    // 使用 history API 添加一个历史记录，用于处理返回按钮（使用路径模式）
     if (window.history && window.history.pushState) {
         const currentTab = localStorage.getItem('currentTab') || 'market';
-        const url = `${window.location.pathname}${window.location.search}#kline-${code}`;
+        const url = `/kline/${code}${window.location.search}`;
         window.history.pushState({ klineModal: true, code: code, name: name, tab: currentTab }, '', url);
     }
     
@@ -989,11 +1019,11 @@ function closeKlineModal(event) {
         return false; // 如果已经关闭，直接返回
     }
     
-    // 如果当前历史记录是K线图状态，替换为之前的tab页面
+    // 如果当前历史记录是K线图状态，替换为之前的tab页面（使用路径模式）
     if (window.history && window.history.replaceState) {
         const state = window.history.state || {};
         const currentTab = state.tab || localStorage.getItem('currentTab') || 'market';
-        const url = `${window.location.pathname}${window.location.search}#${currentTab}`;
+        const url = `/${currentTab}${window.location.search}`;
         window.history.replaceState({ tab: currentTab }, '', url);
     }
     
@@ -1848,8 +1878,8 @@ function renderIndicators(indicators) {
     }
     updateEMA();
     
-    // 绑定折叠行为（点击“成交量”或“EMA”头部时展开/收起）
-    document.querySelectorAll('.indicator-collapse').forEach(el => {
+    // 绑定折叠行为（点击"成交量"或"EMA"头部时展开/收起）
+    document.querySelectorAll('.indicator-toggle').forEach(el => {
         el.addEventListener('click', (e) => {
             e.stopPropagation(); // 阻止事件冒泡
             const targetId = el.getAttribute('data-target');
@@ -1858,17 +1888,35 @@ function renderIndicators(indicators) {
                 console.warn('找不到目标元素:', targetId);
                 return;
             }
-            const arrow = el.querySelector('.indicator-arrow');
-            // 检查当前显示状态（考虑CSS默认display:none）
-            const currentDisplay = content.style.display;
-            const computedDisplay = window.getComputedStyle(content).display;
-            const isVisible = currentDisplay === 'block' || (currentDisplay === '' && computedDisplay === 'block');
             
-            content.style.display = isVisible ? 'none' : 'block';
-            if (arrow) {
-                arrow.textContent = isVisible ? '▼' : '▲';
+            // 切换active类
+            const isActive = el.classList.contains('active');
+            if (isActive) {
+                el.classList.remove('active');
+                content.classList.remove('active');
+            } else {
+                // 关闭其他已打开的panel
+                document.querySelectorAll('.indicator-toggle.active').forEach(toggle => {
+                    toggle.classList.remove('active');
+                    const panel = document.getElementById(toggle.getAttribute('data-target'));
+                    if (panel) panel.classList.remove('active');
+                });
+                
+                el.classList.add('active');
+                content.classList.add('active');
             }
         });
+    });
+    
+    // 点击外部关闭panel
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.kline-indicators-group')) {
+            document.querySelectorAll('.indicator-toggle.active').forEach(toggle => {
+                toggle.classList.remove('active');
+                const panel = document.getElementById(toggle.getAttribute('data-target'));
+                if (panel) panel.classList.remove('active');
+            });
+        }
     });
 }
 
@@ -2533,26 +2581,140 @@ async function addToWatchlist(code, name) {
     }
 }
 
-// 从自选股移除
+// 从自选股移除（无感移除：立即删除，后台保存）
 async function removeFromWatchlist(code) {
+    // 如果当前在自选页，先找到对应的行
+    const watchlistTab = document.getElementById('watchlist-tab');
+    const isInWatchlistPage = watchlistTab && watchlistTab.classList.contains('active');
+    
+    let targetRow = null;
+    let rowData = null; // 保存行数据，用于失败时恢复
+    
+    if (isInWatchlistPage) {
+        // 找到对应的行
+        const tbody = document.getElementById('watchlist-stock-list');
+        if (tbody) {
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            targetRow = rows.find(tr => {
+                const firstTd = tr.querySelector('td:first-child');
+                return firstTd && firstTd.textContent.trim() === String(code).trim();
+            });
+            
+            // 保存行的HTML和数据，用于失败时恢复
+            if (targetRow) {
+                rowData = {
+                    html: targetRow.outerHTML,
+                    nextSibling: targetRow.nextSibling
+                };
+            }
+        }
+    }
+    
+    // 立即更新本地缓存（乐观更新）
     const watchlist = getWatchlist();
     const newWatchlist = watchlist.filter(s => s.code !== code);
-    await saveWatchlist(newWatchlist);
+    localStorage.setItem('watchlist', JSON.stringify(newWatchlist));
+    
+    // 如果当前在自选页，立即从DOM中删除对应的行（无感移除）
+    if (isInWatchlistPage && targetRow) {
+        // 添加淡出动画（可选，让移除更平滑）
+        targetRow.style.transition = 'opacity 0.2s ease-out';
+        targetRow.style.opacity = '0';
+        
+        // 延迟删除，让动画完成
+        setTimeout(() => {
+            targetRow.remove();
+            
+            // 检查是否还有数据
+            const tbody = document.getElementById('watchlist-stock-list');
+            if (tbody && tbody.children.length === 0) {
+                // 如果没有数据了，显示空状态
+                const container = document.getElementById('watchlist-container');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="watchlist-placeholder">
+                            <div style="font-size: 48px; margin-bottom: 16px;">⭐</div>
+                            <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">暂无自选股</div>
+                            <div style="font-size: 14px; color: #64748b;">在行情页点击"加入自选"按钮添加股票</div>
+                        </div>
+                    `;
+                }
+            }
+        }, 200);
+    }
+    
+    // 立即更新按钮状态
+    updateWatchlistButtonStates();
     
     // 触发自定义事件，通知当前标签页的其他部分更新
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'remove', code } }));
     
-    // 清除缓存，重新加载
+    // 清除缓存
     localStorage.removeItem(WATCHLIST_CACHE_KEY);
     
-    // 如果当前在自选页，刷新列表
-    const watchlistTab = document.getElementById('watchlist-tab');
-    if (watchlistTab && watchlistTab.classList.contains('active')) {
-        loadWatchlist(true);
+    // 后台异步保存到服务器（不阻塞UI）
+    try {
+        await saveWatchlist(newWatchlist);
+    } catch (error) {
+        console.error('保存自选股到服务器失败:', error);
+        // 如果保存失败，恢复本地缓存和DOM
+        localStorage.setItem('watchlist', JSON.stringify(watchlist));
+        
+        if (isInWatchlistPage && targetRow && rowData) {
+            // 恢复行（如果还没删除）
+            const tbody = document.getElementById('watchlist-stock-list');
+            if (tbody) {
+                // 如果行已经被删除，重新插入
+                if (!targetRow.parentNode) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = rowData.html;
+                    const restoredRow = tempDiv.firstElementChild;
+                    
+                    if (rowData.nextSibling && rowData.nextSibling.parentNode) {
+                        tbody.insertBefore(restoredRow, rowData.nextSibling);
+                    } else {
+                        tbody.appendChild(restoredRow);
+                    }
+                    
+                    // 重新绑定事件
+                    const removeBtn = restoredRow.querySelector('.remove-watchlist-btn');
+                    if (removeBtn) {
+                        removeBtn.onclick = function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const code = this.getAttribute('data-code');
+                            removeFromWatchlist(code);
+                        };
+                    }
+                    
+                    // 重新绑定行点击事件
+                    restoredRow.addEventListener('click', function(e) {
+                        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                            return;
+                        }
+                        e.preventDefault();
+                        const stockData = JSON.parse(this.getAttribute('data-stock'));
+                        openKlineModal(stockData.code, stockData.name, stockData);
+                    });
+                } else {
+                    // 如果行还在，恢复样式
+                    targetRow.style.opacity = '';
+                    targetRow.style.transition = '';
+                }
+            }
+        }
+        
+        // 如果列表被清空了，重新加载
+        if (isInWatchlistPage && !targetRow) {
+            loadWatchlist(true);
+        }
+        
+        // 恢复按钮状态
+        updateWatchlistButtonStates();
+        
+        // 静默失败，不打扰用户（因为本地已经更新了）
+        console.warn('移除操作已应用到本地，但服务器同步失败。将在下次同步时自动修复。');
     }
-    
-    // 更新按钮状态
-    updateWatchlistButtonStates();
 }
 
 // 行情数据缓存管理

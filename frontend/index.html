@@ -197,51 +197,61 @@
         <div id="kline-modal" class="kline-modal" style="display: none;">
             <div class="kline-modal-overlay" onclick="closeKlineModal(event)"></div>
             <div class="kline-modal-content">
-                <div class="kline-modal-header">
-                    <div class="kline-header-left">
-                        <h3 id="kline-modal-title">K线图</h3>
-                        <div id="stock-detail-info" class="stock-detail-inline"></div>
+                <!-- 头部区域：标题、股票详情、操作按钮 -->
+                <header class="kline-modal-header">
+                    <div class="kline-header-main">
+                        <h3 id="kline-modal-title" class="kline-title">K线图</h3>
+                        <div id="stock-detail-info" class="stock-detail-info"></div>
                     </div>
-                    <div class="kline-header-right">
-                        <button id="kline-refresh-btn" class="kline-refresh-btn" title="刷新K线数据">🔄 刷新</button>
-                        <button class="kline-modal-close" onclick="closeKlineModal(event)">×</button>
+                    <div class="kline-header-actions">
+                        <button id="kline-refresh-btn" class="kline-action-btn kline-refresh-btn" title="刷新K线数据">
+                            <span class="btn-icon">🔄</span>
+                            <span class="btn-text">刷新</span>
+                        </button>
+                        <button class="kline-action-btn kline-modal-close" onclick="closeKlineModal(event)" title="关闭">
+                            <span class="btn-icon">×</span>
+                        </button>
                     </div>
-                </div>
+                </header>
+                
+                <!-- 主体区域 -->
                 <div class="kline-modal-body">
-                    <!-- 标题下方：日线/周线/成交量/EMA 一排 -->
-                    <div class="kline-controls-row">
-                        <div class="kline-controls">
-                            <select id="chart-period">
+                    <!-- 控制栏：周期选择 + 指标控制 -->
+                    <div class="kline-controls-bar">
+                        <div class="kline-controls-group">
+                            <label class="control-label">周期</label>
+                            <select id="chart-period" class="kline-select">
                                 <option value="1h">1小时</option>
                                 <option value="daily">日线</option>
                                 <option value="weekly">周线</option>
                                 <option value="monthly">月线</option>
                             </select>
                         </div>
-                        <div class="kline-indicators-inline">
-                            <div class="indicator-collapse" data-target="volume-controls">
-                                <div class="indicator-collapse-header">
-                                    <span>成交量</span>
-                                    <span class="indicator-arrow">▼</span>
-                                </div>
-                                <div id="volume-controls" class="indicator-collapse-content">
-                                    <!-- 成交量控制内容在 JS 中填充 -->
-                                </div>
+                        <div class="kline-controls-group kline-indicators-group">
+                            <div class="indicator-toggle" data-target="volume-controls">
+                                <span class="indicator-label">成交量</span>
+                                <span class="indicator-arrow">▼</span>
                             </div>
-                            <div class="indicator-collapse" data-target="ema-controls">
-                                <div class="indicator-collapse-header">
-                                    <span>EMA</span>
-                                    <span class="indicator-arrow">▼</span>
-                                </div>
-                                <div id="ema-controls" class="indicator-collapse-content">
-                                    <!-- EMA 控制内容在 JS 中填充 -->
-                                </div>
+                            <div id="volume-controls" class="indicator-panel">
+                                <!-- 成交量控制内容在 JS 中填充 -->
+                            </div>
+                        </div>
+                        <div class="kline-controls-group kline-indicators-group">
+                            <div class="indicator-toggle" data-target="ema-controls">
+                                <span class="indicator-label">EMA</span>
+                                <span class="indicator-arrow">▼</span>
+                            </div>
+                            <div id="ema-controls" class="indicator-panel">
+                                <!-- EMA 控制内容在 JS 中填充 -->
                             </div>
                         </div>
                     </div>
-                    <!-- 下方大面积：K线图 -->
+                    
+                    <!-- K线图容器 -->
                     <div id="chart-container" class="kline-chart-container"></div>
-                    <div id="indicators-info" class="indicators-info"></div>
+                    
+                    <!-- 指标信息栏 -->
+                    <div id="indicators-info" class="indicators-info-bar"></div>
                 </div>
             </div>
         </div>
