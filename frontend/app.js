@@ -264,21 +264,20 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
-        // 切换到自选页时，先使用本地数据快速加载，然后异步同步服务器数据
+        // 切换到自选页时，清除缓存并强制从本地数据加载（确保显示最新数据）
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，先使用本地数据加载，然后同步服务器');
-            // 清除数据缓存（但保留自选列表缓存）
+            console.log('[自选] 切换到自选页，清除缓存并重新加载');
+            // 清除数据缓存（强制重新获取行情数据）
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
             
-            // 先使用本地数据快速加载（确保用户立即看到最新数据）
+            // 获取本地自选列表（应该是最新的，因为addToWatchlist已经更新了localStorage）
             const localWatchlist = getWatchlist();
-            console.log('[自选] 本地自选列表:', localWatchlist.map(s => s.code));
-            if (localWatchlist.length > 0) {
-                // 使用本地数据立即加载（强制刷新，不使用数据缓存）
-                loadWatchlist(true);
-            }
+            console.log('[自选] 切换到自选页，本地自选列表:', localWatchlist.map(s => s.code), '共', localWatchlist.length, '只');
             
-            // 然后异步从服务器同步最新数据（后台更新）
+            // 强制刷新加载（使用本地自选列表数据，但重新获取行情数据）
+            loadWatchlist(true);
+            
+            // 然后异步从服务器同步最新数据（后台更新，确保多设备同步）
             syncWatchlistFromServer().then(serverData => {
                 if (serverData !== null) {
                     console.log('[自选] 切换到自选页，从服务器同步成功，共', serverData.length, '只股票');
@@ -289,6 +288,9 @@ function switchToTab(targetTab, addHistory = true) {
                     // 如果服务器数据与本地数据不同，更新本地缓存并刷新列表
                     if (localCodes !== serverCodes) {
                         console.log('[自选] 检测到服务器数据与本地数据不同，更新并刷新');
+                        console.log('[自选] 本地代码:', localCodes);
+                        console.log('[自选] 服务器代码:', serverCodes);
+                        // 更新本地缓存
                         localStorage.setItem('watchlist', JSON.stringify(serverData));
                         // 清除数据缓存，强制重新加载
                         localStorage.removeItem(WATCHLIST_CACHE_KEY);
@@ -2434,13 +2436,19 @@ function initWatchlist() {
 
 // 加载自选股列表（使用和行情页一样的加载方法）
 async function loadWatchlist(forceRefresh = false) {
+    console.log('[自选] loadWatchlist: 开始加载，forceRefresh=', forceRefresh);
     const watchlist = getWatchlist();
+    console.log('[自选] loadWatchlist: 当前自选列表:', watchlist.map(s => s.code), '共', watchlist.length, '只');
     const container = document.getElementById('watchlist-container');
     const tbody = document.getElementById('watchlist-stock-list');
     
-    if (!container) return;
+    if (!container) {
+        console.warn('[自选] loadWatchlist: 容器不存在，退出');
+        return;
+    }
     
     if (watchlist.length === 0) {
+        console.log('[自选] loadWatchlist: 自选列表为空，显示占位符');
         container.innerHTML = `
             <div class="watchlist-placeholder">
                 <div style="font-size: 48px; margin-bottom: 16px;">⭐</div>
@@ -2451,15 +2459,17 @@ async function loadWatchlist(forceRefresh = false) {
         return;
     }
     
-    // 检查缓存（如果不强制刷新）
-    if (!forceRefresh) {
-        const cachedData = getCachedWatchlistData();
-        if (cachedData && cachedData.length > 0) {
-            console.log('使用缓存的自选股数据');
-            renderWatchlistStocks(cachedData);
-            return;
+        // 检查缓存（如果不强制刷新）
+        if (!forceRefresh) {
+            const cachedData = getCachedWatchlistData();
+            if (cachedData && cachedData.length > 0) {
+                console.log('[自选] loadWatchlist: 使用缓存的自选股数据，共', cachedData.length, '只');
+                renderWatchlistStocks(cachedData, false);
+                return;
+            }
+        } else {
+            console.log('[自选] loadWatchlist: 强制刷新，跳过缓存检查');
         }
-    }
     
     // 确保表格结构存在
     if (!tbody) {
@@ -2538,8 +2548,9 @@ async function loadWatchlist(forceRefresh = false) {
                 // 保存到缓存
                 saveCachedWatchlistData(watchlistStocks);
                 
-                // 渲染股票列表
-                renderWatchlistStocks(watchlistStocks);
+                // 渲染股票列表（强制刷新时强制渲染）
+                console.log('[自选] loadWatchlist: 准备渲染，forceRefresh=', forceRefresh);
+                renderWatchlistStocks(watchlistStocks, forceRefresh);
                 return; // 成功返回
             } else {
                 throw new Error(result.message || '批量查询失败');
@@ -2549,8 +2560,8 @@ async function loadWatchlist(forceRefresh = false) {
             // 如果批量查询失败，尝试使用缓存
             const cachedData = getCachedWatchlistData();
             if (cachedData && cachedData.length > 0) {
-                console.log('批量查询失败，使用缓存数据');
-                renderWatchlistStocks(cachedData);
+                console.log('[自选] loadWatchlist: 批量查询失败，使用缓存数据，共', cachedData.length, '只');
+                renderWatchlistStocks(cachedData, forceRefresh);
                 return;
             }
             // 如果缓存也没有，抛出错误进入下面的错误处理
@@ -2562,8 +2573,8 @@ async function loadWatchlist(forceRefresh = false) {
         // 如果加载失败，尝试使用缓存
         const cachedData = getCachedWatchlistData();
         if (cachedData && cachedData.length > 0) {
-            console.log('加载失败，使用缓存数据');
-            renderWatchlistStocks(cachedData);
+            console.log('[自选] loadWatchlist: 加载失败，使用缓存数据，共', cachedData.length, '只');
+            renderWatchlistStocks(cachedData, forceRefresh);
         } else {
             const tbodyEl = document.getElementById('watchlist-stock-list');
             if (tbodyEl) {
@@ -2574,11 +2585,13 @@ async function loadWatchlist(forceRefresh = false) {
 }
 
 // 渲染自选股列表（复用函数）
-function renderWatchlistStocks(watchlistStocks) {
+function renderWatchlistStocks(watchlistStocks, forceRender = false) {
     const tbodyEl = document.getElementById('watchlist-stock-list');
     
-    // 如果表格已存在且有数据，且数据相同，不重新渲染（避免闪烁和重复加载）
-    if (tbodyEl && tbodyEl.children.length > 0) {
+    console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票, forceRender=', forceRender);
+    
+    // 如果强制渲染，跳过数据比较
+    if (!forceRender && tbodyEl && tbodyEl.children.length > 0) {
         const existingRows = Array.from(tbodyEl.querySelectorAll('tr'));
         const existingCodes = existingRows.map(tr => {
             const firstTd = tr.querySelector('td:first-child');
@@ -2587,11 +2600,13 @@ function renderWatchlistStocks(watchlistStocks) {
         
         const newCodes = watchlistStocks.map(s => String(s.code).trim());
         
+        console.log('[自选] renderWatchlistStocks: 现有代码:', existingCodes, '新代码:', newCodes);
+        
         // 如果数据相同，不重新渲染
         if (existingCodes.length === newCodes.length && 
             existingCodes.length > 0 &&
             existingCodes.every((code, idx) => code === newCodes[idx])) {
-            console.log('自选股数据未变化，跳过渲染');
+            console.log('[自选] renderWatchlistStocks: 数据未变化，跳过渲染');
             return;
         }
     }
@@ -2658,8 +2673,10 @@ function renderWatchlistStocks(watchlistStocks) {
             openKlineModal(stockData.code, stockData.name, stockData);
         });
         
-        tbodyEl.appendChild(tr);
+        finalTbodyEl.appendChild(tr);
     });
+    
+    console.log('[自选] renderWatchlistStocks: 渲染完成，共', watchlistStocks.length, '只股票');
     
     // 绑定移除按钮事件
     document.querySelectorAll('.remove-watchlist-btn').forEach(btn => {
