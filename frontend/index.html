@@ -195,7 +195,7 @@
         
         <!-- K线模态弹窗 -->
         <div id="kline-modal" class="kline-modal" style="display: none;">
-            <div class="kline-modal-overlay" onclick="closeKlineModal()"></div>
+            <div class="kline-modal-overlay" onclick="closeKlineModal(event)"></div>
             <div class="kline-modal-content">
                 <div class="kline-modal-header">
                     <div class="kline-header-left">
@@ -204,7 +204,7 @@
                     </div>
                     <div class="kline-header-right">
                         <button id="kline-refresh-btn" class="kline-refresh-btn" title="刷新K线数据">🔄 刷新</button>
-                        <button class="kline-modal-close" onclick="closeKlineModal()">×</button>
+                        <button class="kline-modal-close" onclick="closeKlineModal(event)">×</button>
                     </div>
                 </div>
                 <div class="kline-modal-body">

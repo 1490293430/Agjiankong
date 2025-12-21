@@ -59,6 +59,42 @@ window.addEventListener('pagehide', closeAllWebSockets);
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
+    
+    // 监听浏览器返回按钮，用于关闭K线图模态框
+    window.addEventListener('popstate', (event) => {
+        const modal = document.getElementById('kline-modal');
+        if (modal && modal.style.display !== 'none') {
+            // 如果K线图模态框是打开的，关闭它（但不触发popstate，避免循环）
+            // 直接关闭模态框，不调用 closeKlineModal 避免再次触发历史记录操作
+            modal.style.display = 'none';
+            
+            // 清理图表
+            if (chart) {
+                const container = document.getElementById('chart-container');
+                if (container && window.chartEventHandlers && window.chartEventHandlers[container.id]) {
+                    const handlers = window.chartEventHandlers[container.id];
+                    if (handlers.wheel) container.removeEventListener('wheel', handlers.wheel);
+                    if (handlers.resize) window.removeEventListener('resize', handlers.resize);
+                    delete window.chartEventHandlers[container.id];
+                }
+                chart.remove();
+                chart = null;
+                candleSeries = null;
+                volumeSeries = null;
+            }
+            
+            // 清除状态
+            try {
+                localStorage.removeItem('klineModalState');
+            } catch (e) {
+                console.warn('清除K线模态弹窗状态失败:', e);
+            }
+            
+            currentKlineCode = null;
+            currentKlineName = null;
+            currentKlineStockData = null;
+        }
+    });
 });
 
 function startApp() {
@@ -735,6 +771,11 @@ function openKlineModal(code, name, stockData = null) {
         });
     }
     
+    // 在移动端，使用 history API 添加一个历史记录，用于处理返回按钮
+    if (window.history && window.history.pushState) {
+        window.history.pushState({ klineModal: true, code: code, name: name }, '', window.location.href);
+    }
+    
     modal.style.display = 'flex';
     
     // 等待模态框完全显示后再加载图表
@@ -861,11 +902,26 @@ function renderStockDetail(stock) {
     `;
 }
 
-function closeKlineModal() {
-    const modal = document.getElementById('kline-modal');
-    if (modal) {
-        modal.style.display = 'none';
+function closeKlineModal(event) {
+    // 阻止事件冒泡和默认行为，防止触发浏览器返回
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
+    
+    const modal = document.getElementById('kline-modal');
+    if (!modal || modal.style.display === 'none') {
+        return false; // 如果已经关闭，直接返回
+    }
+    
+    // 在移动端，如果当前历史记录是K线图状态，则返回上一页（但不触发popstate）
+    // 使用 replaceState 替换当前历史记录，避免触发返回
+    if (window.history && window.history.state && window.history.state.klineModal) {
+        // 替换当前历史记录，移除K线图状态标记
+        window.history.replaceState({}, '', window.location.href);
+    }
+    
+    modal.style.display = 'none';
     
     // 清理图表
     if (chart) {
@@ -893,6 +949,9 @@ function closeKlineModal() {
     currentKlineCode = null;
     currentKlineName = null;
     currentKlineStockData = null;
+    
+    // 返回 false 确保不会触发其他操作
+    return false;
 }
 
 // 将closeKlineModal暴露到全局
@@ -966,11 +1025,14 @@ async function loadChart(code) {
         } catch (fetchError) {
             clearTimeout(timeoutId);
             
+            console.error('K线数据请求失败:', fetchError);
+            
             // 如果是超时错误，提供重试提示
             if (fetchError.name === 'AbortError') {
                 container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
-                    <div>请求超时，请稍后重试</div>
-                    <button id="retry-kline-btn" style="margin-top: 16px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    <div style="font-size: 18px; margin-bottom: 12px;">⏱️ 请求超时</div>
+                    <div style="color: #94a3b8; margin-bottom: 16px;">服务器响应时间过长，请稍后重试</div>
+                    <button id="retry-kline-btn" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
                         重试
                     </button>
                 </div>`;
@@ -985,9 +1047,32 @@ async function loadChart(code) {
                 return;
             }
             
-            // 其他网络错误
+            // 其他网络错误 - 提供更详细的错误信息
+            let errorMessage = '连接失败';
+            let errorDetail = '';
+            
+            if (fetchError.message) {
+                errorMessage = fetchError.message;
+            }
+            
+            // 检查是否是网络连接问题
+            if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+                errorMessage = '无法连接到服务器';
+                errorDetail = '<div style="color: #94a3b8; margin-top: 8px; font-size: 13px;">请检查网络连接或服务器状态</div>';
+            } else if (fetchError.message && fetchError.message.includes('401')) {
+                errorMessage = '认证失败';
+                errorDetail = '<div style="color: #94a3b8; margin-top: 8px; font-size: 13px;">请重新登录</div>';
+            } else if (fetchError.message && fetchError.message.includes('404')) {
+                errorMessage = '接口不存在';
+                errorDetail = '<div style="color: #94a3b8; margin-top: 8px; font-size: 13px;">请检查API地址是否正确</div>';
+            } else if (fetchError.message && fetchError.message.includes('500')) {
+                errorMessage = '服务器错误';
+                errorDetail = '<div style="color: #94a3b8; margin-top: 8px; font-size: 13px;">服务器内部错误，请稍后重试</div>';
+            }
+            
             container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
-                <div>网络错误: ${fetchError.message || '连接失败'}</div>
+                <div style="font-size: 18px; margin-bottom: 12px;">❌ ${errorMessage}</div>
+                ${errorDetail}
                 <button id="retry-kline-btn" style="margin-top: 16px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
                     重试
                 </button>
@@ -1000,7 +1085,6 @@ async function loadChart(code) {
                     loadChart(code);
                 });
             }
-            console.error('K线数据请求失败:', fetchError);
             return;
         }
         

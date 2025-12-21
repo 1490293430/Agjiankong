@@ -480,32 +480,38 @@ body.light-mode textarea {
 .kline-modal-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 4px 10px; /* 显示区域尽量小，占整体高度约1-2% */
+    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
+    padding: 10px 16px; /* 增加padding，给内容更多空间 */
     border-bottom: 1px solid #334155;
     flex-shrink: 0; /* 不收缩，保持固定高度 */
     margin: 0 !important;
+    flex-wrap: wrap; /* 允许换行 */
+    gap: 8px; /* 添加gap，确保元素之间有间距 */
 }
 
 .kline-modal-header h3 {
     margin: 0;
     color: #60a5fa;
-    font-size: 14px;  /* 标题字体缩小 */
+    font-size: 16px;  /* 稍微增大字体 */
     font-weight: 600;
+    white-space: nowrap; /* 标题不换行 */
 }
 
 /* 标题左侧：标题 + 内联股票详情 */
 .kline-header-left {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    align-items: flex-start; /* 改为flex-start，允许内容向下展开 */
+    gap: 12px;
     min-width: 0;
+    flex: 1; /* 占据剩余空间 */
+    flex-wrap: wrap; /* 允许换行 */
 }
 
 .kline-header-right {
     display: flex;
-    align-items: center;
+    align-items: flex-start; /* 改为flex-start，与左侧对齐 */
     gap: 8px;
+    flex-shrink: 0; /* 不收缩，保持按钮大小 */
 }
 
 .kline-refresh-btn {
@@ -650,38 +656,35 @@ body.light-mode textarea {
 
 /* 标题行中的紧凑股票详情 */
 .stock-detail-inline {
-    padding: 2px 8px;
+    padding: 6px 12px;
     background: rgba(15, 23, 42, 0.85);
-    border-radius: 999px;
+    border-radius: 8px; /* 改为圆角矩形，更易显示多行内容 */
     border: 1px solid #475569;
     font-size: 12px;
     color: #e2e8f0;
-    max-width: 900px;           /* 尽量一到两行排下 */
-    overflow: visible;          /* 改为visible，确保内容可见 */
-    text-overflow: ellipsis;
-    white-space: normal;        /* 允许换行 */
-    line-height: 1.4;
-    max-height: 40px;           /* 控制最多约两行高度，避免出现三行 */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    /* 确保在移动端也能显示 */
-    visibility: visible;
-    opacity: 1;
+    max-width: 100%; /* 允许占满可用宽度 */
+    overflow: visible; /* 改为visible，确保内容可见 */
+    white-space: normal; /* 允许换行 */
+    line-height: 1.6; /* 增加行高，提高可读性 */
+    display: block; /* 改为block，确保完整显示 */
+    flex: 1; /* 占据剩余空间 */
+    min-width: 0; /* 允许缩小 */
 }
 
 .stock-detail-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px 24px;
+    gap: 12px 16px; /* 减小gap，让内容更紧凑 */
     align-items: center;
+    width: 100%; /* 确保占满宽度 */
 }
 
 .detail-item-inline {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     white-space: nowrap;
+    flex-shrink: 0; /* 防止收缩 */
 }
 
 .detail-label-inline {
@@ -1558,6 +1561,29 @@ body.light-mode .ai-analysis-table td {
 
 body.light-mode .ai-analysis-table tbody tr:hover {
     background: #f1f5f9;
+}
+
+/* 桌面端优化 - 确保K线图头部布局正确 */
+@media (min-width: 769px) {
+    .kline-modal-header {
+        flex-wrap: nowrap; /* 桌面端不换行 */
+        align-items: center; /* 垂直居中 */
+    }
+    
+    .kline-header-left {
+        flex-wrap: nowrap; /* 桌面端不换行 */
+        align-items: center; /* 垂直居中 */
+    }
+    
+    .stock-detail-inline {
+        max-width: calc(100vw - 300px); /* 限制最大宽度，避免超出屏幕 */
+        overflow-x: auto; /* 如果内容太宽，允许横向滚动 */
+        overflow-y: visible;
+    }
+    
+    .stock-detail-row {
+        gap: 10px 14px; /* 桌面端使用更小的gap */
+    }
 }
 
 @media (max-width: 1024px) {
