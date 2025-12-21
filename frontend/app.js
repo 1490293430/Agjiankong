@@ -2440,13 +2440,21 @@ function initWatchlist() {
         }
     });
     
-    // 首次加载时使用缓存
-    loadWatchlist(false);
+    // 注意：首次加载数据已经在startApp中根据当前tab处理，这里不需要再次调用
+    // 避免在非自选页时也触发数据加载，导致显示加载状态
 }
 
 // 加载自选股列表（使用和行情页一样的加载方法）
 async function loadWatchlist(forceRefresh = false) {
     console.log('[自选] loadWatchlist: 开始加载，forceRefresh=', forceRefresh);
+    
+    // 检查当前是否在自选页，如果不在则跳过加载（避免在不应该加载时显示加载状态）
+    const watchlistTab = document.getElementById('watchlist-tab');
+    if (!watchlistTab || !watchlistTab.classList.contains('active')) {
+        console.log('[自选] loadWatchlist: 当前不在自选页，跳过加载');
+        return;
+    }
+    
     const watchlist = getWatchlist();
     console.log('[自选] loadWatchlist: 当前自选列表:', watchlist.map(s => s.code), '共', watchlist.length, '只');
     const container = document.getElementById('watchlist-container');
