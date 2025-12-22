@@ -1132,47 +1132,49 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
         except Exception:
             has_period = False
         
-        # 使用子查询先取每只股票的最新日期，再回表取对应记录，避免嵌套聚合错误
-        # 并设置查询内存上限，限制线程，避免内存超限
+        # 使用 ORDER BY ... LIMIT 1 BY 避免嵌套聚合，减少内存；加 LIMIT 防止过大结果集
         query_settings = {
-            "max_memory_usage": 2_000_000_000,  # 2GB
+            "max_memory_usage": 1_000_000_000,  # 1GB
             "max_threads": 2,
             "max_final_threads": 2,
             "max_parsing_threads": 2,
+            "max_block_size": 4096,
         }
         
         if has_period:
             query = """
-                SELECT
-                    k.code,
-                    k.date,
-                    k.close AS price,
-                    k.volume,
-                    k.amount,
-                    0.0 AS pct
-                FROM
-                    (SELECT code, max(date) AS max_date FROM kline WHERE period = 'daily' GROUP BY code) AS latest
-                ANY INNER JOIN kline AS k
-                    ON k.code = latest.code AND k.date = latest.max_date
-                WHERE k.period = 'daily'
-                ORDER BY k.amount DESC
+                SELECT code, date, price, volume, amount, 0.0 AS pct
+                FROM (
+                    SELECT
+                        code,
+                        date,
+                        close AS price,
+                        volume,
+                        amount
+                    FROM kline FINAL
+                    WHERE period = 'daily'
+                    ORDER BY code, date DESC
+                    LIMIT 1 BY code
+                )
+                ORDER BY amount DESC
                 LIMIT 20000
             """
         else:
             # 兼容旧表结构（没有period字段）
             query = """
-                SELECT
-                    k.code,
-                    k.date,
-                    k.close AS price,
-                    k.volume,
-                    k.amount,
-                    0.0 AS pct
-                FROM
-                    (SELECT code, max(date) AS max_date FROM kline GROUP BY code) AS latest
-                ANY INNER JOIN kline AS k
-                    ON k.code = latest.code AND k.date = latest.max_date
-                ORDER BY k.amount DESC
+                SELECT code, date, price, volume, amount, 0.0 AS pct
+                FROM (
+                    SELECT
+                        code,
+                        date,
+                        close AS price,
+                        volume,
+                        amount
+                    FROM kline FINAL
+                    ORDER BY code, date DESC
+                    LIMIT 1 BY code
+                )
+                ORDER BY amount DESC
                 LIMIT 20000
             """
         
