@@ -1157,7 +1157,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                         arr[1].2 AS price,
                         arr[1].3 AS volume,
                         arr[1].4 AS amount,
-                        arrayLength(arr) AS arr_len
+                        length(arr) AS arr_len
                     FROM (
                         SELECT
                             code,
@@ -1200,7 +1200,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                         arr[1].2 AS price,
                         arr[1].3 AS volume,
                         arr[1].4 AS amount,
-                        arrayLength(arr) AS arr_len
+                        length(arr) AS arr_len
                     FROM (
                         SELECT
                             code,
