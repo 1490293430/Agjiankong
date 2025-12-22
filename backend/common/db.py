@@ -1132,34 +1132,38 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
         except Exception:
             has_period = False
         
+        # 使用子查询先取每只股票的最新日期，再回表取对应记录，避免嵌套聚合错误
         if has_period:
-            # 使用argMax直接取最新一条，避免嵌套聚合
             query = """
                 SELECT
-                    code,
-                    argMax(date, date) AS date,
-                    argMax(close, date) AS price,
-                    argMax(volume, date) AS volume,
-                    argMax(amount, date) AS amount,
+                    k.code,
+                    k.date,
+                    k.close AS price,
+                    k.volume,
+                    k.amount,
                     0.0 AS pct
-                FROM kline FINAL
-                WHERE period = 'daily'
-                GROUP BY code
-                ORDER BY amount DESC
+                FROM
+                    (SELECT code, max(date) AS max_date FROM kline WHERE period = 'daily' GROUP BY code) AS latest
+                ANY INNER JOIN kline AS k
+                    ON k.code = latest.code AND k.date = latest.max_date
+                WHERE k.period = 'daily'
+                ORDER BY k.amount DESC
             """
         else:
             # 兼容旧表结构（没有period字段）
             query = """
                 SELECT
-                    code,
-                    argMax(date, date) AS date,
-                    argMax(close, date) AS price,
-                    argMax(volume, date) AS volume,
-                    argMax(amount, date) AS amount,
+                    k.code,
+                    k.date,
+                    k.close AS price,
+                    k.volume,
+                    k.amount,
                     0.0 AS pct
-                FROM kline FINAL
-                GROUP BY code
-                ORDER BY amount DESC
+                FROM
+                    (SELECT code, max(date) AS max_date FROM kline GROUP BY code) AS latest
+                ANY INNER JOIN kline AS k
+                    ON k.code = latest.code AND k.date = latest.max_date
+                ORDER BY k.amount DESC
             """
         
         rows = client.execute(query)
