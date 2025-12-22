@@ -1133,6 +1133,14 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             has_period = False
         
         # 使用子查询先取每只股票的最新日期，再回表取对应记录，避免嵌套聚合错误
+        # 并设置查询内存上限，限制线程，避免内存超限
+        query_settings = {
+            "max_memory_usage": 2_000_000_000,  # 2GB
+            "max_threads": 2,
+            "max_final_threads": 2,
+            "max_parsing_threads": 2,
+        }
+        
         if has_period:
             query = """
                 SELECT
@@ -1148,6 +1156,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                     ON k.code = latest.code AND k.date = latest.max_date
                 WHERE k.period = 'daily'
                 ORDER BY k.amount DESC
+                LIMIT 20000
             """
         else:
             # 兼容旧表结构（没有period字段）
@@ -1164,9 +1173,10 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                 ANY INNER JOIN kline AS k
                     ON k.code = latest.code AND k.date = latest.max_date
                 ORDER BY k.amount DESC
+                LIMIT 20000
             """
         
-        rows = client.execute(query)
+        rows = client.execute(query, settings=query_settings)
         
         stocks = []
         for row in rows:
