@@ -1142,7 +1142,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                     k.volume,
                     k.amount,
                     0.0 as pct
-                FROM kline FINAL k
+                FROM kline FINAL AS k
                 INNER JOIN (
                     SELECT code, MAX(date) as max_date
                     FROM kline FINAL
@@ -1163,7 +1163,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
                     k.volume,
                     k.amount,
                     0.0 as pct
-                FROM kline FINAL k
+                FROM kline FINAL AS k
                 INNER JOIN (
                     SELECT code, MAX(date) as max_date
                     FROM kline FINAL
