@@ -178,16 +178,17 @@ def fetch_a_stock_spot(max_retries: int = 10) -> List[Dict[str, Any]]:
                 # 增加重试间隔：5s, 10s, 15s, 20s...，给网络更多恢复时间
                 wait_time = (attempt + 1) * 5  # 递增等待时间：5s, 10s, 15s, 20s, 25s...
                 error_msg = str(e)
+                err_type = type(e).__name__
                 # 只记录关键错误信息，避免日志过长
                 if "SSL" in error_msg or "SSLError" in error_msg or "handshake" in error_msg.lower():
-                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: SSL连接错误")
+                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} SSL连接错误")
                 elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: 网络超时")
+                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} 网络超时")
                 else:
-                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {error_msg[:100]}")
+                    logger.warning(f"A股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} {error_msg[:100]}")
                 time.sleep(wait_time)
             else:
-                logger.error(f"A股行情采集失败（已重试{max_retries}次）: {str(e)[:200]}", exc_info=True)
+                logger.error(f"A股行情采集失败（已重试{max_retries}次）: {type(e).__name__} {str(e)[:200]}", exc_info=True)
                 # 即使失败也返回空列表，避免影响其他采集任务
                 return []
 

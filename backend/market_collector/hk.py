@@ -212,12 +212,17 @@ def fetch_hk_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             return result
             
         except Exception as e:
+            err_type = type(e).__name__
+            err_msg = str(e)
             if attempt < max_retries - 1:
                 wait_time = (attempt + 1) * 2  # 递增等待时间：2s, 4s, 6s
-                logger.warning(f"港股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {e}")
+                if "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
+                    logger.warning(f"港股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} 网络超时")
+                else:
+                    logger.warning(f"港股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} {err_msg[:100]}")
                 time.sleep(wait_time)
             else:
-                logger.error(f"港股行情采集失败（已重试{max_retries}次）: {e}", exc_info=True)
+                logger.error(f"港股行情采集失败（已重试{max_retries}次）: {err_type} {err_msg[:200]}", exc_info=True)
                 return []
 
 
