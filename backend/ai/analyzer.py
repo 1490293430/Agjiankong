@@ -443,21 +443,32 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             
             parsed = json.loads(content)
         except json.JSONDecodeError:
-            # 如果模型没有返回合法 JSON，则退回简单分析
-            logger.warning("AI 返回内容不是合法 JSON，使用简单规则分析")
-            return analyze_stock_simple(stock, indicators, news)
+            # 如果模型没有返回合法 JSON，返回错误信息
+            logger.warning("AI 返回内容不是合法 JSON")
+            return {
+                "trend": "未知",
+                "risk": "未知",
+                "confidence": 0,
+                "score": 0,
+                "signal": "观望",
+                "key_factors": [],
+                "advice": "AI返回格式错误",
+                "summary": "AI返回内容解析失败",
+                "buy_price": None,
+                "sell_price": None,
+                "stop_loss": None,
+                "reason": "AI返回格式错误"
+            }
 
         # 与前端期望的结构对齐，缺失字段使用默认值补全
-        fallback = analyze_stock_simple(stock, indicators, news)
-
         result = {
-            "trend": parsed.get("trend") or fallback.get("trend", "未知"),
-            "risk": parsed.get("risk") or fallback.get("risk", "未知"),
-            "confidence": int(parsed.get("confidence", fallback.get("confidence", 0))),
-            "score": int(parsed.get("score", fallback.get("score", 0))),
-            "key_factors": parsed.get("key_factors") or fallback.get("key_factors", []),
-            "advice": parsed.get("advice") or fallback.get("advice", "暂无建议"),
-            "summary": parsed.get("summary") or fallback.get("summary", "暂无总结"),
+            "trend": parsed.get("trend", "未知"),
+            "risk": parsed.get("risk", "未知"),
+            "confidence": int(parsed.get("confidence", 0)),
+            "score": int(parsed.get("score", 0)),
+            "key_factors": parsed.get("key_factors", []),
+            "advice": parsed.get("advice", "暂无建议"),
+            "summary": parsed.get("summary", "暂无总结"),
         }
         
         # 如果包含交易点位，添加相关字段并使用验证函数
@@ -487,10 +498,40 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
         
         return result
 
+    except requests.exceptions.Timeout as e:
+        logger.error(f"调用 AI 接口超时: {e}")
+        # API超时，返回超时错误
+        return {
+            "trend": "未知",
+            "risk": "未知",
+            "confidence": 0,
+            "score": 0,
+            "signal": "观望",
+            "key_factors": [],
+            "advice": "API超时",
+            "summary": "AI接口请求超时，请稍后重试",
+            "buy_price": None,
+            "sell_price": None,
+            "stop_loss": None,
+            "reason": "API超时"
+        }
     except Exception as e:
         logger.error(f"调用 AI 接口失败: {e}", exc_info=True)
-        # 出现异常时退回简单分析，保证功能可用
-        return analyze_stock_simple(stock, indicators, news)
+        # 出现异常时返回错误信息
+        return {
+            "trend": "未知",
+            "risk": "未知",
+            "confidence": 0,
+            "score": 0,
+            "signal": "观望",
+            "key_factors": [],
+            "advice": "AI分析失败",
+            "summary": f"AI接口调用失败: {str(e)[:50]}",
+            "buy_price": None,
+            "sell_price": None,
+            "stop_loss": None,
+            "reason": "AI接口错误"
+        }
 
 
 def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool = False) -> List[Dict[str, Any]]:
@@ -508,10 +549,25 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
     
     ai_cfg = _get_ai_runtime_config()
     if not ai_cfg:
-        # 未配置 AI，退回规则分析
-        logger.warning("AI 配置缺失，使用简单规则分析")
+        # 未配置 AI，返回配置缺失错误
+        logger.warning("AI 配置缺失")
         return [
-            analyze_stock_simple(stock, indicators, news)
+            {
+                "code": stock.get('code', ''),
+                "name": stock.get('name', ''),
+                "trend": "未知",
+                "risk": "未知",
+                "confidence": 0,
+                "score": 0,
+                "signal": "观望",
+                "key_factors": [],
+                "advice": "AI未配置",
+                "summary": "请先在配置页设置AI API Key",
+                "buy_price": None,
+                "sell_price": None,
+                "stop_loss": None,
+                "reason": "AI未配置"
+            }
             for stock, indicators, news in stocks_data
         ]
     
@@ -604,7 +660,6 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
             results = []
             for i, result in enumerate(parsed_list):
                 stock = stocks_data[i][0]
-                fallback = analyze_stock_simple(stock, stocks_data[i][1], stocks_data[i][2])
                 
                 # 确保code和name存在
                 if 'code' not in result or not result['code']:
@@ -616,14 +671,14 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                 final_result = {
                     "code": result.get("code", stock.get('code', '')),
                     "name": result.get("name", stock.get('name', '')),
-                    "trend": result.get("trend", fallback.get("trend", "未知")),
-                    "risk": result.get("risk", fallback.get("risk", "未知")),
-                    "confidence": int(result.get("confidence", fallback.get("confidence", 0))),
-                    "score": int(result.get("score", fallback.get("score", 0))),
-                    "signal": result.get("signal", fallback.get("signal", "观望")),
-                    "key_factors": result.get("key_factors", fallback.get("key_factors", [])),
-                    "advice": result.get("advice", fallback.get("advice", "暂无建议")),
-                    "summary": result.get("summary", fallback.get("summary", "暂无总结")),
+                    "trend": result.get("trend", "未知"),
+                    "risk": result.get("risk", "未知"),
+                    "confidence": int(result.get("confidence", 0)),
+                    "score": int(result.get("score", 0)),
+                    "signal": result.get("signal", "观望"),
+                    "key_factors": result.get("key_factors", []),
+                    "advice": result.get("advice", "暂无建议"),
+                    "summary": result.get("summary", "暂无总结"),
                 }
                 
                 if include_trading_points:
@@ -659,17 +714,70 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
             return results
             
         except json.JSONDecodeError as e:
-            logger.warning(f"AI 返回内容不是合法 JSON，使用简单规则分析: {e}")
+            logger.warning(f"AI 返回内容不是合法 JSON: {e}")
+            # 返回API解析失败的结果
             return [
-                analyze_stock_simple(stock, indicators, news)
+                {
+                    "code": stock.get('code', ''),
+                    "name": stock.get('name', ''),
+                    "trend": "未知",
+                    "risk": "未知",
+                    "confidence": 0,
+                    "score": 0,
+                    "signal": "观望",
+                    "key_factors": [],
+                    "advice": "AI返回格式错误",
+                    "summary": "AI返回内容解析失败",
+                    "buy_price": None,
+                    "sell_price": None,
+                    "stop_loss": None,
+                    "reason": "AI返回格式错误"
+                }
                 for stock, indicators, news in stocks_data
             ]
         
+    except requests.exceptions.Timeout as e:
+        logger.error(f"批量调用 AI 接口超时: {e}")
+        # API超时，返回超时错误
+        return [
+            {
+                "code": stock.get('code', ''),
+                "name": stock.get('name', ''),
+                "trend": "未知",
+                "risk": "未知",
+                "confidence": 0,
+                "score": 0,
+                "signal": "观望",
+                "key_factors": [],
+                "advice": "API超时",
+                "summary": "AI接口请求超时，请稍后重试",
+                "buy_price": None,
+                "sell_price": None,
+                "stop_loss": None,
+                "reason": "API超时"
+            }
+            for stock, indicators, news in stocks_data
+        ]
     except Exception as e:
         logger.error(f"批量调用 AI 接口失败: {e}", exc_info=True)
-        # 出现异常时退回简单分析
+        # 出现异常时返回错误信息
         return [
-            analyze_stock_simple(stock, indicators, news)
+            {
+                "code": stock.get('code', ''),
+                "name": stock.get('name', ''),
+                "trend": "未知",
+                "risk": "未知",
+                "confidence": 0,
+                "score": 0,
+                "signal": "观望",
+                "key_factors": [],
+                "advice": "AI分析失败",
+                "summary": f"AI接口调用失败: {str(e)[:50]}",
+                "buy_price": None,
+                "sell_price": None,
+                "stop_loss": None,
+                "reason": "AI接口错误"
+            }
             for stock, indicators, news in stocks_data
         ]
 

@@ -1,7 +1,7 @@
 """
 API网关 - 主应用入口
 """
-from fastapi import FastAPI, Depends, Header, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, Header, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -360,8 +360,9 @@ async def get_market_status():
         }
 
 
-@api_router.get("/strategy/select")
+@api_router.api_route("/strategy/select", methods=["GET", "POST"])
 async def select_stocks_api(
+    request: Request,
     background_tasks: BackgroundTasks,
     max_count: int | None = Query(None, description="最大数量，留空则使用系统配置"),
     market: str | None = Query(None, description="市场类型：A（A股）或HK（港股），留空则使用系统配置"),
@@ -374,6 +375,17 @@ async def select_stocks_api(
     # 如果没有提供task_id，生成一个
     if not task_id:
         task_id = str(uuid.uuid4())
+    
+    # 解析筛选配置（从POST body获取）
+    filter_config = {}
+    try:
+        body = await request.body()
+        if body:
+            import json
+            filter_config = json.loads(body)
+            logger.info(f"收到筛选配置: {filter_config}")
+    except Exception as e:
+        logger.warning(f"解析筛选配置失败: {e}")
     
     try:
         from strategy.selector import (
@@ -391,7 +403,7 @@ async def select_stocks_api(
             market = cfg.selection_market
         
         # 从ClickHouse获取股票列表
-        from common.db import get_stock_list_from_db
+        from common.db import get_stock_list_from_db, get_stock_name_map
         all_stocks = get_stock_list_from_db(market.upper())
         
         if market.upper() == "HK":
@@ -406,6 +418,18 @@ async def select_stocks_api(
                 "message": f"未获取到{market}股行情数据。ClickHouse的kline表中没有数据，请先运行数据采集程序采集K线数据。",
                 "task_id": task_id
             }
+        
+        # 从stock_info表获取股票名称映射
+        stock_name_map = get_stock_name_map(market.upper())
+        if stock_name_map:
+            logger.info(f"从数据库获取到 {len(stock_name_map)} 只股票的名称映射")
+            # 将名称添加到股票数据中
+            for stock in all_stocks:
+                code = str(stock.get("code", ""))
+                if code in stock_name_map:
+                    stock["name"] = stock_name_map[code]
+        else:
+            logger.warning(f"stock_info表中没有{market}股数据，股票名称将为空。请先执行一次K线采集以同步股票信息。")
         
         # 1. 检查市场环境（上涨家数比率 > 50%）
         logger.info(f"开始选股：市场={market}，总股票数={len(all_stocks)}")
@@ -520,7 +544,7 @@ async def select_stocks_api(
                 "stage": "precompute",
                 "message": f"缓存不足，正在批量计算指标（已缓存{len(cached_indicators)}/{len(all_codes)}）...",
                 "progress": 5,
-                "total": len(sorted_stocks),
+                "total": len(stocks_to_process),
                 "processed": 0,
                 "passed": 0,
                 "elapsed_time": 0
@@ -543,149 +567,213 @@ async def select_stocks_api(
             # 缓存覆盖率足够，直接使用缓存
             logger.info(f"缓存覆盖率足够（{cache_coverage:.1%}），直接使用缓存，跳过批量计算")
         
-        # 添加超时控制：如果处理时间超过30秒，提前退出（更激进）
+        # 智能分批处理：根据缓存覆盖率和股票数量动态调整策略
         import time
-        start_time = time.time()
-        max_process_time = 30  # 30秒超时，留30秒给后续处理
+        import concurrent.futures
+        from threading import Lock
         
-        for idx, stock in enumerate(sorted_stocks):
-            # 每处理50只股票更新一次进度（更频繁的更新）
-            if idx > 0 and idx % 50 == 0:
-                elapsed_time = time.time() - start_time
-                progress_pct = min(90, 10 + int((idx / len(sorted_stocks)) * 60))  # 10-70%进度
-                selection_progress[task_id] = {
-                    "status": "running",
-                    "stage": "layer1",
-                    "message": f"第一层筛选中：已处理 {idx}/{len(sorted_stocks)} 只，通过 {len(layer1_passed)} 只",
-                    "progress": progress_pct,
-                    "total": len(sorted_stocks),
-                    "processed": idx,
-                    "passed": len(layer1_passed),
-                    "elapsed_time": round(elapsed_time, 1)
-                }
-                logger.info(f"第一层筛选进度：已处理{idx}/{len(sorted_stocks)}只，耗时{elapsed_time:.1f}秒，通过{len(layer1_passed)}只")
+        start_time = time.time()
+        
+        # 动态调整处理策略
+        total_stocks = len(sorted_stocks)
+        if cache_coverage > 0.8:
+            # 高缓存覆盖率：快速处理，较长超时
+            max_process_time = 45
+            batch_size = 200
+            max_stocks_to_process = min(total_stocks, 3000)
+        elif cache_coverage > 0.5:
+            # 中等缓存覆盖率：平衡处理
+            max_process_time = 35
+            batch_size = 100
+            max_stocks_to_process = min(total_stocks, 2000)
+        else:
+            # 低缓存覆盖率：保守处理，避免超时
+            max_process_time = 25
+            batch_size = 50
+            max_stocks_to_process = min(total_stocks, 1500)
+        
+        logger.info(f"智能分批策略：缓存覆盖率={cache_coverage:.1%}，批次大小={batch_size}，最大处理数={max_stocks_to_process}，超时={max_process_time}秒")
+        
+        # 只处理前N只最活跃的股票，避免处理全部股票导致超时
+        stocks_to_process = sorted_stocks[:max_stocks_to_process]
+        
+        # 分批处理股票
+        layer1_passed = []
+        cached_count = 0
+        calc_ma60_count = 0
+        skip_ma60_count = 0
+        processed_count = 0
+        
+        # 线程安全的计数器
+        progress_lock = Lock()
+        
+        def process_stock_batch(batch_stocks, batch_start_idx):
+            """处理一批股票"""
+            batch_passed = []
+            batch_cached = 0
+            batch_calc = 0
+            batch_skip = 0
             
-            # 检查是否超时
-            elapsed_time = time.time() - start_time
-            if elapsed_time > max_process_time:
-                logger.warning(f"第一层筛选超时（{elapsed_time:.1f}秒），已处理{idx}/{len(sorted_stocks)}只股票，提前退出")
-                selection_progress[task_id] = {
-                    "status": "running",
-                    "stage": "layer1",
-                    "message": f"第一层筛选超时，已处理 {idx}/{len(sorted_stocks)} 只",
-                    "progress": 70,
-                    "total": len(sorted_stocks),
-                    "processed": idx,
-                    "passed": len(layer1_passed),
-                    "elapsed_time": round(elapsed_time, 1)
-                }
-                break
-            code = str(stock.get("code", ""))
-            current_price = stock.get("price", 0)
-            
-            # 过滤掉价格无效的股票（NaN、None、0或负数）
-            import math
-            if current_price is None or (isinstance(current_price, float) and math.isnan(current_price)):
-                continue
-            try:
-                current_price = float(current_price)
-                if current_price <= 0 or math.isnan(current_price):
+            for local_idx, stock in enumerate(batch_stocks):
+                global_idx = batch_start_idx + local_idx
+                code = str(stock.get("code", ""))
+                current_price = stock.get("price", 0)
+                
+                # 过滤掉价格无效的股票
+                import math
+                if current_price is None or (isinstance(current_price, float) and math.isnan(current_price)):
                     continue
-            except (ValueError, TypeError):
-                continue
-            
-            # 优先从缓存读取
-            cached = cached_indicators.get(code)
-            if cached and cached.get("ma60") and cached.get("ma60_trend"):
-                cached_count += 1
-                ma60 = cached["ma60"]
-                ma60_trend = cached["ma60_trend"]
+                try:
+                    current_price = float(current_price)
+                    if current_price <= 0 or math.isnan(current_price):
+                        continue
+                except (ValueError, TypeError):
+                    continue
                 
-                # 检查价格 > MA60 且 MA60 向上（放宽条件：允许MA60趋势为"向上"或"up"或空）
-                if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
-                    layer1_passed.append(stock)
-                continue
-            
-            # 缓存未命中，尝试快速计算MA60
-            # 如果获取K线数据失败或超时，暂时跳过MA60检查，只做基本筛选
-            ma60_available = False
-            try:
-                import concurrent.futures
+                # 优先从缓存读取
+                cached = cached_indicators.get(code)
+                if cached and cached.get("ma60") and cached.get("ma60_trend"):
+                    batch_cached += 1
+                    ma60 = cached["ma60"]
+                    ma60_trend = cached["ma60_trend"]
+                    
+                    # 检查价格 > MA60 且 MA60 向上（放宽条件）
+                    if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
+                        batch_passed.append(stock)
+                    continue
                 
-                # 使用线程池执行，带超时控制
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    # 不跳过数据库，让数据保存到ClickHouse（skip_db=False）
-                    future = executor.submit(fetch_kline_func, code, "daily", "", None, None, False, False)
-                    try:
-                        kline_data = future.result(timeout=5)  # 增加到5秒超时
-                    except concurrent.futures.TimeoutError:
-                        if idx < 10:  # 只记录前10只的详细日志
-                            logger.debug(f"获取K线数据超时 {code}，跳过MA60检查")
-                        ma60_available = False
-                    except Exception as e:
-                        if idx < 10:  # 只记录前10只的详细日志
-                            logger.debug(f"获取K线数据失败 {code}: {e}，跳过MA60检查")
-                        ma60_available = False
-                    else:
-                        # 成功获取K线数据
-                        if kline_data and len(kline_data) >= 60:
-                            df = pd.DataFrame(kline_data)
-                            ma60_data = calculate_ma60_only(df)
-                            
-                            if ma60_data:
-                                calc_ma60_count += 1
-                                ma60 = ma60_data["ma60"]
-                                ma60_trend = ma60_data.get("ma60_trend", "")
-                                
-                                # 检查价格 > MA60 且 MA60 向上（放宽条件：允许MA60趋势为"向上"或"up"或空）
-                                if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
-                                    ma60_available = True  # MA60可用且满足条件
-                                    layer1_passed.append(stock)
-                                    
-                                    # 异步计算并保存完整指标（后台任务，不阻塞）
-                                    from strategy.indicator_batch import compute_indicator_async
-                                    background_tasks.add_task(
-                                        compute_indicator_async,
-                                        code,
-                                        market.upper(),
-                                        kline_data
-                                    )
-                                else:
-                                    # MA60计算成功但不满足条件，也跳过MA60检查，使用基本筛选
-                                    ma60_available = False
-                            elif idx < 10:  # 只记录前10只的详细日志
-                                logger.debug(f"计算MA60失败 {code}：K线数据不足或计算失败，跳过MA60检查")
-                        elif idx < 10:  # 只记录前10只的详细日志
-                            logger.debug(f"K线数据不足 {code}：{len(kline_data) if kline_data else 0}条，需要60条，跳过MA60检查")
-            except Exception as e:
-                if idx < 10:  # 只记录前10只的详细日志
-                    logger.debug(f"计算MA60异常 {code}: {e}，跳过MA60检查")
+                # 缓存未命中，尝试快速计算MA60（带超时）
                 ma60_available = False
+                try:
+                    # 使用更短的超时时间，避免单个股票耗时过长
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(fetch_kline_func, code, "daily", "", None, None, False, False)
+                        try:
+                            kline_data = future.result(timeout=3)  # 3秒超时
+                        except concurrent.futures.TimeoutError:
+                            batch_skip += 1
+                            continue
+                        except Exception:
+                            batch_skip += 1
+                            continue
+                    
+                    if kline_data and len(kline_data) >= 60:
+                        df = pd.DataFrame(kline_data)
+                        ma60_data = calculate_ma60_only(df)
+                        
+                        if ma60_data:
+                            batch_calc += 1
+                            ma60 = ma60_data["ma60"]
+                            ma60_trend = ma60_data.get("ma60_trend", "")
+                            
+                            # 检查价格 > MA60 且 MA60 向上
+                            if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
+                                batch_passed.append(stock)
+                                
+                                # 异步保存指标（不阻塞）
+                                background_tasks.add_task(
+                                    compute_indicator_async,
+                                    code,
+                                    market.upper(),
+                                    kline_data
+                                )
+                        else:
+                            batch_skip += 1
+                    else:
+                        batch_skip += 1
+                        
+                except Exception:
+                    batch_skip += 1
+                    continue
+                
+                # 如果没有MA60数据，使用基本筛选
+                if not ma60_available:
+                    pct = stock.get("pct", 0)
+                    if isinstance(pct, (int, float)) and not math.isnan(pct) and pct >= 0:
+                        batch_passed.append(stock)
+                        batch_skip += 1
             
-            # 如果MA60不可用，暂时跳过MA60检查，只做基本筛选（价格>0，涨幅>0等）
-            if not ma60_available:
-                skip_ma60_count += 1
-                # 基本筛选：价格>0，涨幅>=0（允许平盘），成交额>=0（允许无成交）
-                pct = stock.get("pct", 0)
-                amount = stock.get("amount", 0)
-                # 放宽条件：只要价格有效，涨幅>=0（允许平盘），就通过
-                if isinstance(pct, (int, float)) and not math.isnan(pct) and pct >= 0:
-                    # 暂时通过，后续层会进一步筛选
-                    layer1_passed.append(stock)
-                    if skip_ma60_count <= 5:  # 只记录前5只的详细日志
-                        logger.debug(f"跳过MA60检查，通过基本筛选 {code}：价格={current_price}, 涨幅={pct}, 成交额={amount}")
+            return batch_passed, batch_cached, batch_calc, batch_skip
+        
+        # 分批并发处理
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = []
+            
+            for i in range(0, len(stocks_to_process), batch_size):
+                batch = stocks_to_process[i:i + batch_size]
+                future = executor.submit(process_stock_batch, batch, i)
+                futures.append(future)
+                
+                # 检查超时
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_process_time:
+                    logger.warning(f"第一层筛选超时（{elapsed_time:.1f}秒），停止提交新批次")
+                    break
+            
+            # 收集结果并更新进度
+            for i, future in enumerate(futures):
+                try:
+                    # 为每个批次设置超时
+                    remaining_time = max_process_time - (time.time() - start_time)
+                    if remaining_time <= 0:
+                        logger.warning(f"第一层筛选总体超时，取消剩余批次")
+                        future.cancel()
+                        break
+                    
+                    batch_passed, batch_cached, batch_calc, batch_skip = future.result(timeout=min(remaining_time, 10))
+                    
+                    # 线程安全地更新计数器
+                    with progress_lock:
+                        layer1_passed.extend(batch_passed)
+                        cached_count += batch_cached
+                        calc_ma60_count += batch_calc
+                        skip_ma60_count += batch_skip
+                        processed_count += batch_size
+                        
+                        # 更新进度（每批次更新一次）
+                        elapsed_time = time.time() - start_time
+                        progress_pct = min(70, 10 + int((processed_count / len(stocks_to_process)) * 60))
+                        selection_progress[task_id] = {
+                            "status": "running",
+                            "stage": "layer1",
+                            "message": f"第一层筛选中：已处理 {processed_count}/{len(stocks_to_process)} 只，通过 {len(layer1_passed)} 只",
+                            "progress": progress_pct,
+                            "total": len(stocks_to_process),
+                            "processed": processed_count,
+                            "passed": len(layer1_passed),
+                            "elapsed_time": round(elapsed_time, 1)
+                        }
+                        
+                        # 每处理几个批次记录一次日志
+                        if i % 3 == 0:
+                            logger.info(f"第一层筛选进度：批次{i+1}/{len(futures)}，已处理{processed_count}只，通过{len(layer1_passed)}只，耗时{elapsed_time:.1f}秒")
+                
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"批次{i}处理超时，跳过")
+                    continue
+                except Exception as e:
+                    logger.error(f"批次{i}处理失败: {e}")
+                    continue
+                
+                # 早期退出：如果已经找到足够多的候选股票，可以提前结束
+                if len(layer1_passed) >= max_count * 10:  # 找到目标数量的10倍候选股票就够了
+                    logger.info(f"第一层筛选早期退出：已找到{len(layer1_passed)}只候选股票，超过目标{max_count * 10}只")
+                    # 取消剩余的批次
+                    for remaining_future in futures[i+1:]:
+                        remaining_future.cancel()
+                    break
         
         elapsed_time = time.time() - start_time
         logger.info(f"第一层筛选完成：总耗时{elapsed_time:.1f}秒，缓存命中={cached_count}，计算MA60={calc_ma60_count}，跳过MA60={skip_ma60_count}，通过={len(layer1_passed)}只")
         if calc_ma60_count == 0 and cached_count == 0:
-            logger.warning(f"第一层筛选：没有获取到任何MA60数据（缓存命中=0，计算=0），已跳过MA60检查{skip_ma60_count}只股票，使用基本筛选条件。已处理{min(len(sorted_stocks), idx+1)}只股票")
+            logger.warning(f"第一层筛选：没有获取到任何MA60数据（缓存命中=0，计算=0），已跳过MA60检查{skip_ma60_count}只股票，使用基本筛选条件。已处理{processed_count}只股票")
         if len(layer1_passed) == 0 and skip_ma60_count > 0:
             # 如果跳过了MA60检查但没有股票通过，说明基本筛选条件可能太严格
             logger.warning(f"第一层筛选：跳过了{skip_ma60_count}只股票的MA60检查，但没有股票通过基本筛选。可能原因：1) 所有股票的涨幅<0；2) 涨幅数据为NaN")
             # 尝试放宽条件：只检查前10只股票的数据
-            sample_count = min(10, len(sorted_stocks))
+            sample_count = min(10, len(stocks_to_process))
             for i in range(sample_count):
-                sample_stock = sorted_stocks[i]
+                sample_stock = stocks_to_process[i]
                 sample_pct = sample_stock.get("pct", 0)
                 sample_price = sample_stock.get("price", 0)
                 logger.debug(f"样本股票 {sample_stock.get('code')}：价格={sample_price}, 涨幅={sample_pct}, 涨幅类型={type(sample_pct)}")
@@ -695,8 +783,8 @@ async def select_stocks_api(
             "stage": "layer1_complete",
             "message": f"第一层筛选完成：通过 {len(layer1_passed)} 只股票",
             "progress": 70,
-            "total": len(sorted_stocks),
-            "processed": min(len(sorted_stocks), idx+1),
+            "total": len(stocks_to_process),
+            "processed": processed_count,
             "passed": len(layer1_passed),
             "elapsed_time": round(elapsed_time, 1)
         }
@@ -706,14 +794,14 @@ async def select_stocks_api(
             selection_progress[task_id] = {
                 "status": "failed",
                 "stage": "layer1_complete",
-                "message": f"未找到符合条件的股票（已检查{min(len(sorted_stocks), idx+1)}只，耗时{elapsed_time:.1f}秒）",
+                "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）",
                 "progress": 100,
-                "total": len(sorted_stocks),
-                "processed": min(len(sorted_stocks), idx+1),
+                "total": len(stocks_to_process),
+                "processed": processed_count,
                 "passed": 0,
                 "elapsed_time": round(elapsed_time, 1)
             }
-            return {"code": 0, "data": [], "message": f"未找到符合条件的股票（已检查{min(len(sorted_stocks), idx+1)}只，耗时{elapsed_time:.1f}秒）", "task_id": task_id}
+            return {"code": 0, "data": [], "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）", "task_id": task_id}
         
         # 第二层：对通过第一层的股票，获取完整指标（优先从缓存读取，缺失的再计算）
         selection_progress[task_id] = {
@@ -721,8 +809,8 @@ async def select_stocks_api(
             "stage": "layer2",
             "message": f"开始第二层筛选：获取 {len(layer1_passed)} 只股票的完整指标...",
             "progress": 75,
-            "total": len(sorted_stocks),
-            "processed": min(len(sorted_stocks), idx+1),
+            "total": len(stocks_to_process),
+            "processed": processed_count,
             "passed": len(layer1_passed),
             "elapsed_time": round(time.time() - start_time, 1)
         }
@@ -750,8 +838,8 @@ async def select_stocks_api(
                     "stage": "layer2",
                     "message": f"第二层筛选中：已处理 {idx2}/{len(layer1_passed)} 只，获取指标 {len(indicators_map)} 个",
                     "progress": progress_pct,
-                    "total": len(sorted_stocks),
-                    "processed": min(len(sorted_stocks), idx+1),
+                    "total": len(stocks_to_process),
+                    "processed": processed_count,
                     "passed": len(layer1_passed),
                     "layer2_processed": idx2,
                     "indicators_count": len(indicators_map),
@@ -841,8 +929,8 @@ async def select_stocks_api(
             "stage": "filtering",
             "message": f"执行筛选条件：通过第一层 {len(layer1_passed)} 只，有指标数据 {len(indicators_map)} 只",
             "progress": 90,
-            "total": len(sorted_stocks),
-            "processed": min(len(sorted_stocks), idx+1),
+            "total": len(stocks_to_process),
+            "processed": processed_count,
             "passed": len(layer1_passed),
             "indicators_count": len(indicators_map),
             "elapsed_time": round(time.time() - start_time, 1)
@@ -859,8 +947,8 @@ async def select_stocks_api(
                 "stage": "filtering",
                 "message": f"未找到符合条件的股票（第二层筛选未通过任何股票）",
                 "progress": 100,
-                "total": len(sorted_stocks),
-                "processed": min(len(sorted_stocks), idx+1),
+                "total": len(stocks_to_process),
+                "processed": processed_count,
                 "passed": len(layer1_passed),
                 "selected": 0,
                 "elapsed_time": round(time.time() - start_time, 1)
@@ -882,8 +970,8 @@ async def select_stocks_api(
             "stage": "completed",
             "message": f"选股完成：筛选出 {len(selected)} 只股票",
             "progress": 100,
-            "total": len(sorted_stocks),
-            "processed": min(len(sorted_stocks), idx+1),
+            "total": len(stocks_to_process),
+            "processed": processed_count,
             "passed": len(layer1_passed),
             "selected": len(selected),
             "elapsed_time": round(total_time, 1)
@@ -1233,8 +1321,9 @@ async def analyze_stock_batch_api(
                     "analysis": None,
                 })
         
-        # 第二步：按批次进行批量分析（异步执行，不阻塞）
+        # 第二步：按批次进行批量分析（使用线程池异步执行，不阻塞事件循环）
         from ai.analyzer import analyze_stocks_batch_with_ai
+        import asyncio
         
         for batch_start in range(0, len(stocks_data_list), ai_batch_size):
             batch_end = min(batch_start + ai_batch_size, len(stocks_data_list))
@@ -1242,12 +1331,13 @@ async def analyze_stock_batch_api(
             batch_index = batch_start // ai_batch_size
             
             try:
-                logger.info(f"批量分析第 {batch_index + 1} 批，共 {len(batch_data)} 支股票（异步执行）")
+                logger.info(f"批量分析第 {batch_index + 1} 批，共 {len(batch_data)} 支股票（线程池异步执行）")
                 
-                # 一次性分析整批股票
-                batch_results = analyze_stocks_batch_with_ai(
+                # 使用 asyncio.to_thread 在线程池中执行同步的 AI 分析，避免阻塞事件循环
+                batch_results = await asyncio.to_thread(
+                    analyze_stocks_batch_with_ai,
                     batch_data,
-                    include_trading_points=True
+                    True  # include_trading_points
                 )
                 
                 # 处理每支股票的分析结果
@@ -2260,6 +2350,7 @@ async def collect_kline_data_api(
         if market.upper() == "ALL":
             # 同时采集A股和港股，创建两个后台任务
             def collect_all_markets():
+                from common.db import save_stock_info_batch
                 # 先采集A股
                 try:
                     a_stocks = get_json("market:a:spot") or []
@@ -2269,6 +2360,12 @@ async def collect_kline_data_api(
                         a_stocks = get_json("market:a:spot") or []
                     
                     if a_stocks:
+                        # 保存股票基本信息
+                        try:
+                            save_stock_info_batch(a_stocks, "A")
+                        except Exception as e:
+                            logger.warning(f"保存A股基本信息失败: {e}")
+                        
                         logger.info(f"开始采集A股K线数据，共{len(a_stocks)}只股票")
                         _collect_market_kline_internal("A", a_stocks, fetch_a_stock_kline, max_count)
                 except Exception as e:
@@ -2278,6 +2375,12 @@ async def collect_kline_data_api(
                 try:
                     hk_stocks = get_json("market:hk:spot") or []
                     if hk_stocks:
+                        # 保存股票基本信息
+                        try:
+                            save_stock_info_batch(hk_stocks, "HK")
+                        except Exception as e:
+                            logger.warning(f"保存港股基本信息失败: {e}")
+                        
                         logger.info(f"开始采集港股K线数据，共{len(hk_stocks)}只股票")
                         _collect_market_kline_internal("HK", hk_stocks, fetch_hk_stock_kline, max_count)
                 except Exception as e:
@@ -2316,6 +2419,13 @@ async def collect_kline_data_api(
                 "data": {},
                 "message": f"未获取到{market}股行情数据。请先调用 /api/market/spot/collect 接口采集行情数据，或等待行情采集程序自动采集"
             }
+        
+        # 保存股票基本信息到数据库
+        try:
+            from common.db import save_stock_info_batch
+            save_stock_info_batch(all_stocks, market.upper())
+        except Exception as e:
+            logger.warning(f"保存股票基本信息失败: {e}")
         
         # 按成交额排序，优先采集活跃股票
         sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)

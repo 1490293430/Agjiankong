@@ -205,6 +205,23 @@ def init_tables():
         ORDER BY (code, market, date)
         """)
         
+        # 股票基本信息表
+        client.execute("""
+        CREATE TABLE IF NOT EXISTS stock_info
+        (
+            code String,
+            name String,
+            market String,
+            industry String DEFAULT '',
+            pe Float64 DEFAULT 0,
+            market_cap Float64 DEFAULT 0,
+            circulating_market_cap Float64 DEFAULT 0,
+            update_time DateTime DEFAULT now()
+        )
+        ENGINE = ReplacingMergeTree(update_time)
+        ORDER BY (code, market)
+        """)
+        
         # 交易计划表（使用ReplacingMergeTree支持状态更新）
         client.execute("""
         CREATE TABLE IF NOT EXISTS trade_plan
@@ -1270,3 +1287,95 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             except Exception:
                 pass
 
+
+def save_stock_info_batch(stocks: List[Dict[str, Any]], market: str = "A") -> int:
+    """批量保存股票基本信息
+    
+    Args:
+        stocks: 股票列表，每个股票包含code, name等字段
+        market: 市场类型（A或HK）
+    
+    Returns:
+        保存成功的数量
+    """
+    if not stocks:
+        return 0
+    
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        # 准备数据
+        data = []
+        for stock in stocks:
+            code = str(stock.get("code", "")).strip()
+            name = str(stock.get("name", "")).strip()
+            if not code or not name:
+                continue
+            
+            data.append({
+                "code": code,
+                "name": name,
+                "market": market,
+                "industry": str(stock.get("industry", "")).strip(),
+                "pe": float(stock.get("pe", 0) or 0),
+                "market_cap": float(stock.get("market_cap", 0) or 0),
+                "circulating_market_cap": float(stock.get("circulating_market_cap", 0) or 0),
+            })
+        
+        if not data:
+            return 0
+        
+        # 批量插入
+        client.execute(
+            """
+            INSERT INTO stock_info (code, name, market, industry, pe, market_cap, circulating_market_cap)
+            VALUES
+            """,
+            data
+        )
+        
+        logger.info(f"保存股票基本信息成功: {market}股 {len(data)} 只")
+        return len(data)
+    except Exception as e:
+        logger.error(f"保存股票基本信息失败: {e}")
+        return 0
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
+def get_stock_name_map(market: str = "A") -> Dict[str, str]:
+    """获取股票代码到名称的映射
+    
+    Args:
+        market: 市场类型（A或HK）
+    
+    Returns:
+        {code: name} 字典
+    """
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        result = client.execute(
+            """
+            SELECT code, name FROM stock_info FINAL
+            WHERE market = %(market)s
+            """,
+            {"market": market}
+        )
+        
+        return {row[0]: row[1] for row in result}
+    except Exception as e:
+        logger.error(f"获取股票名称映射失败: {e}")
+        return {}
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass

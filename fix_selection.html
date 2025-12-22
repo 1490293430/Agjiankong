@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>选股结果查看器</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #0f172a; color: #e5e7eb; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { margin-bottom: 20px; }
+        .stock-item { 
+            background: #1e293b; 
+            margin: 8px 0; 
+            padding: 12px; 
+            border-radius: 6px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+        }
+        .stock-code { font-weight: bold; color: #60a5fa; }
+        .stock-name { color: #94a3b8; }
+        .stock-price { color: #10b981; font-weight: bold; }
+        .btn { 
+            background: #3b82f6; 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin: 0 5px;
+        }
+        .btn:hover { background: #2563eb; }
+        .status { margin: 10px 0; padding: 10px; background: #1e293b; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 选股结果查看器 <span style="color: #10b981; font-size: 14px;">⚡ 已优化</span></h1>
+            <button class="btn" onclick="loadResults()">🔄 加载最新结果</button>
+            <button class="btn" onclick="startNewSelection()">🎯 开始新选股 <small>(2-5秒)</small></button>
+        </div>
+        <div id="status" class="status">点击"加载最新结果"查看选股数据</div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        async function loadResults() {
+            const statusEl = document.getElementById('status');
+            const resultsEl = document.getElementById('results');
+            
+            statusEl.textContent = '正在加载选股结果...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/strategy/selected`);
+                const result = await response.json();
+                
+                if (result.code === 0) {
+                    const data = result.data;
+                    const stocks = data.stocks || [];
+                    
+                    statusEl.innerHTML = `
+                        <strong>选股结果</strong><br>
+                        市场: ${data.market || 'N/A'} | 
+                        数量: ${data.count || 0} | 
+                        时间: ${data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A'}
+                    `;
+                    
+                    if (stocks.length > 0) {
+                        resultsEl.innerHTML = stocks.map((stock, index) => `
+                            <div class="stock-item">
+                                <div>
+                                    <span class="stock-code">${stock.code || 'N/A'}</span>
+                                    <span class="stock-name">${stock.name || stock.code || 'N/A'}</span>
+                                </div>
+                                <div>
+                                    <span class="stock-price">¥${stock.price || 'N/A'}</span>
+                                    <span style="margin-left: 10px; color: ${(stock.pct || 0) >= 0 ? '#10b981' : '#ef4444'}">
+                                        ${stock.pct ? (stock.pct > 0 ? '+' : '') + stock.pct.toFixed(2) + '%' : 'N/A'}
+                                    </span>
+                                </div>
+                            </div>
+                        `).join('');
+                    } else {
+                        resultsEl.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 40px;">暂无选股结果</div>';
+                    }
+                } else {
+                    statusEl.textContent = `加载失败: ${result.message || '未知错误'}`;
+                    resultsEl.innerHTML = '';
+                }
+            } catch (error) {
+                statusEl.textContent = `网络错误: ${error.message}`;
+                resultsEl.innerHTML = '';
+            }
+        }
+        
+        async function startNewSelection() {
+            const statusEl = document.getElementById('status');
+            const resultsEl = document.getElementById('results');
+            
+            statusEl.innerHTML = '正在启动新的选股任务...<br><small>优化后预计耗时: 2-5秒</small>';
+            resultsEl.innerHTML = '';
+            
+            const startTime = Date.now();
+            
+            try {
+                const taskId = `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                const response = await fetch(`${API_BASE}/api/strategy/select?max_count=30&market=A&task_id=${taskId}`);
+                const result = await response.json();
+                
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                
+                if (result.code === 0) {
+                    statusEl.innerHTML = `
+                        <strong>🎉 选股完成！</strong><br>
+                        找到 ${result.data.length} 只股票，耗时: ${elapsed}秒<br>
+                        <small>任务ID: ${result.task_id || taskId}</small>
+                    `;
+                    
+                    if (result.data.length > 0) {
+                        resultsEl.innerHTML = result.data.map((stock, index) => `
+                            <div class="stock-item">
+                                <div>
+                                    <span class="stock-code">${stock.code || 'N/A'}</span>
+                                    <span class="stock-name">${stock.name || stock.code || 'N/A'}</span>
+                                </div>
+                                <div>
+                                    <span class="stock-price">¥${stock.price || 'N/A'}</span>
+                                    <span style="margin-left: 10px; color: ${(stock.pct || 0) >= 0 ? '#10b981' : '#ef4444'}">
+                                        ${stock.pct ? (stock.pct > 0 ? '+' : '') + stock.pct.toFixed(2) + '%' : 'N/A'}
+                                    </span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    statusEl.innerHTML = `
+                        <strong>❌ 选股失败</strong><br>
+                        ${result.message || '未知错误'}，耗时: ${elapsed}秒
+                    `;
+                }
+            } catch (error) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                statusEl.innerHTML = `
+                    <strong>🔥 网络错误</strong><br>
+                    ${error.message}，耗时: ${elapsed}秒
+                `;
+            }
+        }
+        
+        // 页面加载时自动加载结果
+        window.addEventListener('load', loadResults);
+    </script>
+</body>
+</html>

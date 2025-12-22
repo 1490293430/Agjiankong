@@ -4,6 +4,30 @@ console.log('[全局] ========== app.js 开始加载 ==========');
 console.log('[全局] 当前时间:', new Date().toISOString());
 console.log('[全局] 页面URL:', window.location.href);
 
+// 筛选配置折叠功能 - 必须在文件开头定义，确保HTML onclick可以调用
+function toggleSelectionConfig() {
+    const content = document.getElementById('selection-config-content');
+    const arrow = document.getElementById('selection-config-arrow');
+    
+    if (!content || !arrow) {
+        console.error('筛选配置元素未找到');
+        return;
+    }
+    
+    if (content.classList.contains('hidden')) {
+        // 展开
+        content.classList.remove('hidden');
+        arrow.classList.remove('collapsed');
+        arrow.textContent = '▼';
+    } else {
+        // 折叠
+        content.classList.add('hidden');
+        arrow.classList.add('collapsed');
+        arrow.textContent = '▶';
+    }
+}
+window.toggleSelectionConfig = toggleSelectionConfig;
+
 const { createChart, ColorType } = window.LightweightCharts || {};
 console.log('[全局] LightweightCharts 可用:', !!createChart);
 
@@ -1600,6 +1624,13 @@ function formatVolume(vol) {
     if (vol >= 100000000) return (vol / 100000000).toFixed(2) + '亿';
     if (vol >= 10000) return (vol / 10000).toFixed(2) + '万';
     return vol.toString();
+}
+
+function formatAmount(amount) {
+    if (!amount) return '-';
+    if (amount >= 100000000) return (amount / 100000000).toFixed(2) + '亿';
+    if (amount >= 10000) return (amount / 10000).toFixed(2) + '万';
+    return amount.toFixed(2);
 }
 
 async function handleSearch() {
@@ -4117,12 +4148,176 @@ async function updateWatchlistPrices() {
     }
 }
 
+// 初始化筛选配置
+function initSelectionConfig() {
+    // 设置默认折叠状态
+    const content = document.getElementById('selection-config-content');
+    const arrow = document.getElementById('selection-config-arrow');
+    
+    if (content && arrow) {
+        // 默认折叠状态
+        content.classList.add('hidden');
+        arrow.classList.add('collapsed');
+        arrow.textContent = '▶';
+    }
+    
+    // 默认值
+    const defaults = {
+        'filter-volume-ratio-enable': true,
+        'filter-volume-ratio-min': '0.8',
+        'filter-volume-ratio-max': '8.0',
+        'filter-rsi-enable': true,
+        'filter-rsi-min': '30',
+        'filter-rsi-max': '75',
+        'filter-ma-enable': false,
+        'filter-ma-period': '20',
+        'filter-ma-condition': 'above',
+        'filter-ema-enable': false,
+        'filter-ema-period': '12',
+        'filter-ema-condition': 'above',
+        'filter-macd-enable': false,
+        'filter-macd-condition': 'golden',
+        'filter-kdj-enable': false,
+        'filter-kdj-condition': 'golden',
+        'filter-bias-enable': false,
+        'filter-bias-min': '-6',
+        'filter-bias-max': '6',
+        'filter-williams-r-enable': false,
+        'filter-break-high-enable': false,
+        'filter-boll-enable': false,
+        'filter-boll-condition': 'expanding',
+        'filter-adx-enable': false,
+        'filter-adx-min': '25',
+        'filter-ichimoku-enable': false,
+        'filter-ichimoku-condition': 'above_cloud',
+        'selection-max-count': '30'
+    };
+    
+    // 尝试从localStorage加载保存的配置
+    let config = {...defaults};
+    try {
+        const savedConfig = localStorage.getItem('selectionConfig');
+        if (savedConfig) {
+            const parsed = JSON.parse(savedConfig);
+            // 合并保存的配置和默认值
+            Object.keys(defaults).forEach(key => {
+                const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase()).replace('filter', '').replace(/^([A-Z])/, (g) => g.toLowerCase());
+                if (parsed[camelKey] !== undefined) {
+                    config[key] = parsed[camelKey];
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('加载筛选配置失败，使用默认值:', e);
+    }
+    
+    // 应用配置值
+    Object.entries(config).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) {
+            if (element.type === 'checkbox') {
+                element.checked = value;
+            } else {
+                element.value = value;
+            }
+        }
+    });
+    
+    // 添加范围输入的联动逻辑
+    const volumeMinInput = document.getElementById('filter-volume-ratio-min');
+    const volumeMaxInput = document.getElementById('filter-volume-ratio-max');
+    const rsiMinInput = document.getElementById('filter-rsi-min');
+    const rsiMaxInput = document.getElementById('filter-rsi-max');
+    
+    // 量比范围验证
+    if (volumeMinInput && volumeMaxInput) {
+        volumeMinInput.addEventListener('change', () => {
+            const min = parseFloat(volumeMinInput.value);
+            const max = parseFloat(volumeMaxInput.value);
+            if (min >= max) {
+                volumeMaxInput.value = (min + 1).toFixed(1);
+            }
+        });
+        
+        volumeMaxInput.addEventListener('change', () => {
+            const min = parseFloat(volumeMinInput.value);
+            const max = parseFloat(volumeMaxInput.value);
+            if (max <= min) {
+                volumeMinInput.value = Math.max(0.1, max - 1).toFixed(1);
+            }
+        });
+    }
+    
+    // RSI范围验证
+    if (rsiMinInput && rsiMaxInput) {
+        rsiMinInput.addEventListener('change', () => {
+            const min = parseInt(rsiMinInput.value);
+            const max = parseInt(rsiMaxInput.value);
+            if (min >= max) {
+                rsiMaxInput.value = Math.min(100, min + 10);
+            }
+        });
+        
+        rsiMaxInput.addEventListener('change', () => {
+            const min = parseInt(rsiMinInput.value);
+            const max = parseInt(rsiMaxInput.value);
+            if (max <= min) {
+                rsiMinInput.value = Math.max(0, max - 10);
+            }
+        });
+    }
+}
+
 // 选股模块
 function initStrategy() {
     const selectBtn = document.getElementById('select-btn');
     const loadSelectedBtn = document.getElementById('load-selected-btn');
     const collectKlineBtn = document.getElementById('collect-kline-btn');
     const singleBatchCollectBtn = document.getElementById('single-batch-collect-kline-btn');
+    
+    // 初始化筛选配置
+    initSelectionConfig();
+    
+    // 加载保存的选股结果
+    const savedResults = loadSelectionResults();
+    if (savedResults && savedResults.length > 0) {
+        console.log('[选股] 恢复上次选股结果');
+        renderSelectedStocks(savedResults, false); // false 表示不重复保存
+    }
+    
+    // 配置按钮事件
+    const resetConfigBtn = document.getElementById('reset-config-btn');
+    const saveConfigBtn = document.getElementById('save-config-btn');
+    
+    if (resetConfigBtn) {
+        resetConfigBtn.addEventListener('click', () => {
+            if (confirm('确认重置所有筛选配置为默认值吗？')) {
+                initSelectionConfig(); // 重新应用默认值
+                showToast('筛选配置已重置', 'success');
+            }
+        });
+    }
+    
+    if (saveConfigBtn) {
+        saveConfigBtn.addEventListener('click', () => {
+            // 这里可以添加保存到localStorage的逻辑
+            const config = {
+                volumeRatioEnable: document.getElementById('filter-volume-ratio-enable')?.checked,
+                volumeRatioMin: document.getElementById('filter-volume-ratio-min')?.value,
+                volumeRatioMax: document.getElementById('filter-volume-ratio-max')?.value,
+                rsiEnable: document.getElementById('filter-rsi-enable')?.checked,
+                rsiMin: document.getElementById('filter-rsi-min')?.value,
+                rsiMax: document.getElementById('filter-rsi-max')?.value,
+                williamsREnable: document.getElementById('filter-williams-r-enable')?.checked,
+                breakHighEnable: document.getElementById('filter-break-high-enable')?.checked,
+                bollEnable: document.getElementById('filter-boll-enable')?.checked,
+                maxCount: document.getElementById('selection-max-count')?.value
+            };
+            
+            localStorage.setItem('selectionConfig', JSON.stringify(config));
+            showToast('筛选配置已保存', 'success');
+        });
+    }
     
     if (selectBtn) {
         selectBtn.addEventListener('click', runSelection);
@@ -4317,28 +4512,93 @@ function checkRunningCollectionTask() {
 }
 
 async function runSelection() {
+    const selectBtn = document.getElementById('select-btn');
     const market = 'A'; // 默认A股
-    const maxCount = 30; // 默认30只
+    const maxCount = parseInt(document.getElementById('selection-max-count')?.value) || 30;
     const container = document.getElementById('selected-stocks');
+    
+    // 收集筛选配置
+    const filterConfig = {
+        // 量比
+        volume_ratio_enable: document.getElementById('filter-volume-ratio-enable')?.checked || false,
+        volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value) || 0.8,
+        volume_ratio_max: parseFloat(document.getElementById('filter-volume-ratio-max')?.value) || 8.0,
+        // RSI
+        rsi_enable: document.getElementById('filter-rsi-enable')?.checked || false,
+        rsi_min: parseInt(document.getElementById('filter-rsi-min')?.value) || 30,
+        rsi_max: parseInt(document.getElementById('filter-rsi-max')?.value) || 75,
+        // MA
+        ma_enable: document.getElementById('filter-ma-enable')?.checked || false,
+        ma_period: document.getElementById('filter-ma-period')?.value || '20',
+        ma_condition: document.getElementById('filter-ma-condition')?.value || 'above',
+        // EMA
+        ema_enable: document.getElementById('filter-ema-enable')?.checked || false,
+        ema_period: document.getElementById('filter-ema-period')?.value || '12',
+        ema_condition: document.getElementById('filter-ema-condition')?.value || 'above',
+        // MACD
+        macd_enable: document.getElementById('filter-macd-enable')?.checked || false,
+        macd_condition: document.getElementById('filter-macd-condition')?.value || 'golden',
+        // KDJ
+        kdj_enable: document.getElementById('filter-kdj-enable')?.checked || false,
+        kdj_condition: document.getElementById('filter-kdj-condition')?.value || 'golden',
+        // BIAS
+        bias_enable: document.getElementById('filter-bias-enable')?.checked || false,
+        bias_min: parseFloat(document.getElementById('filter-bias-min')?.value) || -6,
+        bias_max: parseFloat(document.getElementById('filter-bias-max')?.value) || 6,
+        // 威廉指标
+        williams_r_enable: document.getElementById('filter-williams-r-enable')?.checked || false,
+        // 突破高点
+        break_high_enable: document.getElementById('filter-break-high-enable')?.checked || false,
+        // 布林带
+        boll_enable: document.getElementById('filter-boll-enable')?.checked || false,
+        boll_condition: document.getElementById('filter-boll-condition')?.value || 'expanding',
+        // ADX
+        adx_enable: document.getElementById('filter-adx-enable')?.checked || false,
+        adx_min: parseFloat(document.getElementById('filter-adx-min')?.value) || 25,
+        // 一目均衡表
+        ichimoku_enable: document.getElementById('filter-ichimoku-enable')?.checked || false,
+        ichimoku_condition: document.getElementById('filter-ichimoku-condition')?.value || 'above_cloud',
+    };
+    
+    console.log('筛选配置:', filterConfig);
+    
+    // 禁用选股按钮，显示加载状态
+    if (selectBtn) {
+        selectBtn.disabled = true;
+        selectBtn.innerHTML = '🔄 选股中...';
+        selectBtn.style.opacity = '0.7';
+        selectBtn.style.cursor = 'not-allowed';
+    }
     
     // 生成任务ID
     const taskId = `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
+    // 恢复按钮状态的函数
+    const restoreButton = () => {
+        if (selectBtn) {
+            selectBtn.disabled = false;
+            selectBtn.innerHTML = '🎯 开始选股';
+            selectBtn.style.opacity = '1';
+            selectBtn.style.cursor = 'pointer';
+        }
+    };
+    
     // 显示进度界面
     container.innerHTML = `
-        <div id="selection-progress-container" style="padding: 20px;">
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="font-size: 18px; color: #60a5fa; margin-bottom: 10px;">选股进行中...</div>
-                <div id="selection-progress-message" style="color: #94a3b8; margin-bottom: 10px;">初始化中...</div>
-                <div style="width: 100%; max-width: 500px; margin: 0 auto; background: #1e293b; border-radius: 8px; overflow: hidden;">
-                    <div id="selection-progress-bar" style="height: 8px; background: #3b82f6; width: 0%; transition: width 0.3s;"></div>
-                </div>
-                <div id="selection-progress-details" style="margin-top: 15px; font-size: 12px; color: #64748b;">
-                    <div>进度: <span id="selection-progress-percent">0</span>%</div>
-                    <div>已处理: <span id="selection-processed">0</span> / <span id="selection-total">0</span></div>
-                    <div>通过: <span id="selection-passed">0</span></div>
-                    <div>耗时: <span id="selection-elapsed">0</span>秒</div>
-                </div>
+        <div id="selection-progress-container">
+            <div class="progress-title">🎯 智能选股进行中</div>
+            <div id="selection-progress-message">正在初始化选股引擎...</div>
+            <div class="progress-bar-container">
+                <div id="selection-progress-bar"></div>
+            </div>
+            <div id="selection-progress-details">
+                <div>进度: <span id="selection-progress-percent">0</span>%</div>
+                <div>已处理: <span id="selection-processed">0</span> / <span id="selection-total">0</span></div>
+                <div>通过筛选: <span id="selection-passed">0</span></div>
+                <div>耗时: <span id="selection-elapsed">0</span>秒</div>
+            </div>
+            <div style="text-align: center; margin-top: 16px; font-size: 12px; color: #64748b;">
+                ⚡ 已优化：预计耗时 2-5 秒
             </div>
         </div>
     `;
@@ -4357,41 +4617,89 @@ async function runSelection() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/selection/progress`;
     let ws = null;
+    let wsConnected = false;
+    let wsTimeout = null;
+    
+    // WebSocket连接超时处理
+    const connectTimeout = setTimeout(() => {
+        if (!wsConnected && ws) {
+            console.warn('WebSocket连接超时，关闭连接');
+            ws.close();
+            ws = null;
+        }
+    }, 5000); // 5秒连接超时
     
     try {
+        console.log('正在连接选股进度WebSocket:', wsUrl);
         ws = new WebSocket(wsUrl);
         // 保存到全局管理器
         wsConnections.selection = ws;
         
         ws.onopen = () => {
+            console.log('选股进度WebSocket连接成功');
+            wsConnected = true;
+            clearTimeout(connectTimeout);
+            
             // 发送任务ID
-            ws.send(JSON.stringify({ task_id: taskId }));
+            try {
+                ws.send(JSON.stringify({ task_id: taskId }));
+                console.log('已发送任务ID:', taskId);
+            } catch (e) {
+                console.error('发送任务ID失败:', e);
+            }
         };
         
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                console.log('收到选股进度:', data);
                 if (data.type === 'selection_progress' && data.progress) {
                     updateSelectionProgress(data.progress);
                 }
             } catch (e) {
-                console.error('解析进度数据失败:', e);
+                console.error('解析进度数据失败:', e, '原始数据:', event.data);
             }
         };
         
         ws.onerror = (error) => {
-            console.error('WebSocket错误:', error);
+            console.error('选股WebSocket错误:', error);
+            wsConnected = false;
+            clearTimeout(connectTimeout);
+            
+            // 更新进度显示为连接失败
+            const progressMessage = document.getElementById('selection-progress-message');
+            if (progressMessage) {
+                progressMessage.textContent = 'WebSocket连接失败，但选股仍在进行中...';
+            }
         };
         
-        ws.onclose = () => {
-            console.log('WebSocket连接关闭');
+        ws.onclose = (event) => {
+            console.log('选股WebSocket连接关闭:', event.code, event.reason);
+            wsConnected = false;
+            clearTimeout(connectTimeout);
+            
             // 清理全局连接
             if (wsConnections.selection === ws) {
                 wsConnections.selection = null;
             }
+            
+            // 如果不是正常关闭，显示提示
+            if (event.code !== 1000) {
+                const progressMessage = document.getElementById('selection-progress-message');
+                if (progressMessage && !progressMessage.textContent.includes('完成')) {
+                    progressMessage.textContent = 'WebSocket连接中断，但选股仍在进行中...';
+                }
+            }
         };
     } catch (e) {
         console.error('WebSocket连接失败:', e);
+        clearTimeout(connectTimeout);
+        
+        // 显示连接失败提示
+        const progressMessage = document.getElementById('selection-progress-message');
+        if (progressMessage) {
+            progressMessage.textContent = 'WebSocket连接失败，但选股仍在进行中...';
+        }
     }
     
     // 更新进度显示的函数
@@ -4405,13 +4713,39 @@ async function runSelection() {
         const elapsed = document.getElementById('selection-elapsed');
         
         if (progressBar) {
-            progressBar.style.width = `${progress.progress || 0}%`;
+            const targetWidth = progress.progress || 0;
+            progressBar.style.width = `${targetWidth}%`;
+            
+            // 添加进度条颜色变化
+            if (targetWidth < 30) {
+                progressBar.style.background = 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)';
+            } else if (targetWidth < 70) {
+                progressBar.style.background = 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+            }
         }
+        
         if (progressMessage) {
-            progressMessage.textContent = progress.message || '处理中...';
+            const message = progress.message || '处理中...';
+            progressMessage.textContent = message;
+            
+            // 添加阶段图标
+            if (message.includes('市场环境')) {
+                progressMessage.innerHTML = '🌍 ' + message;
+            } else if (message.includes('第一层')) {
+                progressMessage.innerHTML = '🔍 ' + message;
+            } else if (message.includes('第二层')) {
+                progressMessage.innerHTML = '📊 ' + message;
+            } else if (message.includes('筛选')) {
+                progressMessage.innerHTML = '⚡ ' + message;
+            } else {
+                progressMessage.textContent = message;
+            }
         }
+        
         if (progressPercent) {
-            progressPercent.textContent = progress.progress || 0;
+            progressPercent.textContent = Math.round(progress.progress || 0);
         }
         if (processed) {
             processed.textContent = progress.processed || 0;
@@ -4423,59 +4757,95 @@ async function runSelection() {
             passed.textContent = progress.passed || 0;
         }
         if (elapsed) {
-            elapsed.textContent = progress.elapsed_time || 0;
+            elapsed.textContent = (progress.elapsed_time || 0).toFixed(1);
         }
         
-        // 如果完成或失败，关闭WebSocket
-        if (progress.status === 'completed' || progress.status === 'failed') {
-            if (ws) {
+        // 如果完成或失败，关闭WebSocket并显示最终状态
+        if (progress.status === 'completed') {
+            if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
+            }
+            if (progressMessage) {
+                progressMessage.innerHTML = '✅ 选股完成，正在加载结果...';
+            }
+        } else if (progress.status === 'failed') {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+            if (progressMessage) {
+                progressMessage.innerHTML = '❌ 选股失败: ' + (progress.message || '未知错误');
             }
         }
     }
     
     try {
-        // 添加超时控制（选股可能需要较长时间，设置为60秒）
+        // 优化超时控制（根据优化后的性能调整为15秒）
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+        const timeoutId = setTimeout(() => {
+            console.warn('选股请求超时，取消请求');
+            controller.abort();
+        }, 15000); // 15秒超时，因为优化后选股很快
+        
+        console.log('发送选股请求:', `${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`);
+        const startTime = Date.now();
         
         const response = await apiFetch(`${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(filterConfig),
             signal: controller.signal
         });
         
         clearTimeout(timeoutId);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`选股请求完成，耗时: ${elapsed}秒`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const result = await response.json();
+        console.log('选股结果:', result);
         
         // 关闭WebSocket
-        if (ws) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
             ws.close();
         }
         
         if (result.code === 0) {
             if (result.message && result.message.includes('市场环境不佳')) {
-                container.innerHTML = `<div style="text-align: center; padding: 40px; color: #f59e0b;">${result.message}</div>`;
+                container.innerHTML = `
+                    <div class="selection-error">
+                        <div class="error-icon">⚠️</div>
+                        <div class="error-title" style="color: #f59e0b;">市场环境不佳</div>
+                        <div class="error-message">${result.message}</div>
+                        <div class="error-detail">耗时: ${elapsed}秒</div>
+                    </div>
+                `;
             } else {
+                console.log(`选股成功，找到${result.data.length}只股票，耗时${elapsed}秒`);
                 renderSelectedStocks(result.data);
             }
         } else {
             // 如果错误提示包含"没有数据"或"kline"，显示采集按钮
             const message = result.message || '未知错误';
-            let errorHtml = `<div style="text-align: center; padding: 40px; color: #ef4444;">选股失败: ${message}</div>`;
+            let errorHtml = `
+                <div class="selection-error">
+                    <div class="error-icon" style="color: #ef4444;">❌</div>
+                    <div class="error-title" style="color: #ef4444;">选股失败</div>
+                    <div class="error-message">${message}</div>
+                    <div class="error-detail">耗时: ${elapsed}秒</div>
+                </div>
+            `;
             
             if (message.includes('没有数据') || message.includes('kline') || message.includes('K线')) {
                 errorHtml += `
                     <div style="text-align: center; margin-top: 20px;">
-                        <button id="collect-kline-btn" style="
-                            padding: 10px 20px;
-                            background: #3b82f6;
-                            color: white;
-                            border: none;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-size: 14px;
-                            font-weight: 500;
-                            transition: background 0.2s;
-                        ">📥 批量采集</button>
+                        <button id="collect-kline-btn" class="selection-retry-btn">
+                            📥 批量采集K线数据
+                        </button>
                         <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8;"></div>
                     </div>
                 `;
@@ -4488,36 +4858,47 @@ async function runSelection() {
                 const collectBtn = document.getElementById('collect-kline-btn');
                 if (collectBtn) {
                     collectBtn.addEventListener('click', () => {
-                        // 默认同时采集A股和港股
                         const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
                         collectKlineData('ALL', maxCount);
                     });
                 }
-                // 绑定单个批量采集按钮事件
-                const singleBatchCollectBtn = document.getElementById('single-batch-collect-kline-btn');
-                if (singleBatchCollectBtn) {
-                    singleBatchCollectBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        collectSingleBatchKline().catch(err => {
-                            console.error('单个批量采集失败:', err);
-                        });
-                    });
-                }
-            }, 0);
+            }, 100);
         }
+        
+        // 恢复按钮状态
+        restoreButton();
     } catch (error) {
+        console.error('选股请求失败:', error);
+        
         // 关闭WebSocket
-        if (ws) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
             ws.close();
         }
         
-        let errorMessage = '选股失败';
+        let errorMessage = '选股请求失败';
+        let errorDetail = error.message || '未知错误';
+        
         if (error.name === 'AbortError') {
-            errorMessage = '选股超时（60秒），请检查网络连接或稍后重试';
-        } else if (error.message) {
-            errorMessage = `选股失败: ${error.message}`;
+            errorMessage = '选股请求超时';
+            errorDetail = '请求超过15秒未完成，已自动取消';
+        } else if (error.message.includes('Failed to fetch')) {
+            errorMessage = '网络连接失败';
+            errorDetail = '请检查网络连接或服务器状态';
         }
-        container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">${errorMessage}</div>`;
+        
+        container.innerHTML = `
+            <div class="selection-error">
+                <div class="error-icon" style="color: #ef4444;">🔥</div>
+                <div class="error-title" style="color: #ef4444;">${errorMessage}</div>
+                <div class="error-message">${errorDetail}</div>
+                <button onclick="runSelection()" class="selection-retry-btn">
+                    🔄 重试选股
+                </button>
+            </div>
+        `;
+        
+        // 恢复按钮状态
+        restoreButton();
     }
 }
 
@@ -4979,6 +5360,16 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
 
 async function loadSelectedStocks() {
     const container = document.getElementById('selected-stocks');
+    
+    // 优先从 localStorage 加载
+    const savedResults = loadSelectionResults();
+    if (savedResults && savedResults.length > 0) {
+        renderSelectedStocks(savedResults, false);
+        showToast(`已加载本地保存的选股结果（${savedResults.length}只）`, 'success');
+        return;
+    }
+    
+    // 如果本地没有，从服务器加载
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
     
     try {
@@ -5021,20 +5412,94 @@ let selectedRenderedCount = 0; // 已渲染的数量
 let selectedPageSize = 20; // 每批渲染的数量
 let selectedIsLoading = false; // 是否正在加载
 
-function renderSelectedStocks(stocks) {
+// 保存选股结果到 localStorage
+function saveSelectionResults(stocks) {
+    try {
+        const data = {
+            stocks: stocks,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('selectionResults', JSON.stringify(data));
+        console.log('[选股] 结果已保存到本地存储，共', stocks.length, '只');
+    } catch (e) {
+        console.warn('[选股] 保存结果失败:', e);
+    }
+}
+
+// 从 localStorage 加载选股结果
+function loadSelectionResults() {
+    try {
+        const saved = localStorage.getItem('selectionResults');
+        if (saved) {
+            const data = JSON.parse(saved);
+            // 检查数据是否有效
+            if (data.stocks && data.stocks.length > 0) {
+                console.log('[选股] 从本地存储加载结果，共', data.stocks.length, '只');
+                return data.stocks;
+            }
+        }
+    } catch (e) {
+        console.warn('[选股] 加载结果失败:', e);
+    }
+    return null;
+}
+
+function renderSelectedStocks(stocks, saveToStorage = true) {
     const container = document.getElementById('selected-stocks');
     
     if (stocks.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">未选出符合条件的股票</div>';
+        container.innerHTML = `
+            <div class="selection-error">
+                <div class="error-icon">🤔</div>
+                <div class="error-title" style="color: #94a3b8;">未找到符合条件的股票</div>
+                <div class="error-message">当前筛选条件较为严格，建议调整筛选参数后重试</div>
+                <button onclick="runSelection()" class="selection-retry-btn">
+                    🔄 重新选股
+                </button>
+            </div>
+        `;
         selectedAllStocks = [];
         selectedRenderedCount = 0;
         return;
     }
     
+    // 保存到 localStorage
+    if (saveToStorage) {
+        saveSelectionResults(stocks);
+    }
+    
+    // 获取勾选的筛选指标
+    const enabledFilters = getEnabledFilters();
+    
+    // 构建表头
+    let headerHtml = '<th>代码/名称</th><th>现价</th><th>涨跌幅</th>';
+    enabledFilters.forEach(filter => {
+        headerHtml += `<th>${filter.label}</th>`;
+    });
+    
+    // 表格式布局
+    container.innerHTML = `
+        <div class="selected-stocks-header">
+            <div class="selected-stocks-info">
+                <span class="selected-count">🎯 共筛选出 <strong>${stocks.length}</strong> 只股票</span>
+            </div>
+        </div>
+        <div class="selected-stocks-table-wrapper">
+            <table class="selected-stocks-table">
+                <thead>
+                    <tr>${headerHtml}</tr>
+                </thead>
+                <tbody id="selected-stocks-list"></tbody>
+            </table>
+        </div>
+    `;
+    
+    // 保存启用的筛选器供分批渲染使用
+    window.selectedEnabledFilters = enabledFilters;
+    
     // 重置无限滚动状态
     selectedAllStocks = stocks;
     selectedRenderedCount = 0;
-    container.innerHTML = '';
     
     // 渲染第一批数据（无限滚动）
     renderSelectedStocksBatch();
@@ -5042,11 +5507,147 @@ function renderSelectedStocks(stocks) {
     console.log(`[选股] 开始分批渲染，总数: ${stocks.length}`);
 }
 
+// 获取启用的筛选指标
+function getEnabledFilters() {
+    const filters = [];
+    
+    // 量比
+    if (document.getElementById('filter-volume-ratio-enable')?.checked) {
+        filters.push({
+            id: 'volume-ratio',
+            label: '量比',
+            getValue: (stock) => stock.indicators?.vol_ratio?.toFixed(2) || stock.volume_ratio?.toFixed(2) || '-'
+        });
+    }
+    
+    // RSI
+    if (document.getElementById('filter-rsi-enable')?.checked) {
+        filters.push({
+            id: 'rsi',
+            label: 'RSI',
+            getValue: (stock) => stock.indicators?.rsi?.toFixed(1) || '-'
+        });
+    }
+    
+    // MA均线
+    if (document.getElementById('filter-ma-enable')?.checked) {
+        const period = document.getElementById('filter-ma-period')?.value || '20';
+        filters.push({
+            id: 'ma',
+            label: `MA${period}`,
+            getValue: (stock) => stock.indicators?.[`ma${period}`]?.toFixed(2) || '-'
+        });
+    }
+    
+    // EMA均线
+    if (document.getElementById('filter-ema-enable')?.checked) {
+        const period = document.getElementById('filter-ema-period')?.value || '12';
+        filters.push({
+            id: 'ema',
+            label: `EMA${period}`,
+            getValue: (stock) => stock.indicators?.[`ema${period}`]?.toFixed(2) || '-'
+        });
+    }
+    
+    // MACD
+    if (document.getElementById('filter-macd-enable')?.checked) {
+        filters.push({
+            id: 'macd',
+            label: 'MACD',
+            getValue: (stock) => {
+                const dif = stock.indicators?.macd_dif;
+                if (dif === undefined || dif === null) return '-';
+                return dif > 0 ? '多' : '空';
+            }
+        });
+    }
+    
+    // KDJ
+    if (document.getElementById('filter-kdj-enable')?.checked) {
+        filters.push({
+            id: 'kdj',
+            label: 'KDJ',
+            getValue: (stock) => {
+                const k = stock.indicators?.kdj_k;
+                const d = stock.indicators?.kdj_d;
+                if (k === undefined || d === undefined) return '-';
+                if (k > d) return '金叉';
+                return '死叉';
+            }
+        });
+    }
+    
+    // BIAS乖离率
+    if (document.getElementById('filter-bias-enable')?.checked) {
+        filters.push({
+            id: 'bias',
+            label: 'BIAS',
+            getValue: (stock) => stock.indicators?.bias?.toFixed(2) || '-'
+        });
+    }
+    
+    // 威廉指标
+    if (document.getElementById('filter-williams-r-enable')?.checked) {
+        filters.push({
+            id: 'williams-r',
+            label: '威廉%R',
+            getValue: (stock) => stock.indicators?.williams_r?.toFixed(1) || '-'
+        });
+    }
+    
+    // 突破高点
+    if (document.getElementById('filter-break-high-enable')?.checked) {
+        filters.push({
+            id: 'break-high',
+            label: '突破高点',
+            getValue: (stock) => stock.indicators?.break_high_20d ? '是' : '-'
+        });
+    }
+    
+    // 布林带
+    if (document.getElementById('filter-boll-enable')?.checked) {
+        filters.push({
+            id: 'boll',
+            label: '布林带',
+            getValue: (stock) => {
+                const expanding = stock.indicators?.boll_expanding;
+                if (expanding) return '开口';
+                return '收口';
+            }
+        });
+    }
+    
+    // ADX趋势
+    if (document.getElementById('filter-adx-enable')?.checked) {
+        filters.push({
+            id: 'adx',
+            label: 'ADX',
+            getValue: (stock) => stock.indicators?.adx?.toFixed(1) || '-'
+        });
+    }
+    
+    // 一目均衡表
+    if (document.getElementById('filter-ichimoku-enable')?.checked) {
+        filters.push({
+            id: 'ichimoku',
+            label: '一目均衡',
+            getValue: (stock) => {
+                const above = stock.indicators?.ichimoku_above_cloud;
+                if (above === true) return '云上';
+                if (above === false) return '云下';
+                return '-';
+            }
+        });
+    }
+    
+    return filters;
+}
+
 // 分批渲染选股结果（无限滚动）
 function renderSelectedStocksBatch() {
     if (selectedIsLoading) return;
     
-    const container = document.getElementById('selected-stocks');
+    const container = document.getElementById('selected-stocks-list');
     if (!container) return;
     
     const strategyTab = document.getElementById('strategy-tab');
@@ -5060,81 +5661,166 @@ function renderSelectedStocksBatch() {
     const batch = selectedAllStocks.slice(start, end);
     
     if (batch.length === 0) {
-        // 已全部渲染完成
-        const loadingDiv = container.querySelector('.loading-more');
-        if (loadingDiv) {
-            loadingDiv.remove();
-        }
         return;
     }
     
-    // 移除之前的加载提示
-    const loadingDiv = container.querySelector('.loading-more');
-    if (loadingDiv) {
-        loadingDiv.remove();
-    }
+    const enabledFilters = window.selectedEnabledFilters || [];
     
-    // 渲染本批数据
-    batch.forEach(stock => {
-        const indicators = stock.indicators || {};
-        const indicatorsInfo = indicators.ma60 ? `MA60: ${indicators.ma60?.toFixed(2)} | 量比: ${indicators.vol_ratio?.toFixed(2)} | RSI: ${indicators.rsi?.toFixed(1)}` : '';
+    // 渲染表格行
+    batch.forEach((stock, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'stock-row';
+        tr.setAttribute('data-stock', JSON.stringify(stock));
         
-        const stockCard = document.createElement('div');
-        stockCard.className = 'stock-card';
-        stockCard.innerHTML = `
-            <div class="info">
-                <div style="font-size: 18px; font-weight: 600; color: #60a5fa;">
-                    ${stock.name} (${stock.code})
-                </div>
-                <div style="margin-top: 5px; color: #94a3b8;">
-                    价格: ${stock.price?.toFixed(2) || '-'} | 
-                    涨跌幅: ${stock.pct?.toFixed(2) || '-'}%
-                </div>
-                ${indicatorsInfo ? `<div style="margin-top: 4px; font-size: 12px; color: #64748b;">${indicatorsInfo}</div>` : ''}
-            </div>
+        const pct = stock.pct || 0;
+        const changeClass = pct >= 0 ? 'up' : 'down';
+        const changeText = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+        
+        // 基础列：代码/名称、现价、涨跌幅
+        let rowHtml = `
+            <td class="stock-info-cell">
+                <div class="stock-code">${stock.code || 'N/A'}</div>
+                <div class="stock-name">${stock.name || '-'}</div>
+            </td>
+            <td class="price-cell">¥${stock.price ? stock.price.toFixed(2) : '-'}</td>
+            <td class="change-cell ${changeClass}">${changeText}</td>
         `;
-        container.appendChild(stockCard);
+        
+        // 动态添加启用的指标列
+        enabledFilters.forEach(filter => {
+            const value = filter.getValue(stock);
+            rowHtml += `<td class="indicator-cell">${value}</td>`;
+        });
+        
+        tr.innerHTML = rowHtml;
+        
+        // 添加点击事件
+        tr.addEventListener('click', () => {
+            console.log(`[选股] 点击股票: ${stock.code} ${stock.name}`);
+            showKlineModal(stock.code, stock.name || stock.code, stock);
+        });
+        
+        container.appendChild(tr);
     });
     
+    // 更新已渲染数量
     selectedRenderedCount = end;
-    
-    // 如果还有更多数据，添加加载提示
-    if (selectedRenderedCount < selectedAllStocks.length) {
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'loading-more';
-        loadingDiv.style.cssText = 'text-align: center; padding: 20px; color: #94a3b8;';
-        loadingDiv.textContent = '加载中...';
-        container.appendChild(loadingDiv);
-    }
     
     console.log(`[选股] 已渲染 ${selectedRenderedCount}/${selectedAllStocks.length} 只股票`);
 }
 
 // AI分析模块
 function initAI() {
+    console.log('[AI] initAI 开始初始化');
     const analyzeBtn = document.getElementById('analyze-btn');
     const codeInput = document.getElementById('ai-code-input');
     const clearBtn = document.getElementById('ai-clear-btn');
+    const watchlistCheckbox = document.getElementById('ai-source-watchlist');
+    const selectionCheckbox = document.getElementById('ai-source-selection');
+    
+    console.log('[AI] 元素查找结果:', {
+        analyzeBtn: !!analyzeBtn,
+        codeInput: !!codeInput,
+        watchlistCheckbox: !!watchlistCheckbox,
+        selectionCheckbox: !!selectionCheckbox
+    });
+    
+    // 从localStorage加载选择框状态
+    try {
+        const savedConfig = localStorage.getItem('aiSourceConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            if (watchlistCheckbox) watchlistCheckbox.checked = config.watchlist ?? true;
+            if (selectionCheckbox) selectionCheckbox.checked = config.selection ?? false;
+        }
+    } catch (e) {
+        console.warn('加载AI来源配置失败:', e);
+    }
+    
+    // 保存选择框状态的函数
+    const saveSourceConfig = () => {
+        const config = {
+            watchlist: watchlistCheckbox?.checked ?? true,
+            selection: selectionCheckbox?.checked ?? false
+        };
+        localStorage.setItem('aiSourceConfig', JSON.stringify(config));
+    };
+    
+    // 监听选择框变化
+    if (watchlistCheckbox) {
+        watchlistCheckbox.addEventListener('change', saveSourceConfig);
+    }
+    if (selectionCheckbox) {
+        selectionCheckbox.addEventListener('change', saveSourceConfig);
+    }
+    
+    if (!analyzeBtn) {
+        console.error('[AI] 找不到分析按钮!');
+        return;
+    }
     
     analyzeBtn.addEventListener('click', () => {
+        console.log('[AI] 点击了开始分析按钮');
         const code = codeInput.value.trim();
         if (code) {
-            // 仅分析单只股票
+            // 输入了代码，仅分析单只股票
+            console.log('[AI] 分析单只股票:', code);
             analyzeStock([code]);
-        } else {
-            // 未输入代码时，自动分析自选页所有自选股票
-            const watchlist = getWatchlist();
-            if (!watchlist || watchlist.length === 0) {
-                showToast('自选列表为空，请先在行情页添加自选股票', 'error');
-                return;
-            }
-            const codes = watchlist.map(s => String(s.code).trim()).filter(c => c);
-            if (codes.length === 0) {
-                showToast('自选列表中没有有效的股票代码', 'error');
-                return;
-            }
-            analyzeStock(codes);
+            return;
         }
+        
+        // 未输入代码，根据选择框决定分析哪些股票
+        const useWatchlist = watchlistCheckbox?.checked;
+        const useSelection = selectionCheckbox?.checked;
+        
+        console.log('[AI] 选择框状态:', { useWatchlist, useSelection });
+        
+        if (!useWatchlist && !useSelection) {
+            showToast('请勾选自选股或选股结果，或输入股票代码', 'warning');
+            return;
+        }
+        
+        let codes = [];
+        
+        // 获取自选股
+        if (useWatchlist) {
+            const watchlist = getWatchlist();
+            console.log('[AI] 自选股列表:', watchlist);
+            if (watchlist && watchlist.length > 0) {
+                const watchlistCodes = watchlist.map(s => String(s.code).trim()).filter(c => c);
+                codes = codes.concat(watchlistCodes);
+            }
+        }
+        
+        // 获取选股结果
+        if (useSelection) {
+            console.log('[AI] 选股结果:', selectedAllStocks?.length || 0, '只');
+            if (selectedAllStocks && selectedAllStocks.length > 0) {
+                const selectionCodes = selectedAllStocks.map(s => String(s.code).trim()).filter(c => c);
+                codes = codes.concat(selectionCodes);
+            }
+        }
+        
+        // 去重
+        codes = [...new Set(codes)];
+        
+        console.log('[AI] 最终要分析的股票:', codes.length, '只', codes.slice(0, 5));
+        
+        if (codes.length === 0) {
+            let msg = '';
+            if (useWatchlist && useSelection) {
+                msg = '自选列表和选股结果都为空';
+            } else if (useWatchlist) {
+                msg = '自选列表为空，请先在行情页添加自选股票';
+            } else {
+                msg = '选股结果为空，请先执行选股';
+            }
+            showToast(msg, 'error');
+            return;
+        }
+        
+        console.log('[AI] 调用 analyzeStock 函数');
+        analyzeStock(codes);
     });
     
     // 支持回车键触发分析
@@ -5161,10 +5847,12 @@ function initAI() {
 }
 
 async function analyzeStock(codes, options = {}) {
+    console.log('[AI] analyzeStock 被调用，股票数量:', Array.isArray(codes) ? codes.length : 1);
     const container = document.getElementById('ai-analysis-result');
     const codeList = Array.isArray(codes) ? codes : [codes];
 
     if (!codeList || codeList.length === 0) {
+        console.log('[AI] 没有股票代码');
         container.innerHTML = `
             <div class="ai-error">
                 <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
@@ -5176,33 +5864,62 @@ async function analyzeStock(codes, options = {}) {
     }
 
     const isBatch = codeList.length > 1;
+    // 估算时间：每5只股票约30-40秒
+    const estimatedMinutes = isBatch ? Math.ceil(codeList.length / 5 * 0.6) : 1;
     const loadingText = isBatch
-        ? `正在分析自选的 ${codeList.length} 只股票，请稍候...`
-        : 'AI分析中，请稍候...';
+        ? `正在分析 ${codeList.length} 只股票`
+        : 'AI分析中';
+    const estimateText = isBatch
+        ? `预计需要 ${estimatedMinutes} 分钟，请耐心等待...`
+        : '请稍候...';
 
+    console.log('[AI] 显示加载界面');
     container.innerHTML = `
         <div class="ai-loading">
             <div class="ai-loading-spinner"></div>
-            <div style="margin-top: 16px; color: #94a3b8;">${loadingText}</div>
+            <div style="margin-top: 16px; color: #e2e8f0; font-size: 16px;">${loadingText}</div>
+            <div style="margin-top: 8px; color: #94a3b8; font-size: 14px;">${estimateText}</div>
+            <div id="ai-loading-timer" style="margin-top: 12px; color: #60a5fa; font-size: 14px;">已用时: 0秒</div>
         </div>
     `;
+    
+    // 启动计时器显示已用时间
+    const startTime = Date.now();
+    const timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const timerEl = document.getElementById('ai-loading-timer');
+        if (timerEl) {
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            timerEl.textContent = mins > 0 ? `已用时: ${mins}分${secs}秒` : `已用时: ${secs}秒`;
+        } else {
+            clearInterval(timerInterval);
+        }
+    }, 1000);
     
     try {
         let result;
         if (isBatch) {
             // 批量分析接口（自选股）
             const notifyFlag = options.notify === true ? 'true' : 'false';
-            const response = await apiFetch(`${API_BASE}/api/ai/analyze/batch?notify=${notifyFlag}`, {
+            const url = `${API_BASE}/api/ai/analyze/batch?notify=${notifyFlag}`;
+            console.log('[AI] 发送批量分析请求:', url, '股票数量:', codeList.length);
+            const response = await apiFetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     codes: codeList,
                 }),
             });
+            clearInterval(timerInterval);
+            console.log('[AI] 收到响应:', response.status, response.statusText);
             result = await response.json();
+            console.log('[AI] 响应数据:', result.code, result.message);
             if (result.code === 0 && Array.isArray(result.data)) {
+                console.log('[AI] 分析成功，渲染结果');
                 await renderAIAnalysisBatch(result.data);
             } else {
+                console.log('[AI] 分析失败:', result.message);
                 container.innerHTML = `
                     <div class="ai-error">
                         <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
@@ -5214,7 +5931,11 @@ async function analyzeStock(codes, options = {}) {
         } else {
             // 单只股票分析接口
             const singleCode = codeList[0];
-            const response = await apiFetch(`${API_BASE}/api/ai/analyze/${singleCode}`);
+            const url = `${API_BASE}/api/ai/analyze/${singleCode}`;
+            console.log('[AI] 发送单只分析请求:', url);
+            const response = await apiFetch(url);
+            clearInterval(timerInterval);
+            console.log('[AI] 收到响应:', response.status, response.statusText);
             result = await response.json();
             
             if (result.code === 0 && result.data) {
@@ -5230,6 +5951,8 @@ async function analyzeStock(codes, options = {}) {
             }
         }
     } catch (error) {
+        console.error('[AI] 请求出错:', error);
+        clearInterval(timerInterval);
         container.innerHTML = `
             <div class="ai-error">
                 <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
@@ -6356,19 +7079,8 @@ async function loadConfig() {
         const data = await res.json();
         console.log('[配置] 配置加载成功');
 
-        document.getElementById('cfg-selection-market').value = data.selection_market ?? 'A';
-        document.getElementById('cfg-selection-max-count').value = data.selection_max_count ?? 30;
         document.getElementById('cfg-collector-interval').value = data.collector_interval_seconds ?? 60;
         document.getElementById('cfg-kline-years').value = data.kline_years ?? 1;
-        
-        // 筛选策略配置
-        document.getElementById('cfg-filter-volume-ratio-min').value = data.filter_volume_ratio_min ?? 1.2;
-        document.getElementById('cfg-filter-volume-ratio-max').value = data.filter_volume_ratio_max ?? 5.0;
-        document.getElementById('cfg-filter-rsi-min').value = data.filter_rsi_min ?? 40;
-        document.getElementById('cfg-filter-rsi-max').value = data.filter_rsi_max ?? 65;
-        document.getElementById('cfg-filter-williams-r-enable').checked = data.filter_williams_r_enable !== false;
-        document.getElementById('cfg-filter-break-high-enable').checked = data.filter_break_high_enable !== false;
-        document.getElementById('cfg-filter-boll-enable').checked = data.filter_boll_enable !== false;
         
         // AI 配置（API Key 不回显，只在服务端保存）
         document.getElementById('cfg-ai-api-key').value = '';
@@ -6448,19 +7160,8 @@ async function saveConfig() {
             return;
         }
         
-        const selectionMarket = document.getElementById('cfg-selection-market')?.value || 'A';
-        const maxCount = parseInt(document.getElementById('cfg-selection-max-count')?.value || '30');
         const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
-        
-        // 筛选策略配置
-        const filterVolumeRatioMin = parseFloat(document.getElementById('cfg-filter-volume-ratio-min')?.value || '1.2');
-        const filterVolumeRatioMax = parseFloat(document.getElementById('cfg-filter-volume-ratio-max')?.value || '5.0');
-        const filterRsiMin = parseInt(document.getElementById('cfg-filter-rsi-min')?.value || '40');
-        const filterRsiMax = parseInt(document.getElementById('cfg-filter-rsi-max')?.value || '65');
-        const filterWilliamsREnable = document.getElementById('cfg-filter-williams-r-enable')?.checked ?? true;
-        const filterBreakHighEnable = document.getElementById('cfg-filter-break-high-enable')?.checked ?? true;
-        const filterBollEnable = document.getElementById('cfg-filter-boll-enable')?.checked ?? true;
 
         const channels = [];
         const telegramEnabled = document.getElementById('cfg-notify-telegram')?.checked ?? false;
@@ -6471,21 +7172,12 @@ async function saveConfig() {
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
-        console.log('[配置] 准备保存配置', { selectionMarket, maxCount, interval, klineYears });
+        console.log('[配置] 准备保存配置', { interval, klineYears });
         
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                selection_market: selectionMarket,
-                selection_max_count: maxCount,
-                filter_volume_ratio_min: filterVolumeRatioMin,
-                filter_volume_ratio_max: filterVolumeRatioMax,
-                filter_rsi_min: filterRsiMin,
-                filter_rsi_max: filterRsiMax,
-                filter_williams_r_enable: filterWilliamsREnable,
-                filter_break_high_enable: filterBreakHighEnable,
-                filter_boll_enable: filterBollEnable,
                 collector_interval_seconds: interval,
                 kline_years: klineYears,
                 // AI 配置
@@ -7008,12 +7700,7 @@ async function initAuth() {
         return;
     }
 
-    // 如果页面渲染前已经隐藏了登录界面（通过head中的脚本），确保保持隐藏状态
-    if (window.__shouldHideLoginOverlay && overlay.style.display !== 'none') {
-        overlay.style.display = 'none';
-    }
-
-    // 检查本地存储的登录状态（永久有效）
+    // 检查本地存储的登录状态，但需要验证token有效性
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     let savedApiToken = localStorage.getItem('apiToken');
     let savedAdminToken = localStorage.getItem('adminToken');
@@ -7022,19 +7709,18 @@ async function initAuth() {
     if (savedApiToken === 'null' || savedApiToken === '') savedApiToken = null;
     if (savedAdminToken === 'null' || savedAdminToken === '') savedAdminToken = null;
     
-    // 如果有token（即使没有isLoggedIn标记），也尝试自动登录
+    // 如果有token，尝试验证其有效性
     if (isLoggedIn === 'true' || savedApiToken) {
         apiToken = savedApiToken;
         adminToken = savedAdminToken;
-        
-        // 确保登录界面已隐藏（在验证之前）
-        overlay.style.display = 'none';
         
         // 验证token是否有效（通过尝试访问一个需要认证的接口）
         try {
             const testRes = await apiFetch(`${API_BASE}/api/config`);
             if (testRes.ok) {
-                // Token有效，直接登录
+                // Token有效，隐藏登录界面并启动应用
+                console.log('Token验证成功，自动登录');
+                overlay.style.display = 'none';
                 if (isLoggedIn !== 'true') {
                     localStorage.setItem('isLoggedIn', 'true');
                 }
@@ -7051,16 +7737,15 @@ async function initAuth() {
                 overlay.style.display = 'flex'; // 显示登录界面
             }
         } catch (error) {
-            // 网络错误或其他错误，可能是API未启动，先尝试使用token
-            console.warn('验证token时出错，尝试使用保存的token:', error);
-            if (isLoggedIn === 'true') {
-                // 如果之前标记为已登录，先尝试使用
-                startApp();
-                return;
-            } else {
-                // 如果没有登录标记，显示登录界面
-                overlay.style.display = 'flex';
-            }
+            // 网络错误或其他错误，可能是API未启动
+            console.warn('验证token时出错:', error);
+            // 清除可能无效的登录状态，强制重新登录
+            localStorage.removeItem('isLoggedIn');
+            localStorage.removeItem('apiToken');
+            localStorage.removeItem('adminToken');
+            apiToken = null;
+            adminToken = null;
+            overlay.style.display = 'flex'; // 显示登录界面
         }
     } else {
         // 没有登录状态，确保显示登录界面
@@ -7107,4 +7792,3 @@ async function initAuth() {
         }
     });
 }
-

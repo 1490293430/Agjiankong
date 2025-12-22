@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>行情监控</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-    <link rel="stylesheet" href="style.css?v=20251221_7">
+    <link rel="stylesheet" href="style.css?v=20251222_16">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -80,19 +80,7 @@
                     }
                 }
                 
-                // 2. 检查登录状态，如果有登录标记则立即隐藏登录界面
-                const isLoggedIn = localStorage.getItem('isLoggedIn');
-                const savedApiToken = localStorage.getItem('apiToken');
-                // 如果有登录标记或token，立即隐藏登录界面
-                if (isLoggedIn === 'true' || savedApiToken) {
-                    // 将隐藏逻辑保存到全局变量，供DOMContentLoaded时使用
-                    window.__shouldHideLoginOverlay = true;
-                    // 立即尝试隐藏（如果DOM已存在）
-                    const overlay = document.getElementById('login-overlay');
-                    if (overlay) {
-                        overlay.style.display = 'none';
-                    }
-                }
+                // 注意：登录状态检查移到initAuth函数中处理，确保token验证的准确性
             } catch (e) {
                 console.warn('初始化失败:', e);
             }
@@ -262,15 +250,202 @@
 
         <!-- 选股面板 -->
         <section id="strategy-tab" class="tab-content">
+            <!-- 筛选配置区域 -->
+            <div class="selection-config-section">
+                <div class="config-header" onclick="toggleSelectionConfig()">
+                    <h3 style="margin: 0; display: inline-block; color: #60a5fa;">🎯 筛选配置</h3>
+                    <span class="config-arrow collapsed" id="selection-config-arrow">▶</span>
+                </div>
+                <div class="config-content hidden" id="selection-config-content">
+                    <div class="config-grid-compact">
+                        <!-- 量比筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-volume-ratio-enable" checked>
+                                <span class="config-label-text">量比筛选</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <input type="number" id="filter-volume-ratio-min" step="0.1" min="0.1" max="10" placeholder="0.8" class="range-input">
+                                <span class="range-separator">-</span>
+                                <input type="number" id="filter-volume-ratio-max" step="0.1" min="1" max="20" placeholder="8.0" class="range-input">
+                            </div>
+                        </div>
+                        
+                        <!-- RSI筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-rsi-enable" checked>
+                                <span class="config-label-text">RSI</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <input type="number" id="filter-rsi-min" min="0" max="100" placeholder="30" class="range-input">
+                                <span class="range-separator">-</span>
+                                <input type="number" id="filter-rsi-max" min="0" max="100" placeholder="75" class="range-input">
+                            </div>
+                        </div>
+                        
+                        <!-- MA筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-ma-enable">
+                                <span class="config-label-text">MA均线</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-ma-period" class="range-input" style="width: 70px;">
+                                    <option value="5">MA5</option>
+                                    <option value="10">MA10</option>
+                                    <option value="20" selected>MA20</option>
+                                    <option value="60">MA60</option>
+                                </select>
+                                <select id="filter-ma-condition" class="range-input" style="width: 70px;">
+                                    <option value="above">价上穿</option>
+                                    <option value="below">价下穿</option>
+                                    <option value="up">向上</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- EMA筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-ema-enable">
+                                <span class="config-label-text">EMA均线</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-ema-period" class="range-input" style="width: 70px;">
+                                    <option value="12" selected>EMA12</option>
+                                    <option value="26">EMA26</option>
+                                </select>
+                                <select id="filter-ema-condition" class="range-input" style="width: 70px;">
+                                    <option value="above">价上穿</option>
+                                    <option value="golden">金叉</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- MACD筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-macd-enable">
+                                <span class="config-label-text">MACD</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-macd-condition" class="range-input" style="width: 140px;">
+                                    <option value="golden">金叉</option>
+                                    <option value="dead">死叉</option>
+                                    <option value="above_zero">零轴上方</option>
+                                    <option value="below_zero">零轴下方</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- KDJ筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-kdj-enable">
+                                <span class="config-label-text">KDJ</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-kdj-condition" class="range-input" style="width: 140px;">
+                                    <option value="golden">金叉</option>
+                                    <option value="dead">死叉</option>
+                                    <option value="oversold">超卖区</option>
+                                    <option value="overbought">超买区</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- BIAS筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-bias-enable">
+                                <span class="config-label-text">BIAS乖离率</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <input type="number" id="filter-bias-min" step="0.1" min="-20" max="20" placeholder="-6" class="range-input">
+                                <span class="range-separator">-</span>
+                                <input type="number" id="filter-bias-max" step="0.1" min="-20" max="20" placeholder="6" class="range-input">
+                            </div>
+                        </div>
+                        
+                        <!-- 威廉指标筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-williams-r-enable">
+                                <span class="config-label-text">威廉%R</span>
+                            </label>
+                        </div>
+                        
+                        <!-- 突破高点筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-break-high-enable">
+                                <span class="config-label-text">突破高点</span>
+                            </label>
+                        </div>
+                        
+                        <!-- 布林带筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-boll-enable">
+                                <span class="config-label-text">布林带</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-boll-condition" class="range-input" style="width: 140px;">
+                                    <option value="expanding">开口扩张</option>
+                                    <option value="above_mid">上穿中轨</option>
+                                    <option value="near_lower">接近下轨</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- ADX筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-adx-enable">
+                                <span class="config-label-text">ADX趋势</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <input type="number" id="filter-adx-min" min="0" max="100" placeholder="25" class="range-input">
+                                <span class="range-separator">></span>
+                            </div>
+                        </div>
+                        
+                        <!-- 一目均衡表筛选 -->
+                        <div class="config-item-compact">
+                            <label class="config-checkbox-label">
+                                <input type="checkbox" id="filter-ichimoku-enable">
+                                <span class="config-label-text">一目均衡表</span>
+                            </label>
+                            <div class="config-range-inputs">
+                                <select id="filter-ichimoku-condition" class="range-input" style="width: 140px;">
+                                    <option value="above_cloud">价格在云上</option>
+                                    <option value="below_cloud">价格在云下</option>
+                                    <option value="tk_cross">转换线上穿</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- 最大选股数量 -->
+                        <div class="config-item-compact">
+                            <label class="config-label-text">选股数量</label>
+                            <input type="number" id="selection-max-count" min="5" max="200" placeholder="30" class="single-input">
+                        </div>
+                    </div>
+                    <div class="config-actions">
+                        <button id="reset-config-btn" class="config-btn secondary">重置默认</button>
+                        <button id="save-config-btn" class="config-btn primary">保存配置</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 选股控制区域 -->
             <div class="strategy-controls">
-                <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
-                    <button id="select-btn">开始选股</button>
-                    <button id="load-selected-btn" style="background: #64748b;">加载上次结果</button>
-                    <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
-                    <label>单个数量：<input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 80px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></label>
+                <div class="strategy-controls-row">
+                    <label>单个数量：<input type="number" id="single-batch-size-input" value="1" min="1" max="100" class="small-input"></label>
                     <label>
                         市场：
-                        <select id="single-batch-market-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                        <select id="single-batch-market-select" class="small-select">
                             <option value="ALL">A股+港股</option>
                             <option value="A">A股</option>
                             <option value="HK">港股</option>
@@ -278,20 +453,24 @@
                     </label>
                     <label>
                         周期：
-                        <select id="single-batch-period-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                        <select id="single-batch-period-select" class="small-select">
                             <option value="daily">日线</option>
                             <option value="1h">小时</option>
                         </select>
                     </label>
-                    <button id="single-batch-collect-kline-btn" style="background: #3b82f6; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 单个批量采集</button>
-                    <button id="stop-collect-kline-btn" style="background: #ef4444; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">🛑 停止采集</button>
-                    <span style="width: 1px; height: 20px; background: #cbd5e1; margin: 0 8px;"></span>
-                    <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 100px;"></label>
-                    <button id="collect-kline-btn" style="background: #10b981; padding: 6px 12px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;">📥 批量采集</button>
+                    <button id="single-batch-collect-kline-btn" class="action-btn">📥 单个批量采集</button>
+                    <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" class="small-input"></label>
+                    <button id="collect-kline-btn" class="success-btn">📥 批量采集</button>
+                    <button id="stop-collect-kline-btn" class="danger-btn">🛑 停止采集</button>
+                    <div class="strategy-controls-spacer"></div>
+                    <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>
+                    <button id="select-btn" class="primary-btn">🎯 开始选股</button>
                 </div>
-                <div id="collect-kline-status" style="margin-top: 10px; font-size: 12px; color: #94a3b8; min-height: 20px;"></div>
+                <div id="collect-kline-status" class="status-text"></div>
             </div>
-            <div id="selected-stocks" class="selected-stocks"></div>
+
+            <!-- 选股结果显示区域 -->
+            <div id="selected-stocks" class="selected-stocks-container"></div>
         </section>
 
         <!-- AI分析面板 -->
@@ -299,6 +478,16 @@
             <div class="ai-analysis-layout">
                 <div class="ai-controls">
                     <input type="text" id="ai-code-input" placeholder="输入股票代码（如：600519）">
+                    <div class="ai-source-options">
+                        <label class="ai-source-label">
+                            <input type="checkbox" id="ai-source-watchlist" checked>
+                            <span>自选股</span>
+                        </label>
+                        <label class="ai-source-label">
+                            <input type="checkbox" id="ai-source-selection">
+                            <span>选股结果</span>
+                        </label>
+                    </div>
                     <button id="analyze-btn">开始分析</button>
                     <button id="ai-stats-btn" style="margin-left: 12px; padding: 8px 16px; background:#3b82f6; border:none; border-radius:6px; color:white; cursor:pointer;">
                         查看胜率统计
@@ -311,7 +500,7 @@
                     <div class="ai-placeholder">
                         <div style="font-size: 48px; margin-bottom: 16px;">🤖</div>
                         <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">AI股票分析</div>
-                        <div style="font-size: 14px; color: #64748b;">输入股票代码，获取专业的AI分析报告</div>
+                        <div style="font-size: 14px; color: #64748b;">输入股票代码，或勾选自选股/选股结果进行批量分析</div>
                     </div>
                 </div>
             </div>
@@ -337,74 +526,6 @@
                     <div class="config-main-content hidden" id="content-data">
                         <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
                             配置会保存在服务器（Redis）中，影响默认选股参数、行情采集频率和K线数据加载。
-                        </div>
-                        
-                        <!-- 选股配置 -->
-                        <div class="config-section">
-                            <h3>选股配置</h3>
-                            <div class="config-item">
-                                <label>
-                                    默认市场：
-                                    <select id="cfg-selection-market" style="width: 120px; margin-left: 8px; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
-                                        <option value="A">A股</option>
-                                        <option value="HK">港股</option>
-                                    </select>
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">默认选股市场</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    默认最大选股数量：
-                                    <input type="number" id="cfg-selection-max-count" min="1" max="200" value="30" style="width: 100px; margin-left: 8px;">
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">每次选股最多选出的股票数量（1-200）</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    量比最小值：
-                                    <input type="number" id="cfg-filter-volume-ratio-min" min="0.5" max="10" step="0.1" value="1.2" style="width: 100px; margin-left: 8px;">
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">当日成交量/过去5日平均成交量</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    量比最大值：
-                                    <input type="number" id="cfg-filter-volume-ratio-max" min="1" max="20" step="0.1" value="5.0" style="width: 100px; margin-left: 8px;">
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">量比上限，避免异常放量</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    RSI最小值：
-                                    <input type="number" id="cfg-filter-rsi-min" min="0" max="100" value="40" style="width: 100px; margin-left: 8px;">
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">RSI下限（0-100）</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    RSI最大值：
-                                    <input type="number" id="cfg-filter-rsi-max" min="0" max="100" value="65" style="width: 100px; margin-left: 8px;">
-                                    <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">RSI上限，避免超买</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    <input type="checkbox" id="cfg-filter-williams-r-enable" checked>
-                                    <span style="margin-left: 8px;">启用威廉指标筛选（从超卖区上穿）</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    <input type="checkbox" id="cfg-filter-break-high-enable" checked>
-                                    <span style="margin-left: 8px;">启用突破高点筛选（20日新高）</span>
-                                </label>
-                            </div>
-                            <div class="config-item">
-                                <label>
-                                    <input type="checkbox" id="cfg-filter-boll-enable" checked>
-                                    <span style="margin-left: 8px;">启用布林带筛选（收口后突破）</span>
-                                </label>
-                            </div>
                         </div>
                         
                         <!-- 行情采集配置 -->
@@ -661,7 +782,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20251221_16"></script>
+    <script src="app.js?v=20251222_16"></script>
 </body>
 </html>
 
