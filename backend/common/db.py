@@ -1132,9 +1132,9 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
         except Exception:
             has_period = False
         
-        # 使用 ORDER BY ... LIMIT 1 BY 避免嵌套聚合，减少内存；加 LIMIT 防止过大结果集
+        # 获取最新一条及上一条K线，用于计算pct，限制线程/内存/结果数防止超限
         query_settings = {
-            "max_memory_usage": 1_000_000_000,  # 1GB
+            "max_memory_usage": 1_200_000_000,  # 1.2GB
             "max_threads": 2,
             "max_final_threads": 2,
             "max_parsing_threads": 2,
@@ -1143,38 +1143,85 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
         
         if has_period:
             query = """
-                SELECT code, date, price, volume, amount, 0.0 AS pct
+                SELECT
+                    code,
+                    latest.date,
+                    latest.price,
+                    latest.volume,
+                    latest.amount,
+                    IF(prev.price != 0, (latest.price - prev.price) / prev.price, 0) AS pct
                 FROM (
                     SELECT
                         code,
-                        date,
-                        close AS price,
-                        volume,
-                        amount
-                    FROM kline FINAL
-                    WHERE period = 'daily'
-                    ORDER BY code, date DESC
-                    LIMIT 1 BY code
-                )
-                ORDER BY amount DESC
+                        arr[1].1 AS date,
+                        arr[1].2 AS price,
+                        arr[1].3 AS volume,
+                        arr[1].4 AS amount,
+                        arrayLength(arr) AS arr_len
+                    FROM (
+                        SELECT
+                            code,
+                            arraySlice(arrayReverseSort(groupArray((date, close, volume, amount))), 1, 2) AS arr
+                        FROM kline FINAL
+                        WHERE period = 'daily'
+                        GROUP BY code
+                    )
+                ) AS latest
+                LEFT JOIN (
+                    SELECT
+                        code,
+                        arr[2].2 AS price
+                    FROM (
+                        SELECT
+                            code,
+                            arraySlice(arrayReverseSort(groupArray((date, close))), 1, 2) AS arr
+                        FROM kline FINAL
+                        WHERE period = 'daily'
+                        GROUP BY code
+                    )
+                ) AS prev ON latest.code = prev.code
+                ORDER BY latest.amount DESC
                 LIMIT 20000
             """
         else:
             # 兼容旧表结构（没有period字段）
             query = """
-                SELECT code, date, price, volume, amount, 0.0 AS pct
+                SELECT
+                    code,
+                    latest.date,
+                    latest.price,
+                    latest.volume,
+                    latest.amount,
+                    IF(prev.price != 0, (latest.price - prev.price) / prev.price, 0) AS pct
                 FROM (
                     SELECT
                         code,
-                        date,
-                        close AS price,
-                        volume,
-                        amount
-                    FROM kline FINAL
-                    ORDER BY code, date DESC
-                    LIMIT 1 BY code
-                )
-                ORDER BY amount DESC
+                        arr[1].1 AS date,
+                        arr[1].2 AS price,
+                        arr[1].3 AS volume,
+                        arr[1].4 AS amount,
+                        arrayLength(arr) AS arr_len
+                    FROM (
+                        SELECT
+                            code,
+                            arraySlice(arrayReverseSort(groupArray((date, close, volume, amount))), 1, 2) AS arr
+                        FROM kline FINAL
+                        GROUP BY code
+                    )
+                ) AS latest
+                LEFT JOIN (
+                    SELECT
+                        code,
+                        arr[2].2 AS price
+                    FROM (
+                        SELECT
+                            code,
+                            arraySlice(arrayReverseSort(groupArray((date, close))), 1, 2) AS arr
+                        FROM kline FINAL
+                        GROUP BY code
+                    )
+                ) AS prev ON latest.code = prev.code
+                ORDER BY latest.amount DESC
                 LIMIT 20000
             """
         
