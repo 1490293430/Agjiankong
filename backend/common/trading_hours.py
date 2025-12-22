@@ -128,6 +128,34 @@ def _check_market_status(market: str) -> Optional[bool]:
         return None
 
 
+def _fallback_time_check(market: str) -> bool:
+    """使用常规交易时间窗口兜底判断
+    
+    场景：Redis无数据或数据过期时，避免永远判定为收盘。
+    """
+    tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+    now = datetime.now(tz)
+    
+    # 周末休市
+    if now.weekday() >= 5:
+        return False
+    
+    if market == "A":
+        windows = [
+            (time(9, 30), time(11, 30)),
+            (time(13, 0), time(15, 0)),
+        ]
+    else:  # HK
+        # 港股收盘竞价通常到 16:10，取 16:10 作为兜底
+        windows = [
+            (time(9, 30), time(12, 0)),
+            (time(13, 0), time(16, 10)),
+        ]
+    
+    current = now.time()
+    return any(start <= current <= end for start, end in windows)
+
+
 def is_a_stock_trading_time(dt: datetime = None) -> bool:
     """实时判断A股是否在交易时间内
     
@@ -151,8 +179,10 @@ def is_a_stock_trading_time(dt: datetime = None) -> bool:
     if cache_entry["timestamp"] and (now - cache_entry["timestamp"]).total_seconds() < _cache_ttl:
         return cache_entry["status"] if cache_entry["status"] is not None else False
     
-    # 实时检查
+    # 实时检查（优先使用实时行情更新时间）
     status = _check_market_status("A")
+    if status is None:
+        status = _fallback_time_check("A")
     
     # 更新缓存
     _trading_status_cache[cache_key] = {
@@ -186,8 +216,10 @@ def is_hk_stock_trading_time(dt: datetime = None) -> bool:
     if cache_entry["timestamp"] and (now - cache_entry["timestamp"]).total_seconds() < _cache_ttl:
         return cache_entry["status"] if cache_entry["status"] is not None else False
     
-    # 实时检查
+    # 实时检查（优先使用实时行情更新时间）
     status = _check_market_status("HK")
+    if status is None:
+        status = _fallback_time_check("HK")
     
     # 更新缓存
     _trading_status_cache[cache_key] = {

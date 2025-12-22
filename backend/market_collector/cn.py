@@ -20,7 +20,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 注意：这会影响所有使用requests的地方，但akshare内部也使用requests
 try:
     # 设置默认连接和读取超时
-    requests.adapters.DEFAULT_TIMEOUT = (10, 30)  # (连接超时, 读取超时)
+    requests.adapters.DEFAULT_TIMEOUT = (10, 120)  # (连接超时, 读取超时)
 except Exception:
     # 如果设置失败，忽略（某些版本的requests可能不支持）
     pass
