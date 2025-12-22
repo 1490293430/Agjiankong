@@ -1133,11 +1133,11 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             has_period = False
         
         if has_period:
-            # 使用FINAL并直接聚合获取最新一条记录，避免别名+FINAL的语法兼容问题
+            # 使用argMax直接取最新一条，避免嵌套聚合
             query = """
                 SELECT
                     code,
-                    max(date) AS date,
+                    argMax(date, date) AS date,
                     argMax(close, date) AS price,
                     argMax(volume, date) AS volume,
                     argMax(amount, date) AS amount,
@@ -1152,7 +1152,7 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             query = """
                 SELECT
                     code,
-                    max(date) AS date,
+                    argMax(date, date) AS date,
                     argMax(close, date) AS price,
                     argMax(volume, date) AS volume,
                     argMax(amount, date) AS amount,
