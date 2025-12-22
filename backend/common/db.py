@@ -1133,43 +1133,33 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             has_period = False
         
         if has_period:
-            # 使用FINAL确保ReplacingMergeTree去重后的结果
+            # 使用FINAL并直接聚合获取最新一条记录，避免别名+FINAL的语法兼容问题
             query = """
-                SELECT 
-                    k.code,
-                    k.date,
-                    k.close as price,
-                    k.volume,
-                    k.amount,
-                    0.0 as pct
-                FROM kline FINAL AS k
-                INNER JOIN (
-                    SELECT code, MAX(date) as max_date
-                    FROM kline FINAL
-                    WHERE period = 'daily'
-                    GROUP BY code
-                ) latest ON k.code = latest.code AND k.date = latest.max_date
-                WHERE k.period = 'daily'
-                ORDER BY k.amount DESC
+                SELECT
+                    code,
+                    max(date) AS date,
+                    argMax(close, date) AS price,
+                    argMax(volume, date) AS volume,
+                    argMax(amount, date) AS amount,
+                    0.0 AS pct
+                FROM kline FINAL
+                WHERE period = 'daily'
+                GROUP BY code
+                ORDER BY amount DESC
             """
         else:
             # 兼容旧表结构（没有period字段）
-            # 使用FINAL确保ReplacingMergeTree去重后的结果
             query = """
-                SELECT 
-                    k.code,
-                    k.date,
-                    k.close as price,
-                    k.volume,
-                    k.amount,
-                    0.0 as pct
-                FROM kline FINAL AS k
-                INNER JOIN (
-                    SELECT code, MAX(date) as max_date
-                    FROM kline FINAL
-                    GROUP BY code
-                ) latest ON k.code = latest.code AND k.date = latest.max_date
-                ORDER BY k.amount DESC
+                SELECT
+                    code,
+                    max(date) AS date,
+                    argMax(close, date) AS price,
+                    argMax(volume, date) AS volume,
+                    argMax(amount, date) AS amount,
+                    0.0 AS pct
+                FROM kline FINAL
+                GROUP BY code
+                ORDER BY amount DESC
             """
         
         rows = client.execute(query)
