@@ -336,3 +336,17 @@ def broadcast_news_update(news: list):
         "action": "update",
         "data": news
     })
+
+
+def broadcast_kline_collect_progress(task_id: str, progress: dict):
+    """广播K线采集进度更新"""
+    status = progress.get('status', 'unknown')
+    current = progress.get('current', 0)
+    total = progress.get('total', 0)
+    data_source = progress.get('data_source', '未知')
+    logger.info(f"[SSE广播] 准备广播K线采集进度: task_id={task_id}, status={status}, progress={current}/{total}, data_source={data_source}")
+    broadcast_message({
+        "type": "kline_collect_progress",
+        "task_id": task_id,
+        "progress": progress
+    })

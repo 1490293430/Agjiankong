@@ -568,6 +568,36 @@ def get_market_status_with_next(market: str) -> Dict[str, Any]:
     return result
 
 
+def get_next_trading_start_time(market: str) -> datetime:
+    """获取下一个交易开始时间（兼容旧接口）
+    
+    Args:
+        market: "A" 或 "HK"
+    
+    Returns:
+        下一个交易开始时间（带时区）
+    """
+    result = _get_next_trading_datetime_fast(market)
+    if result is None:
+        # 如果正在交易中，返回下一个交易时段的开始时间
+        tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+        now = datetime.now(tz)
+        windows = A_STOCK_TRADING_WINDOWS if market == "A" else HK_STOCK_TRADING_WINDOWS
+        
+        current_time = now.time()
+        # 如果在上午交易时段，返回下午开盘时间
+        if current_time <= windows[0][1]:
+            return tz.localize(datetime.combine(now.date(), windows[1][0]))
+        # 如果在下午交易时段，返回明天上午开盘时间
+        else:
+            tomorrow = now.date() + timedelta(days=1)
+            # 跳过周末
+            while tomorrow.weekday() >= 5:
+                tomorrow += timedelta(days=1)
+            return tz.localize(datetime.combine(tomorrow, windows[0][0]))
+    return result
+
+
 # 启动时自动刷新交易日历
 def init_trading_calendar():
     """初始化交易日历（启动时调用）"""

@@ -11,7 +11,6 @@ import time
 
 # 导入各模块路由
 from market.service.api import router as market_router
-from market.service.ws import router as ws_router
 from market.service.sse import router as sse_router
 from news.collector import fetch_news
 from ai.analyzer import analyze_stock
@@ -216,12 +215,6 @@ app.include_router(
     prefix="/api",
     dependencies=secured_dependencies,
 )
-# WebSocket路由注册（不使用prefix，保持原有路径）
-# 注意：WebSocket不支持dependencies，所以不使用认证依赖
-# 前端连接路径：/ws/watchlist, /ws/selection/progress 等（不需要/api前缀）
-# 保留WebSocket用于向后兼容，但推荐使用SSE
-app.include_router(ws_router)
-
 # SSE路由注册（统一推送服务）
 app.include_router(sse_router, prefix="/api")
 
@@ -1800,6 +1793,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         "market": market,
         "data_source": "准备中..."
     }
+    # 通过SSE广播初始进度
+    try:
+        from market.service.sse import broadcast_kline_collect_progress
+        broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+    except Exception as e:
+        logger.debug(f"SSE广播K线采集初始进度失败: {e}")
     
     def collect_kline_for_stock(stock):
         nonlocal success_count, failed_count
@@ -1883,6 +1882,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                             "data_source": current_source,
                             "message": f"[{market}]采集中({current_source})... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
                         })
+                        # 通过SSE广播进度更新
+                        try:
+                            from market.service.sse import broadcast_kline_collect_progress
+                            broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+                        except Exception as e:
+                            logger.debug(f"SSE广播K线采集进度失败: {e}")
                     last_update_time = current_time
                     
                     # 每50只股票输出一次日志
@@ -1904,6 +1909,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 "market": market,
                 "data_source": final_source
             }
+            # 通过SSE广播失败进度
+            try:
+                from market.service.sse import broadcast_kline_collect_progress
+                broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+            except Exception as broadcast_e:
+                logger.debug(f"SSE广播K线采集失败进度失败: {broadcast_e}")
             logger.error(f"[{market}]K线采集异常终止: {e}", exc_info=True)
             raise
         finally:
@@ -1948,6 +1959,13 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 "data_source": final_source
             }
             logger.info(f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
+        
+        # 通过SSE广播最终进度
+        try:
+            from market.service.sse import broadcast_kline_collect_progress
+            broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+        except Exception as e:
+            logger.debug(f"SSE广播K线采集最终进度失败: {e}")
     
     # 运行批量采集
     batch_collect()
@@ -2856,8 +2874,8 @@ if frontend_path and os.path.exists(frontend_path):
     @app.get("/{filename:path}", include_in_schema=False)
     async def frontend_files(filename: str):
         """前端资源文件"""
-        # 排除API和WebSocket路径
-        if filename.startswith("api") or filename.startswith("ws"):
+        # 排除API路径
+        if filename.startswith("api"):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Not found")
         
