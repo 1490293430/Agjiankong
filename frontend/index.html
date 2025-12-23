@@ -141,10 +141,20 @@
             <div class="header-actions">
                 <!-- 实时数据采集状态 -->
                 <div id="spot-collect-result" class="spot-collect-result" style="display: none;">
-                    <span id="spot-collect-result-icon" class="spot-result-icon">✅</span>
-                    <span id="spot-collect-result-text" class="spot-result-text">采集成功</span>
-                    <span id="spot-collect-result-time" class="spot-result-time">12:30</span>
-                    <span id="spot-collect-result-source" class="spot-result-source">[AKShare]</span>
+                    <div class="spot-result-row">
+                        <span class="spot-result-label">A股:</span>
+                        <span id="spot-result-a-text" class="spot-result-value">✅ 5419只</span>
+                        <span id="spot-result-a-time" class="spot-result-time">17:51</span>
+                    </div>
+                    <div class="spot-result-row">
+                        <span class="spot-result-label">港股:</span>
+                        <span id="spot-result-hk-text" class="spot-result-value">✅ 2000只</span>
+                        <span id="spot-result-hk-time" class="spot-result-time">17:51</span>
+                    </div>
+                    <div class="spot-result-row">
+                        <span class="spot-result-label">数据源:</span>
+                        <span id="spot-collect-result-source" class="spot-result-source">Easyquotation</span>
+                    </div>
                 </div>
                 <div class="market-status">
                     <div class="market-status-item">

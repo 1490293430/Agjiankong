@@ -69,13 +69,17 @@ def collect_job():
         # 广播采集结果到前端顶部状态栏
         try:
             from market.service.sse import broadcast_message
+            time_str = datetime.now().strftime("%H:%M")
             broadcast_message({
                 "type": "spot_collect_result",
                 "data": {
                     "success": success and (a_count > 0 or hk_count > 0),
-                    "time": datetime.now().strftime("%H:%M"),
-                    "source": data_source,
-                    "message": f"A股{a_count}只 港股{hk_count}只" if success else "采集失败"
+                    "time": time_str,
+                    "a_count": a_count,
+                    "hk_count": hk_count,
+                    "a_time": time_str,
+                    "hk_time": time_str,
+                    "source": data_source
                 }
             })
         except Exception as e:
@@ -94,13 +98,17 @@ def collect_job():
         # 广播失败结果
         try:
             from market.service.sse import broadcast_message
+            time_str = datetime.now().strftime("%H:%M")
             broadcast_message({
                 "type": "spot_collect_result",
                 "data": {
                     "success": False,
-                    "time": datetime.now().strftime("%H:%M"),
-                    "source": "",
-                    "message": "采集失败"
+                    "time": time_str,
+                    "a_count": 0,
+                    "hk_count": 0,
+                    "a_time": time_str,
+                    "hk_time": time_str,
+                    "source": ""
                 }
             })
         except Exception as e2:

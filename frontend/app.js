@@ -1060,9 +1060,10 @@ function handleSpotCollectResult(data) {
     console.log('[SSE] 实时数据采集结果:', data);
     
     const container = document.getElementById('spot-collect-result');
-    const iconEl = document.getElementById('spot-collect-result-icon');
-    const textEl = document.getElementById('spot-collect-result-text');
-    const timeEl = document.getElementById('spot-collect-result-time');
+    const aTextEl = document.getElementById('spot-result-a-text');
+    const aTimeEl = document.getElementById('spot-result-a-time');
+    const hkTextEl = document.getElementById('spot-result-hk-text');
+    const hkTimeEl = document.getElementById('spot-result-hk-time');
     const sourceEl = document.getElementById('spot-collect-result-source');
     
     if (!container) {
@@ -1073,21 +1074,37 @@ function handleSpotCollectResult(data) {
     const success = data.success;
     const time = data.time || '';
     const source = data.source || '';
-    const message = data.message || (success ? '采集成功' : '采集失败');
+    const aCount = data.a_count || 0;
+    const hkCount = data.hk_count || 0;
+    const aTime = data.a_time || time;
+    const hkTime = data.hk_time || time;
     
     // 更新显示
     container.style.display = 'flex';
     container.className = 'spot-collect-result ' + (success ? 'success' : 'failed');
     
-    if (iconEl) iconEl.textContent = success ? '✅' : '❌';
-    if (textEl) textEl.textContent = message;
-    if (timeEl) timeEl.textContent = time;
+    // A股状态
+    if (aTextEl) {
+        const aSuccess = aCount > 0;
+        aTextEl.textContent = (aSuccess ? '✅ ' : '❌ ') + aCount + '只';
+        aTextEl.className = 'spot-result-value ' + (aSuccess ? 'success' : 'failed');
+    }
+    if (aTimeEl) aTimeEl.textContent = aTime;
+    
+    // 港股状态
+    if (hkTextEl) {
+        const hkSuccess = hkCount > 0;
+        hkTextEl.textContent = (hkSuccess ? '✅ ' : '❌ ') + hkCount + '只';
+        hkTextEl.className = 'spot-result-value ' + (hkSuccess ? 'success' : 'failed');
+    }
+    if (hkTimeEl) hkTimeEl.textContent = hkTime;
+    
+    // 数据源
     if (sourceEl) {
-        sourceEl.textContent = source ? `[${source}]` : '';
-        sourceEl.style.display = source ? 'inline' : 'none';
+        sourceEl.textContent = source || '未知';
     }
     
-    console.log(`[SSE] 实时数据采集结果已更新: ${success ? '成功' : '失败'}, 时间=${time}, 数据源=${source}`);
+    console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), 数据源=${source}`);
 }
 
 // 处理选股进度（SSE推送）

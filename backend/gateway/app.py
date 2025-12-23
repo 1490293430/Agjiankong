@@ -1916,13 +1916,17 @@ async def collect_spot_data_api(
                 
                 # 广播采集结果到顶部状态栏（只显示最新一条）
                 end_time_obj = datetime.fromisoformat(end_time) if isinstance(end_time, str) else datetime.now()
+                time_str = end_time_obj.strftime("%H:%M")
                 broadcast_message({
                     "type": "spot_collect_result",
                     "data": {
                         "success": True,
-                        "time": end_time_obj.strftime("%H:%M"),
-                        "source": data_source or "未知",
-                        "message": f"A股{a_count}只 港股{hk_count}只"
+                        "time": time_str,
+                        "a_count": a_count,
+                        "hk_count": hk_count,
+                        "a_time": time_str,
+                        "hk_time": time_str,
+                        "source": data_source or "未知"
                     }
                 })
                 
@@ -1963,8 +1967,11 @@ async def collect_spot_data_api(
                     "data": {
                         "success": False,
                         "time": datetime.now().strftime("%H:%M"),
-                        "source": "",
-                        "message": "采集失败"
+                        "a_count": 0,
+                        "hk_count": 0,
+                        "a_time": datetime.now().strftime("%H:%M"),
+                        "hk_time": datetime.now().strftime("%H:%M"),
+                        "source": ""
                     }
                 })
                 spot_collect_progress[task_id]["status"] = "failed"
