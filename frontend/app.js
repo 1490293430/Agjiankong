@@ -1009,6 +1009,20 @@ function handleSpotCollectProgress(taskId, progress) {
             btn.disabled = false;
             btn.textContent = '📊 采集实时快照';
         }
+    } else if (progress.status === 'cancelled') {
+        statusEl.innerHTML = `
+            <div style="color: #f59e0b; font-weight: 500;">
+                ⏹️ ${message || '采集已停止'}
+            </div>
+        `;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '📊 采集实时快照';
+        }
+        // 10秒后清除状态
+        setTimeout(() => {
+            if (statusEl) statusEl.innerHTML = '';
+        }, 10000);
     }
 }
 

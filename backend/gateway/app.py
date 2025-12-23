@@ -2704,6 +2704,17 @@ async def stop_kline_collect_api():
                 "message": "用户手动停止采集任务",
                 "end_time": datetime.now().isoformat()
             })
+            # 广播停止状态到前端
+            from market.service.sse import broadcast_message
+            broadcast_message({
+                "type": "spot_collect_progress",
+                "task_id": task_id,
+                "progress": {
+                    "status": "cancelled",
+                    "step": "stopped",
+                    "message": "采集已停止"
+                }
+            })
             stopped_tasks.append(f"实时行情:{task_id}")
             logger.info(f"用户停止实时行情采集任务: {task_id}")
         
