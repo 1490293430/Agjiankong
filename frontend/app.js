@@ -6994,12 +6994,12 @@ function initNews() {
     
     // 如果当前在资讯页且没有数据，主动加载一次（避免页面为空）
     const newsTab = document.getElementById('news-tab');
-    const newsList = document.getElementById('news-list');
+    const newsListEl = document.getElementById('news-list');
     if (newsTab && newsTab.classList.contains('active')) {
         // 检查是否已有数据（不是占位符或加载提示）
-        const hasData = newsList && newsList.children.length > 0 && 
-                       !newsList.innerHTML.includes('暂无资讯') && 
-                       !newsList.innerHTML.includes('加载中');
+        const hasData = newsListEl && newsListEl.children.length > 0 && 
+                       !newsListEl.innerHTML.includes('暂无资讯') && 
+                       !newsListEl.innerHTML.includes('加载中');
         if (!hasData) {
             console.log('[资讯] 当前在资讯页且无数据，主动加载一次');
             loadNews();
