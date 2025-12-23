@@ -3,31 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
-    <meta name="HandheldFriendly" content="true">
-    <meta name="MobileOptimized" content="width">
-    <meta name="format-detection" content="telephone=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>行情监控</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-    <style>
-        /* 关键：强制移动端使用正确的视口宽度 */
-        html {
-            width: 100% !important;
-            overflow-x: hidden !important;
-            font-size: 16px !important;
-            -webkit-text-size-adjust: 100% !important;
-            -ms-text-size-adjust: 100% !important;
-            text-size-adjust: 100% !important;
-        }
-        body {
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100vw !important;
-            overflow-x: hidden !important;
-            font-size: 14px !important;
-        }
-    </style>
-    <link rel="stylesheet" href="style.css?v=20251223_06">
+    <script>
+        // 强制移动端使用正确的视口
+        (function() {
+            var viewport = document.querySelector('meta[name="viewport"]');
+            if (viewport) {
+                // 检测是否是移动设备
+                var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if (isMobile) {
+                    // 移动端：使用设备宽度
+                    viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');
+                }
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css?v=20251223_07">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
