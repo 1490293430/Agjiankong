@@ -4766,7 +4766,7 @@ async function runSelection() {
         const timeoutId = setTimeout(() => {
             console.warn('选股请求超时，取消请求');
             controller.abort();
-        }, 60000); // 60秒超时
+        }, 300000); // 5分钟超时
         
         console.log('发送选股请求:', `${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`);
         const startTime = Date.now();
@@ -4864,7 +4864,7 @@ async function runSelection() {
         
         if (error.name === 'AbortError') {
             errorMessage = '选股请求超时';
-            errorDetail = '请求超过60秒未完成，已自动取消';
+            errorDetail = '请求超过5分钟未完成，已自动取消';
         } else if (error.message.includes('Failed to fetch')) {
             errorMessage = '网络连接失败';
             errorDetail = '请检查网络连接或服务器状态';
@@ -7066,6 +7066,9 @@ async function loadConfig() {
         document.getElementById('cfg-collector-interval').value = data.collector_interval_seconds ?? 60;
         document.getElementById('cfg-kline-years').value = data.kline_years ?? 1;
         
+        // Tushare Token（不回显，只在服务端保存）
+        document.getElementById('cfg-tushare-token').value = '';
+        
         // AI 配置（API Key 不回显，只在服务端保存）
         document.getElementById('cfg-ai-api-key').value = '';
         document.getElementById('cfg-ai-api-base').value = data.openai_api_base || 'https://openai.qiniu.com/v1';
@@ -7146,6 +7149,7 @@ async function saveConfig() {
         
         const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
+        const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
 
         const channels = [];
         const telegramEnabled = document.getElementById('cfg-notify-telegram')?.checked ?? false;
@@ -7156,7 +7160,7 @@ async function saveConfig() {
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
-        console.log('[配置] 准备保存配置', { interval, klineYears });
+        console.log('[配置] 准备保存配置', { interval, klineYears, hasTushareToken: !!tushareToken });
         
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
@@ -7164,6 +7168,7 @@ async function saveConfig() {
             body: JSON.stringify({
                 collector_interval_seconds: interval,
                 kline_years: klineYears,
+                tushare_token: tushareToken,
                 // AI 配置
                 openai_api_key: document.getElementById('cfg-ai-api-key')?.value?.trim() || null,
                 openai_api_base: document.getElementById('cfg-ai-api-base')?.value?.trim() || null,

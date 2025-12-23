@@ -137,6 +137,12 @@ class RuntimeConfig(BaseModel):
         default=None,
         description="管理员登录密码（如果设置，将覆盖环境变量ADMIN_PASSWORD）",
     )
+    
+    # Tushare 数据源配置
+    tushare_token: Optional[str] = Field(
+        default=None,
+        description="Tushare Pro API Token，用于获取A股数据",
+    )
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -186,6 +192,9 @@ class RuntimeConfigUpdate(BaseModel):
     
     # 管理员密码
     admin_password: Optional[str] = None
+    
+    # Tushare 数据源配置
+    tushare_token: Optional[str] = None
 
 
 def get_runtime_config() -> RuntimeConfig:
@@ -217,8 +226,8 @@ def update_runtime_config(patch: RuntimeConfigUpdate) -> RuntimeConfig:
     update_data = patch.model_dump(exclude_none=True)
 
     for field, value in update_data.items():
-        # 如果密码或 API Key 为空字符串，则不更新（保持原值）
-        if field in ("notify_email_password", "openai_api_key", "admin_password") and value == "":
+        # 如果密码或 API Key 或 Token 为空字符串，则不更新（保持原值）
+        if field in ("notify_email_password", "openai_api_key", "admin_password", "tushare_token") and value == "":
             continue
         setattr(current, field, value)
 

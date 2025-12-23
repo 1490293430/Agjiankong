@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>行情监控</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-    <link rel="stylesheet" href="style.css?v=20251223_01">
+    <link rel="stylesheet" href="style.css?v=20251223_02">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -553,6 +553,23 @@
                                 <input type="number" id="cfg-kline-years" min="0.5" max="10" step="0.5" value="1">
                             </label>
                         </div>
+                        
+                        <!-- Tushare 数据源配置 -->
+                        <div class="config-item" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #334155;">
+                            <label style="display: block; margin-bottom: 8px; color: #60a5fa; font-weight: 500;">
+                                Tushare 数据源
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                Tushare Token：
+                                <input type="password" id="cfg-tushare-token" placeholder="输入 Tushare Pro API Token" style="width: 350px;">
+                                <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">🔒 已隐藏</span>
+                            </label>
+                        </div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                            获取 Token：<a href="https://tushare.pro/register?reg=7" target="_blank" style="color: #60a5fa;">https://tushare.pro</a> 注册后在个人中心获取
+                        </div>
                     </div>
                 </div>
                 
@@ -792,7 +809,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20251223_02"></script>
+    <script src="app.js?v=20251223_03"></script>
 </body>
 </html>
 

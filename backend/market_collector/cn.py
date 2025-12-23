@@ -189,6 +189,28 @@ def fetch_a_stock_spot(max_retries: int = 10) -> List[Dict[str, Any]]:
                 time.sleep(wait_time)
             else:
                 logger.error(f"A股行情采集失败（已重试{max_retries}次）: {type(e).__name__} {str(e)[:200]}", exc_info=True)
+                # 尝试使用 Tushare 作为备用数据源
+                try:
+                    from market_collector.tushare_source import fetch_stock_list_tushare, get_tushare_api
+                    api = get_tushare_api()
+                    if api:
+                        logger.info("akshare 失败，尝试使用 Tushare 获取股票列表...")
+                        tushare_stocks = fetch_stock_list_tushare()
+                        if tushare_stocks and len(tushare_stocks) > 0:
+                            # Tushare 返回的是股票列表，不是实时行情，但可以作为基础数据
+                            # 添加必要的字段
+                            for stock in tushare_stocks:
+                                stock['update_time'] = datetime.now().isoformat()
+                                stock['market'] = 'A'
+                                # 设置默认值（Tushare 股票列表没有实时价格）
+                                stock.setdefault('price', 0)
+                                stock.setdefault('pct', 0)
+                                stock.setdefault('volume', 0)
+                            logger.info(f"Tushare 获取股票列表成功: {len(tushare_stocks)}只")
+                            # 注意：这只是股票列表，不是实时行情，但可以避免完全没有数据
+                            return tushare_stocks
+                except Exception as ts_error:
+                    logger.warning(f"Tushare 备用数据源也失败: {ts_error}")
                 # 即使失败也返回空列表，避免影响其他采集任务
                 return []
 
@@ -603,14 +625,56 @@ def _fetch_kline_source3(code: str, period: str, adjust: str, start_date: str, e
 
 
 def _fetch_kline_source4(code: str, period: str, adjust: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-    """数据源4: 尝试使用通用历史数据接口 (备用数据源3)"""
+    """数据源4: Tushare 备用数据源（当akshare失败时自动切换）"""
     try:
-        # 尝试使用tool_trade_date_hist_sina或其他通用接口
-        # 如果akshare有更新，可以在这里添加新的接口
-        # 暂时返回空，等待后续扩展
+        # 小时级别数据 Tushare 不支持
+        if period in ['1h', 'hourly', '60']:
+            return []
+        
+        # 只支持日线数据
+        if period not in ['daily', 'day', '']:
+            logger.debug(f"Tushare 数据源暂不支持 {period} 周期")
+            return []
+        
+        # 尝试导入 Tushare 模块
+        try:
+            from market_collector.tushare_source import fetch_daily_kline_tushare, get_tushare_api
+        except ImportError:
+            logger.debug("Tushare 模块未安装")
+            return []
+        
+        # 检查 Tushare API 是否可用
+        api = get_tushare_api()
+        if not api:
+            logger.debug("Tushare API 未配置或初始化失败")
+            return []
+        
+        # 调用 Tushare 获取日线数据
+        logger.info(f"尝试使用 Tushare 获取K线数据: {code}")
+        result = fetch_daily_kline_tushare(code, start_date, end_date, limit=1000)
+        
+        if result and len(result) > 0:
+            # 转换为标准格式（Tushare 返回的格式与标准格式略有不同）
+            standardized = []
+            for item in result:
+                standardized.append({
+                    'date': item.get('date', ''),
+                    'time': item.get('date', ''),  # 日线数据 time 等于 date
+                    'open': item.get('open', 0),
+                    'high': item.get('high', 0),
+                    'low': item.get('low', 0),
+                    'close': item.get('close', 0),
+                    'volume': item.get('volume', 0),
+                    'amount': item.get('amount', 0),
+                    'code': code,
+                    'market': 'A'
+                })
+            logger.info(f"Tushare 获取K线数据成功: {code}, {len(standardized)}条")
+            return standardized
+        
         return []
     except Exception as e:
-        logger.debug(f"数据源4失败 {code}: {str(e)[:100]}")
+        logger.debug(f"数据源4(Tushare)失败 {code}: {str(e)[:100]}")
         return []
 
 
@@ -772,7 +836,7 @@ def fetch_a_stock_kline(
         ("数据源1(主)", _fetch_kline_source1),
         ("数据源2(备用1)", _fetch_kline_source2),
         ("数据源3(备用2)", _fetch_kline_source3),
-        # ("数据源4(备用3)", _fetch_kline_source4),  # 暂时禁用，等待扩展
+        ("数据源4(Tushare)", _fetch_kline_source4),  # Tushare 作为最后的备用数据源
     ]
     
     # 依次尝试各个数据源获取增量数据

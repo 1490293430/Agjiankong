@@ -360,6 +360,28 @@ async def get_market_status():
         }
 
 
+@api_router.get("/tushare/status")
+async def get_tushare_status():
+    """检查 Tushare 数据源连接状态"""
+    try:
+        from market_collector.tushare_source import check_tushare_connection
+        result = check_tushare_connection()
+        return {"code": 0, "data": result, "message": "success"}
+    except ImportError as e:
+        return {
+            "code": 1,
+            "data": {"connected": False, "message": f"模块未安装: {e}", "token_configured": False},
+            "message": str(e)
+        }
+    except Exception as e:
+        logger.error(f"检查 Tushare 状态失败: {e}", exc_info=True)
+        return {
+            "code": 1,
+            "data": {"connected": False, "message": str(e), "token_configured": False},
+            "message": str(e)
+        }
+
+
 @api_router.api_route("/strategy/select", methods=["GET", "POST"])
 async def select_stocks_api(
     request: Request,
