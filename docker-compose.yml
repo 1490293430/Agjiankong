@@ -65,6 +65,7 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=Asia/Shanghai
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
@@ -90,6 +91,7 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=Asia/Shanghai
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
