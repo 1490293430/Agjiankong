@@ -2301,54 +2301,10 @@ function formatAmount(amount) {
 }
 
 // 应用过滤和排序（前端处理）
-// 如果数据不完整，先加载所有数据
+// 只对已加载的数据进行过滤排序，不预加载所有数据
 async function applyFilterAndSort() {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
-    
-    // 如果还有更多数据未加载，先加载所有数据
-    if (hasMore && allMarketData.length > 0) {
-        console.log('[行情] 排序/过滤需要完整数据，开始加载所有数据...');
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">加载全部数据中...</td></tr>';
-        
-        try {
-            const marketSelect = document.getElementById('market-select');
-            const market = marketSelect ? marketSelect.value || 'a' : 'a';
-            
-            // 循环加载所有数据
-            let page = Math.ceil(allMarketData.length / pageSize) + 1; // 从下一页开始
-            let loadMore = true;
-            
-            while (loadMore && page <= 200) { // 最多200页，避免无限循环
-                console.log(`[行情] 加载第${page}页数据...`);
-                const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${page}&page_size=${pageSize}`);
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.code === 0 && result.data && result.data.length > 0) {
-                        allMarketData = allMarketData.concat(result.data);
-                        
-                        // 检查是否还有更多
-                        if (result.pagination) {
-                            loadMore = page < result.pagination.total_pages;
-                        } else {
-                            loadMore = result.data.length === pageSize;
-                        }
-                        page++;
-                    } else {
-                        loadMore = false;
-                    }
-                } else {
-                    console.error(`[行情] 加载第${page}页失败:`, response.status);
-                    loadMore = false;
-                }
-            }
-            
-            console.log(`[行情] 已加载所有数据: ${allMarketData.length}条`);
-        } catch (error) {
-            console.error('[行情] 加载所有数据失败:', error);
-        }
-    }
     
     if (!allMarketData || allMarketData.length === 0) {
         console.log('[行情] 无数据可排序');
