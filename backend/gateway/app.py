@@ -328,27 +328,21 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
 
 @api_router.get("/market/status", dependencies=[])  # 不需要认证，公开接口
 async def get_market_status():
-    """获取A股和港股的交易状态"""
+    """获取A股和港股的交易状态，包含下一个开盘时间"""
     logger.info("[市场状态] 收到市场状态查询请求")
     try:
-        from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
+        from common.trading_hours import get_market_status_with_next
         
-        is_a_trading = is_a_stock_trading_time()
-        is_hk_trading = is_hk_stock_trading_time()
+        a_status = get_market_status_with_next("A")
+        hk_status = get_market_status_with_next("HK")
         
-        logger.info(f"[市场状态] 市场状态检查完成: A股={is_a_trading}, 港股={is_hk_trading}")
+        logger.info(f"[市场状态] A股={a_status['status']}, 港股={hk_status['status']}")
         
         return {
             "code": 0,
             "data": {
-                "a": {
-                    "is_trading": is_a_trading,
-                    "status": "交易中" if is_a_trading else "已收盘"
-                },
-                "hk": {
-                    "is_trading": is_hk_trading,
-                    "status": "交易中" if is_hk_trading else "已收盘"
-                }
+                "a": a_status,
+                "hk": hk_status
             },
             "message": "success"
         }
@@ -357,8 +351,8 @@ async def get_market_status():
         return {
             "code": 1,
             "data": {
-                "a": {"is_trading": False, "status": "模块错误"},
-                "hk": {"is_trading": False, "status": "模块错误"}
+                "a": {"is_trading": False, "status": "模块错误", "next_open": None},
+                "hk": {"is_trading": False, "status": "模块错误", "next_open": None}
             },
             "message": f"模块导入失败: {str(e)}"
         }
@@ -367,8 +361,8 @@ async def get_market_status():
         return {
             "code": 1,
             "data": {
-                "a": {"is_trading": False, "status": "未知"},
-                "hk": {"is_trading": False, "status": "未知"}
+                "a": {"is_trading": False, "status": "未知", "next_open": None},
+                "hk": {"is_trading": False, "status": "未知", "next_open": None}
             },
             "message": str(e)
         }
@@ -394,6 +388,21 @@ async def get_tushare_status():
             "data": {"connected": False, "message": str(e), "token_configured": False},
             "message": str(e)
         }
+
+
+@api_router.post("/trading/calendar/refresh", dependencies=admin_dependencies)
+async def refresh_trading_calendar_api():
+    """刷新交易日历缓存（管理员接口）"""
+    try:
+        from common.trading_hours import refresh_trading_calendar
+        success = refresh_trading_calendar("ALL")
+        if success:
+            return {"code": 0, "data": {"refreshed": True}, "message": "交易日历已刷新"}
+        else:
+            return {"code": 1, "data": {"refreshed": False}, "message": "刷新失败，请检查日志"}
+    except Exception as e:
+        logger.error(f"刷新交易日历失败: {e}", exc_info=True)
+        return {"code": 1, "data": {"refreshed": False}, "message": str(e)}
 
 
 @api_router.api_route("/strategy/select", methods=["GET", "POST"])
@@ -2920,6 +2929,15 @@ async def startup_event():
         logger.info("数据库表初始化完成")
     except Exception as e:
         logger.warning(f"数据库初始化失败（可能是ClickHouse未启动）: {e}")
+    
+    # 初始化交易日历
+    try:
+        from common.trading_hours import init_trading_calendar
+        init_trading_calendar()
+        logger.info("交易日历初始化完成")
+    except Exception as e:
+        logger.warning(f"交易日历初始化失败: {e}")
+    
     logger.info("API服务启动完成")
 
 

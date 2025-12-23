@@ -1,10 +1,13 @@
 """
-交易时间判断工具（实时获取）
+交易时间判断工具（基于交易日历 + 固定交易时间）
+
+使用 akshare 获取A股交易日历，港股使用固定节假日列表
 """
-from datetime import datetime, time
-from typing import Tuple, Optional
+from datetime import datetime, date, time, timedelta
+from typing import Tuple, Optional, Dict, Any
 import pytz
 from common.logger import get_logger
+from common.redis import get_json, set_json
 
 logger = get_logger(__name__)
 
@@ -12,226 +15,335 @@ logger = get_logger(__name__)
 TZ_SHANGHAI = pytz.timezone("Asia/Shanghai")  # A股时区
 TZ_HONGKONG = pytz.timezone("Asia/Hong_Kong")  # 港股时区
 
-# 缓存交易状态，避免频繁请求（缓存5秒）
-_trading_status_cache = {
-    "a": {"status": None, "timestamp": None},
-    "hk": {"status": None, "timestamp": None}
+# A股交易时间段
+A_STOCK_TRADING_WINDOWS = [
+    (time(9, 30), time(11, 30)),   # 上午
+    (time(13, 0), time(15, 0)),    # 下午
+]
+
+# 港股交易时间段
+HK_STOCK_TRADING_WINDOWS = [
+    (time(9, 30), time(12, 0)),    # 上午
+    (time(13, 0), time(16, 0)),    # 下午
+]
+
+# 交易日历缓存（Redis key）
+A_STOCK_CALENDAR_KEY = "trading:calendar:a"
+HK_STOCK_CALENDAR_KEY = "trading:calendar:hk"
+
+# 内存缓存（避免频繁读取Redis）
+_calendar_cache: Dict[str, Any] = {
+    "a": {"data": None, "timestamp": None},
+    "hk": {"data": None, "timestamp": None}
 }
-_cache_ttl = 5  # 缓存5秒
+_cache_ttl = 3600  # 内存缓存1小时
 
 
-def _check_market_status(market: str) -> Optional[bool]:
-    """通过检查Redis缓存中的行情数据来判断市场是否在交易
-    
-    使用缓存数据判断，避免频繁调用akshare（可能很慢）
-    
-    Args:
-        market: 市场类型，"A" 或 "HK"
+def _fetch_a_stock_calendar() -> list:
+    """从 akshare 获取A股交易日历
     
     Returns:
-        True: 在交易时间内
-        False: 不在交易时间内
-        None: 无法判断（缓存数据不可用）
+        交易日期列表，格式：['20240101', '20240102', ...]
     """
     try:
-        from common.redis import get_json, get_redis
-        from datetime import datetime
+        import akshare as ak
+        logger.info("正在从 akshare 获取A股交易日历...")
         
-        # 优先检查独立的时间戳key（更可靠）
-        time_key = "market:a:time" if market == "A" else "market:hk:time"
-        redis_client = get_redis()
-        update_time_str = redis_client.get(time_key)
+        # 获取新浪的交易日历
+        df = ak.tool_trade_date_hist_sina()
         
-        if update_time_str:
-            try:
-                # 解析更新时间
-                if isinstance(update_time_str, str):
-                    if 'T' in update_time_str:
-                        update_time = datetime.fromisoformat(update_time_str.replace('Z', '+00:00'))
+        if df is not None and not df.empty:
+            # 转换为日期字符串列表
+            trade_dates = []
+            for _, row in df.iterrows():
+                trade_date = row.get('trade_date')
+                if trade_date:
+                    # 转换为字符串格式 YYYYMMDD
+                    if hasattr(trade_date, 'strftime'):
+                        trade_dates.append(trade_date.strftime('%Y%m%d'))
                     else:
-                        update_time = datetime.fromisoformat(update_time_str)
-                else:
-                    update_time = update_time_str
-                
-                # 处理时区
-                if update_time.tzinfo is None:
-                    tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
-                    update_time = tz.localize(update_time)
-                
-                now = datetime.now(update_time.tzinfo)
-                time_diff = (now - update_time).total_seconds()
-                
-                logger.debug(f"市场{market}缓存时间差: {time_diff:.0f}秒")
-                
-                # 如果缓存数据在最近5分钟内更新，认为在交易时间
-                if time_diff < 300:
-                    return True
-                # 如果缓存数据超过30分钟未更新，认为不在交易时间
-                elif time_diff > 1800:
-                    return False
-                # 介于5-30分钟之间，返回None（不确定）
-                else:
-                    return None
-            except Exception as e:
-                logger.debug(f"解析时间戳失败 {market}: {e}")
+                        date_str = str(trade_date).replace('-', '')[:8]
+                        if len(date_str) == 8:
+                            trade_dates.append(date_str)
+            
+            logger.info(f"获取A股交易日历成功，共 {len(trade_dates)} 个交易日")
+            return sorted(trade_dates)
         
-        # 如果没有独立时间戳，尝试从数据中获取
-        cache_key = "market:a:spot" if market == "A" else "market:hk:spot"
-        cached_data = get_json(cache_key)
-        
-        # 如果缓存中有数据，检查更新时间
-        if cached_data and isinstance(cached_data, list) and len(cached_data) > 0:
-            # 获取第一条数据的时间戳
-            first_item = cached_data[0]
-            if isinstance(first_item, dict):
-                update_time_str = first_item.get("update_time")
-                
-                if update_time_str:
-                    try:
-                        # 解析更新时间
-                        if isinstance(update_time_str, str):
-                            if 'T' in update_time_str:
-                                update_time = datetime.fromisoformat(update_time_str.replace('Z', '+00:00'))
-                            else:
-                                update_time = datetime.fromisoformat(update_time_str)
-                        else:
-                            update_time = update_time_str
-                        
-                        # 处理时区
-                        if update_time.tzinfo is None:
-                            tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
-                            update_time = tz.localize(update_time)
-                        
-                        now = datetime.now(update_time.tzinfo)
-                        time_diff = (now - update_time).total_seconds()
-                        
-                        logger.debug(f"市场{market}数据时间差: {time_diff:.0f}秒")
-                        
-                        # 如果缓存数据在最近5分钟内更新，认为在交易时间
-                        if time_diff < 300:
-                            return True
-                        # 如果缓存数据超过30分钟未更新，认为不在交易时间
-                        elif time_diff > 1800:
-                            return False
-                        # 介于5-30分钟之间，返回None（不确定）
-                        else:
-                            return None
-                    except Exception as e:
-                        logger.debug(f"解析缓存时间失败 {market}: {e}")
-        
-        # 如果没有缓存数据，返回None（不确定）
-        logger.debug(f"市场{market}无缓存数据")
-        return None
+        logger.warning("akshare 返回空数据")
+        return []
         
     except Exception as e:
-        logger.warning(f"检查{market}市场状态失败: {e}", exc_info=True)
-        return None
+        logger.error(f"获取A股交易日历失败: {e}")
+        return []
 
 
-def _fallback_time_check(market: str) -> bool:
-    """使用常规交易时间窗口兜底判断
+def _fetch_hk_stock_calendar() -> list:
+    """获取港股交易日历
     
-    场景：Redis无数据或数据过期时，避免永远判定为收盘。
+    港股交易日历较难直接获取，使用以下策略：
+    1. 港股通常与A股交易日相近，但有些差异
+    2. 港股特有的休市日：圣诞节、复活节、佛诞等
+    
+    Returns:
+        交易日期列表
     """
-    tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
-    now = datetime.now(tz)
+    try:
+        # 港股交易日历可以通过 yfinance 间接获取，但较慢
+        # 这里使用简化策略：基于A股日历，排除港股特有休市日
+        
+        # 先获取A股日历作为基础
+        a_calendar = _get_a_stock_calendar_from_cache()
+        if not a_calendar:
+            a_calendar = _fetch_a_stock_calendar()
+        
+        if not a_calendar:
+            return []
+        
+        # 港股特有休市日（每年需要更新）
+        # 2024-2025年港股特有休市日
+        hk_only_holidays = {
+            # 2024年
+            '20240101',  # 元旦
+            '20240212',  # 农历年初三
+            '20240329',  # 耶稣受难节
+            '20240330',  # 耶稣受难节翌日
+            '20240401',  # 复活节星期一
+            '20240404',  # 清明节
+            '20240501',  # 劳动节
+            '20240515',  # 佛诞
+            '20240610',  # 端午节
+            '20240701',  # 香港特别行政区成立纪念日
+            '20240918',  # 中秋节翌日
+            '20241001',  # 国庆日
+            '20241011',  # 重阳节
+            '20241225',  # 圣诞节
+            '20241226',  # 圣诞节后第一个周日
+            # 2025年
+            '20250101',  # 元旦
+            '20250129',  # 农历年初一
+            '20250130',  # 农历年初二
+            '20250131',  # 农历年初三
+            '20250404',  # 清明节
+            '20250418',  # 耶稣受难节
+            '20250419',  # 耶稣受难节翌日
+            '20250421',  # 复活节星期一
+            '20250501',  # 劳动节
+            '20250505',  # 佛诞
+            '20250531',  # 端午节
+            '20250701',  # 香港特别行政区成立纪念日
+            '20251001',  # 国庆日
+            '20251007',  # 中秋节翌日
+            '20251029',  # 重阳节
+            '20251225',  # 圣诞节
+            '20251226',  # 圣诞节后第一个周日
+        }
+        
+        # 从A股日历中排除港股特有休市日
+        hk_calendar = [d for d in a_calendar if d not in hk_only_holidays]
+        
+        logger.info(f"生成港股交易日历，共 {len(hk_calendar)} 个交易日")
+        return hk_calendar
+        
+    except Exception as e:
+        logger.error(f"获取港股交易日历失败: {e}")
+        return []
+
+
+def _get_a_stock_calendar_from_cache() -> list:
+    """从缓存获取A股交易日历"""
+    global _calendar_cache
     
-    # 周末休市
-    if now.weekday() >= 5:
-        return False
+    now = datetime.now()
+    cache = _calendar_cache["a"]
     
+    # 检查内存缓存
+    if cache["data"] and cache["timestamp"]:
+        if (now - cache["timestamp"]).total_seconds() < _cache_ttl:
+            return cache["data"]
+    
+    # 从Redis获取
+    try:
+        redis_data = get_json(A_STOCK_CALENDAR_KEY)
+        if redis_data and isinstance(redis_data, list) and len(redis_data) > 0:
+            _calendar_cache["a"] = {"data": redis_data, "timestamp": now}
+            return redis_data
+    except Exception as e:
+        logger.debug(f"从Redis获取A股日历失败: {e}")
+    
+    return []
+
+
+def _get_hk_stock_calendar_from_cache() -> list:
+    """从缓存获取港股交易日历"""
+    global _calendar_cache
+    
+    now = datetime.now()
+    cache = _calendar_cache["hk"]
+    
+    # 检查内存缓存
+    if cache["data"] and cache["timestamp"]:
+        if (now - cache["timestamp"]).total_seconds() < _cache_ttl:
+            return cache["data"]
+    
+    # 从Redis获取
+    try:
+        redis_data = get_json(HK_STOCK_CALENDAR_KEY)
+        if redis_data and isinstance(redis_data, list) and len(redis_data) > 0:
+            _calendar_cache["hk"] = {"data": redis_data, "timestamp": now}
+            return redis_data
+    except Exception as e:
+        logger.debug(f"从Redis获取港股日历失败: {e}")
+    
+    return []
+
+
+def refresh_trading_calendar(market: str = "ALL") -> bool:
+    """刷新交易日历缓存
+    
+    Args:
+        market: "A", "HK", 或 "ALL"
+    
+    Returns:
+        是否成功
+    """
+    global _calendar_cache
+    success = True
+    
+    if market in ["A", "ALL"]:
+        try:
+            a_calendar = _fetch_a_stock_calendar()
+            if a_calendar:
+                set_json(A_STOCK_CALENDAR_KEY, a_calendar, ex=86400 * 7)  # 缓存7天
+                _calendar_cache["a"] = {"data": a_calendar, "timestamp": datetime.now()}
+                logger.info(f"A股交易日历已更新，共 {len(a_calendar)} 个交易日")
+            else:
+                success = False
+        except Exception as e:
+            logger.error(f"刷新A股交易日历失败: {e}")
+            success = False
+    
+    if market in ["HK", "ALL"]:
+        try:
+            hk_calendar = _fetch_hk_stock_calendar()
+            if hk_calendar:
+                set_json(HK_STOCK_CALENDAR_KEY, hk_calendar, ex=86400 * 7)  # 缓存7天
+                _calendar_cache["hk"] = {"data": hk_calendar, "timestamp": datetime.now()}
+                logger.info(f"港股交易日历已更新，共 {len(hk_calendar)} 个交易日")
+            else:
+                success = False
+        except Exception as e:
+            logger.error(f"刷新港股交易日历失败: {e}")
+            success = False
+    
+    return success
+
+
+def is_trading_day(market: str, check_date: date = None) -> bool:
+    """判断指定日期是否为交易日
+    
+    Args:
+        market: "A" 或 "HK"
+        check_date: 要检查的日期，None则使用今天
+    
+    Returns:
+        是否为交易日
+    """
+    if check_date is None:
+        tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+        check_date = datetime.now(tz).date()
+    
+    date_str = check_date.strftime('%Y%m%d')
+    
+    # 获取交易日历
     if market == "A":
-        windows = [
-            (time(9, 30), time(11, 30)),
-            (time(13, 0), time(15, 0)),
-        ]
-    else:  # HK
-        # 港股收盘竞价通常到 16:10，取 16:10 作为兜底
-        windows = [
-            (time(9, 30), time(12, 0)),
-            (time(13, 0), time(16, 10)),
-        ]
+        calendar = _get_a_stock_calendar_from_cache()
+        if not calendar:
+            # 尝试刷新
+            refresh_trading_calendar("A")
+            calendar = _get_a_stock_calendar_from_cache()
+    else:
+        calendar = _get_hk_stock_calendar_from_cache()
+        if not calendar:
+            refresh_trading_calendar("HK")
+            calendar = _get_hk_stock_calendar_from_cache()
     
-    current = now.time()
-    return any(start <= current <= end for start, end in windows)
+    # 如果没有日历数据，使用简单的周末判断
+    if not calendar:
+        logger.warning(f"无{market}交易日历数据，使用周末判断")
+        return check_date.weekday() < 5  # 周一到周五
+    
+    return date_str in calendar
+
+
+def is_in_trading_hours(market: str, check_time: time = None) -> bool:
+    """判断指定时间是否在交易时间段内
+    
+    Args:
+        market: "A" 或 "HK"
+        check_time: 要检查的时间，None则使用当前时间
+    
+    Returns:
+        是否在交易时间段内
+    """
+    if check_time is None:
+        tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+        check_time = datetime.now(tz).time()
+    
+    windows = A_STOCK_TRADING_WINDOWS if market == "A" else HK_STOCK_TRADING_WINDOWS
+    
+    for start, end in windows:
+        if start <= check_time <= end:
+            return True
+    
+    return False
 
 
 def is_a_stock_trading_time(dt: datetime = None) -> bool:
-    """实时判断A股是否在交易时间内
-    
-    通过尝试获取实时行情数据来判断：
-    - 如果能获取到有效的实时数据，说明在交易时间内
-    - 如果获取不到或数据无效，说明不在交易时间内
+    """判断A股是否在交易时间内
     
     Args:
-        dt: 日期时间，None则使用当前时间（此参数保留兼容性，实际使用当前时间）
+        dt: 日期时间，None则使用当前时间
     
     Returns:
         是否在交易时间内
     """
-    global _trading_status_cache
+    if dt is None:
+        dt = datetime.now(TZ_SHANGHAI)
+    elif dt.tzinfo is None:
+        dt = TZ_SHANGHAI.localize(dt)
     
-    # 检查缓存
-    now = datetime.now()
-    cache_key = "a"
-    cache_entry = _trading_status_cache[cache_key]
+    # 1. 检查是否为交易日
+    if not is_trading_day("A", dt.date()):
+        return False
     
-    if cache_entry["timestamp"] and (now - cache_entry["timestamp"]).total_seconds() < _cache_ttl:
-        return cache_entry["status"] if cache_entry["status"] is not None else False
-    
-    # 实时检查（优先使用实时行情更新时间）
-    status = _check_market_status("A")
-    if status is None:
-        status = _fallback_time_check("A")
-    
-    # 更新缓存
-    _trading_status_cache[cache_key] = {
-        "status": status,
-        "timestamp": now
-    }
-    
-    return status if status is not None else False
+    # 2. 检查是否在交易时间段
+    return is_in_trading_hours("A", dt.time())
 
 
 def is_hk_stock_trading_time(dt: datetime = None) -> bool:
-    """实时判断港股是否在交易时间内
-    
-    通过尝试获取实时行情数据来判断：
-    - 如果能获取到有效的实时数据，说明在交易时间内
-    - 如果获取不到或数据无效，说明不在交易时间内
+    """判断港股是否在交易时间内
     
     Args:
-        dt: 日期时间，None则使用当前时间（此参数保留兼容性，实际使用当前时间）
+        dt: 日期时间，None则使用当前时间
     
     Returns:
         是否在交易时间内
     """
-    global _trading_status_cache
+    if dt is None:
+        dt = datetime.now(TZ_HONGKONG)
+    elif dt.tzinfo is None:
+        dt = TZ_HONGKONG.localize(dt)
     
-    # 检查缓存
-    now = datetime.now()
-    cache_key = "hk"
-    cache_entry = _trading_status_cache[cache_key]
+    # 1. 检查是否为交易日
+    if not is_trading_day("HK", dt.date()):
+        return False
     
-    if cache_entry["timestamp"] and (now - cache_entry["timestamp"]).total_seconds() < _cache_ttl:
-        return cache_entry["status"] if cache_entry["status"] is not None else False
-    
-    # 实时检查（优先使用实时行情更新时间）
-    status = _check_market_status("HK")
-    if status is None:
-        status = _fallback_time_check("HK")
-    
-    # 更新缓存
-    _trading_status_cache[cache_key] = {
-        "status": status,
-        "timestamp": now
-    }
-    
-    return status if status is not None else False
+    # 2. 检查是否在交易时间段
+    return is_in_trading_hours("HK", dt.time())
 
 
 def is_any_market_trading() -> Tuple[bool, bool]:
-    """实时判断A股和港股是否在交易时间内
+    """判断A股和港股是否在交易时间内
     
     Returns:
         (is_a_trading, is_hk_trading)
@@ -239,41 +351,118 @@ def is_any_market_trading() -> Tuple[bool, bool]:
     return is_a_stock_trading_time(), is_hk_stock_trading_time()
 
 
-def get_next_trading_start_time(market: str = "A") -> datetime:
-    """获取下一个可能的交易开始时间（估算）
-    
-    由于采用实时判断，此函数仅提供估算值
-    实际交易时间判断应使用 is_a_stock_trading_time 或 is_hk_stock_trading_time
+def get_next_trading_datetime(market: str) -> Optional[datetime]:
+    """获取下一个交易开始时间
     
     Args:
-        market: 市场类型，"A" 或 "HK"
+        market: "A" 或 "HK"
     
     Returns:
-        估算的下一个交易开始时间
+        下一个交易开始时间（带时区），如果无法确定返回None
     """
-    from datetime import timedelta
-    now = datetime.now(TZ_SHANGHAI if market == "A" else TZ_HONGKONG)
+    tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+    now = datetime.now(tz)
+    windows = A_STOCK_TRADING_WINDOWS if market == "A" else HK_STOCK_TRADING_WINDOWS
     
-    # 如果当前在交易时间内，返回下一个可能的交易开始时间（下午或明天）
+    morning_start = windows[0][0]  # 上午开盘时间
+    afternoon_start = windows[1][0]  # 下午开盘时间
+    afternoon_end = windows[1][1]  # 下午收盘时间
+    
+    current_time = now.time()
+    current_date = now.date()
+    
+    # 获取交易日历
     if market == "A":
-        morning_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        afternoon_start = now.replace(hour=13, minute=0, second=0, microsecond=0)
-        afternoon_end = now.replace(hour=15, minute=0, second=0, microsecond=0)
-    else:  # HK
-        morning_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        afternoon_start = now.replace(hour=13, minute=0, second=0, microsecond=0)
-        afternoon_end = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        calendar = _get_a_stock_calendar_from_cache()
+        if not calendar:
+            refresh_trading_calendar("A")
+            calendar = _get_a_stock_calendar_from_cache()
+    else:
+        calendar = _get_hk_stock_calendar_from_cache()
+        if not calendar:
+            refresh_trading_calendar("HK")
+            calendar = _get_hk_stock_calendar_from_cache()
     
-    # 如果还没到上午开始时间
-    if now < morning_start:
-        return morning_start
-    # 如果还在上午，返回下午开始时间
-    elif now < afternoon_start:
-        return afternoon_start
-    # 如果已经过了收盘时间，返回明天上午
-    elif now >= afternoon_end:
-        next_day = (now + timedelta(days=1)).replace(hour=9, minute=30, second=0, microsecond=0)
-        return next_day
+    # 如果今天是交易日
+    today_str = current_date.strftime('%Y%m%d')
+    is_today_trading = today_str in calendar if calendar else current_date.weekday() < 5
     
-    # 默认返回明天上午
-    return (now + timedelta(days=1)).replace(hour=9, minute=30, second=0, microsecond=0)
+    if is_today_trading:
+        # 还没到上午开盘
+        if current_time < morning_start:
+            return tz.localize(datetime.combine(current_date, morning_start))
+        # 上午休市期间
+        elif windows[0][1] < current_time < afternoon_start:
+            return tz.localize(datetime.combine(current_date, afternoon_start))
+        # 还在交易时间内
+        elif current_time <= afternoon_end:
+            return None  # 正在交易中
+    
+    # 查找下一个交易日
+    check_date = current_date + timedelta(days=1)
+    max_days = 30  # 最多查找30天
+    
+    for _ in range(max_days):
+        check_str = check_date.strftime('%Y%m%d')
+        is_trading = check_str in calendar if calendar else check_date.weekday() < 5
+        
+        if is_trading:
+            return tz.localize(datetime.combine(check_date, morning_start))
+        
+        check_date += timedelta(days=1)
+    
+    # 找不到下一个交易日
+    return None
+
+
+def get_market_status_with_next(market: str) -> Dict[str, Any]:
+    """获取市场状态，包含下一个开盘时间
+    
+    Args:
+        market: "A" 或 "HK"
+    
+    Returns:
+        {
+            "is_trading": bool,
+            "status": str,  # "交易中" / "已收盘" / "休市"
+            "next_open": str | None,  # 下一个开盘时间，格式："12-25 09:30"
+            "next_open_full": str | None  # 完整格式："2024-12-25 09:30"
+        }
+    """
+    tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
+    now = datetime.now(tz)
+    
+    is_trading = is_a_stock_trading_time() if market == "A" else is_hk_stock_trading_time()
+    is_today_trading_day = is_trading_day(market, now.date())
+    
+    result = {
+        "is_trading": is_trading,
+        "status": "交易中" if is_trading else ("已收盘" if is_today_trading_day else "休市"),
+        "next_open": None,
+        "next_open_full": None
+    }
+    
+    if not is_trading:
+        next_dt = get_next_trading_datetime(market)
+        if next_dt:
+            result["next_open"] = next_dt.strftime("%m-%d %H:%M")
+            result["next_open_full"] = next_dt.strftime("%Y-%m-%d %H:%M")
+    
+    return result
+
+
+# 启动时自动刷新交易日历
+def init_trading_calendar():
+    """初始化交易日历（启动时调用）"""
+    try:
+        # 检查是否需要刷新
+        a_calendar = _get_a_stock_calendar_from_cache()
+        hk_calendar = _get_hk_stock_calendar_from_cache()
+        
+        if not a_calendar or not hk_calendar:
+            logger.info("交易日历缓存为空，开始刷新...")
+            refresh_trading_calendar("ALL")
+        else:
+            logger.info(f"交易日历已加载: A股 {len(a_calendar)} 天, 港股 {len(hk_calendar)} 天")
+    except Exception as e:
+        logger.error(f"初始化交易日历失败: {e}")

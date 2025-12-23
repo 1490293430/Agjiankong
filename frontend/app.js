@@ -366,16 +366,28 @@ function handleMarketStatusUpdate(data) {
     
     if (data && data.a) {
         const aStatus = data.a;
-        aStatusEl.textContent = aStatus.status || '未知';
+        // 构建状态文本，包含下一个开盘时间
+        let statusText = aStatus.status || '未知';
+        if (!aStatus.is_trading && aStatus.next_open) {
+            statusText += ` (${aStatus.next_open}开)`;
+        }
+        aStatusEl.textContent = statusText;
         aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
-        console.log('[SSE] A股状态已更新:', aStatus.status);
+        aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
+        console.log('[SSE] A股状态已更新:', statusText);
     }
     
     if (data && data.hk) {
         const hkStatus = data.hk;
-        hkStatusEl.textContent = hkStatus.status || '未知';
+        // 构建状态文本，包含下一个开盘时间
+        let statusText = hkStatus.status || '未知';
+        if (!hkStatus.is_trading && hkStatus.next_open) {
+            statusText += ` (${hkStatus.next_open}开)`;
+        }
+        hkStatusEl.textContent = statusText;
         hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
-        console.log('[SSE] 港股状态已更新:', hkStatus.status);
+        hkStatusEl.title = hkStatus.next_open_full ? `下次开盘: ${hkStatus.next_open_full}` : '';
+        console.log('[SSE] 港股状态已更新:', statusText);
     }
 }
 
@@ -7630,16 +7642,24 @@ async function updateMarketStatus() {
                 hkStatusText: hkStatus.status
             });
             
-            // 更新A股状态
-            const aStatusText = aStatus.status || '未知';
+            // 更新A股状态（包含下一个开盘时间）
+            let aStatusText = aStatus.status || '未知';
+            if (!aStatus.is_trading && aStatus.next_open) {
+                aStatusText += ` (${aStatus.next_open}开)`;
+            }
             aStatusEl.textContent = aStatusText;
             aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
+            aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
             console.log('[市场状态] A股状态已更新:', aStatusText, aStatus.is_trading ? '交易中' : '已收盘');
             
-            // 更新港股状态
-            const hkStatusText = hkStatus.status || '未知';
+            // 更新港股状态（包含下一个开盘时间）
+            let hkStatusText = hkStatus.status || '未知';
+            if (!hkStatus.is_trading && hkStatus.next_open) {
+                hkStatusText += ` (${hkStatus.next_open}开)`;
+            }
             hkStatusEl.textContent = hkStatusText;
             hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
+            hkStatusEl.title = hkStatus.next_open_full ? `下次开盘: ${hkStatus.next_open_full}` : '';
             console.log('[市场状态] 港股状态已更新:', hkStatusText, hkStatus.is_trading ? '交易中' : '已收盘');
             
             console.log('[市场状态] 状态更新完成');
