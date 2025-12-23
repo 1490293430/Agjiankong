@@ -1500,6 +1500,9 @@ body.light-mode .kline-controls select option {
     background: #1e293b;
     border-radius: 8px;
     padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .news-item {

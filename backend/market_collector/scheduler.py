@@ -16,6 +16,9 @@ logger = get_logger(__name__)
 _last_batch_compute_date = None
 _last_batch_compute_market = set()  # 存储格式："{market}_{date}"，例如 "A_2025-12-20"
 
+# 记录上次资讯采集时间
+_last_news_collect_time = None
+
 
 def collect_job():
     """采集任务（单次采集，不做交易时间判断）
@@ -130,6 +133,35 @@ def collect_job():
             logger.debug(f"广播采集失败结果失败: {e2}")
 
 
+def news_collect_job():
+    """资讯采集任务（每30分钟执行一次）"""
+    global _last_news_collect_time
+    
+    try:
+        now = datetime.now()
+        
+        # 检查是否需要采集（每30分钟一次）
+        if _last_news_collect_time:
+            elapsed = (now - _last_news_collect_time).total_seconds()
+            if elapsed < 1800:  # 30分钟 = 1800秒
+                return
+        
+        logger.info("开始采集财经资讯...")
+        from news.collector import fetch_news
+        
+        result = fetch_news()
+        news_count = len(result) if result else 0
+        
+        if news_count > 0:
+            _last_news_collect_time = now
+            logger.info(f"资讯采集完成: {news_count}条")
+        else:
+            logger.warning("资讯采集返回空数据")
+            
+    except Exception as e:
+        logger.error(f"资讯采集失败: {e}", exc_info=True)
+
+
 def batch_compute_indicators_job(market: str = "A"):
     """批量计算指标任务（收盘后自动执行）
     
@@ -198,6 +230,9 @@ def main():
             if elapsed > 10:  # 只有采集时间超过10秒才记录
                 logger.info(f"本次采集耗时: {elapsed:.2f}秒")
             
+            # 采集资讯（每30分钟一次）
+            news_collect_job()
+            
             # 采集完成后，广播市场状态更新（通过SSE）
             try:
                 from market.service.sse import broadcast_market_status_update
@@ -208,6 +243,9 @@ def main():
             # 交易时间内使用正常间隔
             time.sleep(interval)
         else:
+            # 不在交易时间内，也要采集资讯（每30分钟一次）
+            news_collect_job()
+            
             # 不在交易时间内，检查是否需要执行收盘后批量计算指标
             # 策略：
             # 1. 港股收盘时（16:30-17:00）：如果港股今天有交易，一起计算A股和港股

@@ -1848,7 +1848,7 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "hk_stock",
                         "message": f"A股采集完成({a_count}只)，正在采集港股实时行情...",
-                        "data_source": "AKShare(东方财富)",
+                        "data_source": "新浪财经",
                         "a_count": a_count,
                         "start_time": start_time
                     }
@@ -1941,7 +1941,8 @@ async def collect_spot_data_api(
                     "hk_count": hk_count,
                     "a_time": time_str,
                     "hk_time": time_str,
-                    "source": data_source or "未知"
+                    "source": data_source or "未知",
+                    "hk_source": hk_source or "未知"
                 }
                 # 保存到Redis持久化
                 set_json("spot:collect:result", spot_result_data)

@@ -82,14 +82,17 @@ async function saveSelectionConfig() {
         });
         
         if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || `HTTP ${res.status}`);
         }
         
+        // 后端返回的是RuntimeConfig对象，不是{code, data}格式
         const data = await res.json();
-        if (data.code === 0) {
+        if (data.selection_max_count !== undefined) {
+            // 返回了配置对象，说明保存成功
             showToast('选股配置保存成功', 'success');
         } else {
-            throw new Error(data.message || '保存失败');
+            throw new Error('返回数据格式异常');
         }
     } catch (error) {
         console.error('[选股配置] 保存失败:', error);
@@ -1088,6 +1091,7 @@ function handleSpotCollectResult(data) {
     const success = data.success;
     const time = data.time || '';
     const source = data.source || '';
+    const hkSource = data.hk_source || '';
     const aCount = data.a_count || 0;
     const hkCount = data.hk_count || 0;
     const aTime = data.a_time || time;
@@ -1113,12 +1117,16 @@ function handleSpotCollectResult(data) {
     }
     if (hkTimeEl) hkTimeEl.textContent = hkTime;
     
-    // 数据源
+    // 数据源（显示A股和港股数据源）
     if (sourceEl) {
-        sourceEl.textContent = source || '未知';
+        let sourceText = source || '未知';
+        if (hkSource && hkCount > 0) {
+            sourceText = `A:${source || '未知'} H:${hkSource}`;
+        }
+        sourceEl.textContent = sourceText;
     }
     
-    console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), 数据源=${source}`);
+    console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), A股源=${source}, 港股源=${hkSource}`);
 }
 
 // 加载上次的采集结果（页面刷新后恢复显示）
@@ -6956,30 +6964,33 @@ function initNews() {
         loadNews();
     });
     
-    // 初始化资讯页无限滚动
-    window.addEventListener('scroll', () => {
-        const newsTab = document.getElementById('news-tab');
-        if (!newsTab || !newsTab.classList.contains('active')) {
-            return;
-        }
-        
-        // 检查是否滚动到底部
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollHeight = document.documentElement.scrollHeight;
-        const clientHeight = window.innerHeight;
-        
-        // 距离底部200px时加载下一批
-        if (scrollTop + clientHeight >= scrollHeight - 200 && 
-            !newsIsLoading && 
-            newsRenderedCount < newsAllItems.length) {
-            console.log('[资讯] 触发无限滚动，加载下一批');
-            newsIsLoading = true;
-            requestAnimationFrame(() => {
-                renderNewsBatch();
-                newsIsLoading = false;
-            });
-        }
-    });
+    // 初始化资讯页无限滚动（监听news-list容器）
+    const newsList = document.getElementById('news-list');
+    if (newsList) {
+        newsList.addEventListener('scroll', () => {
+            const newsTab = document.getElementById('news-tab');
+            if (!newsTab || !newsTab.classList.contains('active')) {
+                return;
+            }
+            
+            // 检查是否滚动到底部
+            const scrollTop = newsList.scrollTop;
+            const scrollHeight = newsList.scrollHeight;
+            const clientHeight = newsList.clientHeight;
+            
+            // 距离底部200px时加载下一批
+            if (scrollTop + clientHeight >= scrollHeight - 200 && 
+                !newsIsLoading && 
+                newsRenderedCount < newsAllItems.length) {
+                console.log('[资讯] 触发无限滚动，加载下一批');
+                newsIsLoading = true;
+                requestAnimationFrame(() => {
+                    renderNewsBatch();
+                    newsIsLoading = false;
+                });
+            }
+        });
+    }
     
     // 如果当前在资讯页且没有数据，主动加载一次（避免页面为空）
     const newsTab = document.getElementById('news-tab');
