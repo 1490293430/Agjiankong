@@ -13,6 +13,51 @@ from common.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def _get_tushare_stock_codes() -> Set[str]:
+    """尝试从 market_collector.tushare_source 获取 A股代码列表，返回代码集合。
+    仅在采集时调用一次作为参考（不做定时任务）。
+    如果无法获取或 Tushare 未配置，则返回空集合。
+    """
+    try:
+        from market_collector.tushare_source import fetch_stock_list_tushare, get_tushare_api
+        api = get_tushare_api()
+        if not api:
+            return set()
+        stocks = fetch_stock_list_tushare()
+        return {str(s.get('code')).strip() for s in stocks if s.get('code')}
+    except Exception:
+        return set()
+
+
+def _classify_security(code: str, name: str) -> str:
+    """启发式分类（回退用）：'stock'|'index'|'etf'|'fund'"""
+    try:
+        name_str = (name or "").upper()
+        code_str = str(code or "").strip()
+    except Exception:
+        return "stock"
+
+    if "指数" in name or "指数" in name_str:
+        return "index"
+    if "ETF" in name_str:
+        return "etf"
+    if "LOF" in name_str or "基金" in name or "债" in name or "可转债" in name:
+        return "fund"
+    if code_str.startswith("399"):
+        return "index"
+    if code_str.startswith("000") and ("上证" in name or "深证" in name or "中证" in name):
+        return "index"
+    if code_str.startswith("51") or code_str.startswith("159") or code_str.startswith("15"):
+        if "ETF" in name_str:
+            return "etf"
+        return "fund"
+    if code_str.startswith("5") or code_str.startswith("1"):
+        if "ETF" in name_str:
+            return "etf"
+        return "fund"
+    return "stock"
+
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -147,7 +192,25 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             # 将旧快照备份一份，方便需要时回溯（保留 30 天）
             if old_data:
                 set_json("market:a:spot_prev", old_data, ex=30 * 24 * 3600)
-            
+
+            # 在写入 Redis 前，优先尝试使用权威列表（Tushare）区分股票与其它品种
+            try:
+                tushare_codes = _get_tushare_stock_codes()
+            except Exception:
+                tushare_codes = set()
+
+            # 为每条记录注入 sec_type：优先用 tushare 列表判定（存在即为股票），否则使用启发式回退
+            for item in result:
+                try:
+                    code = str(item.get('code') or '').strip()
+                    name = item.get('name') or ''
+                    if tushare_codes and code in tushare_codes:
+                        item['sec_type'] = 'stock'
+                    else:
+                        item['sec_type'] = _classify_security(code, name)
+                except Exception:
+                    item['sec_type'] = 'stock'
+
             # 2. 写入新的全量快照（前端HTTP/WS读取的主数据，保留 30 天）
             set_json("market:a:spot", result, ex=30 * 24 * 3600)
             get_redis().set("market:a:time", datetime.now().isoformat(), ex=30 * 24 * 3600)

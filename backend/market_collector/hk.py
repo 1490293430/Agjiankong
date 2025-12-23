@@ -11,6 +11,23 @@ from common.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def _classify_security_hk(code: str, name: str) -> str:
+    """港股启发式分类，返回 'stock'|'index'|'etf'|'fund'。仅在采集时使用，不做定时任务。"""
+    try:
+        name_str = (name or "").upper()
+        code_str = str(code or "").strip()
+    except Exception:
+        return "stock"
+
+    if "指数" in name or "指数" in name_str:
+        return "index"
+    if "ETF" in name_str:
+        return "etf"
+    if "基金" in name or "基金" in name_str or "REIT" in name_str:
+        return "fund"
+    return "stock"
+
 # yfinance导入（可选，如果安装失败不影响其他功能）
 try:
     import yfinance as yf
@@ -219,6 +236,15 @@ def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
     if old_data:
         set_json("market:hk:spot_prev", old_data, ex=30 * 24 * 3600)
     
+    # 在写入新的全量快照前，为每条记录注入启发式的 sec_type（仅在采集时运行）
+    for item in result:
+        try:
+            code = item.get('code')
+            name = item.get('name')
+            item['sec_type'] = _classify_security_hk(code, name)
+        except Exception:
+            item['sec_type'] = 'stock'
+
     # 写入新的全量快照
     set_json("market:hk:spot", result, ex=30 * 24 * 3600)
     get_redis().set("market:hk:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
