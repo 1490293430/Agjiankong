@@ -1726,7 +1726,7 @@ let isLoading = false;
 let hasMore = true;
 let currentMarket = 'a';
 let currentSort = 'default'; // 当前排序方式
-let filterStockOnly = false; // 是否仅显示股票
+let filterStockOnly = localStorage.getItem('filterStockOnly') === 'true'; // 从localStorage恢复
 let allMarketData = []; // 存储所有行情数据（用于前端排序和过滤）
 
 // 已移除marketRefreshInterval，改用SSE实时推送
@@ -1890,8 +1890,7 @@ async function initMarket() {
     // 初始化"仅显示股票"过滤
     const filterStockOnlyCheckbox = document.getElementById('filter-stock-only');
     if (filterStockOnlyCheckbox) {
-        // 从localStorage恢复状态
-        filterStockOnly = localStorage.getItem('filterStockOnly') === 'true';
+        // 同步 checkbox 状态（filterStockOnly 已在全局初始化时从 localStorage 恢复）
         filterStockOnlyCheckbox.checked = filterStockOnly;
         
         filterStockOnlyCheckbox.addEventListener('change', () => {
