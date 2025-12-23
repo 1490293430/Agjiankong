@@ -705,34 +705,43 @@
                             批量采集K线数据到数据库，用于选股分析。
                         </div>
                         
-                        <!-- 采集按钮横排 -->
-                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
-                            <button id="collect-spot-btn" onclick="collectSpotData()" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📊 采集实时快照</button>
-                            <label style="display: flex; align-items: center; gap: 4px;">
-                                数量：
-                                <input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 50px;">
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 4px;">
-                                市场：
-                                <select id="single-batch-market-select" style="padding: 4px 8px;">
-                                    <option value="ALL">A股+港股</option>
-                                    <option value="A">A股</option>
-                                    <option value="HK">港股</option>
-                                </select>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 4px;">
-                                周期：
-                                <select id="single-batch-period-select" style="padding: 4px 8px;">
-                                    <option value="daily">日线</option>
-                                    <option value="1h">小时</option>
-                                </select>
-                            </label>
-                            <button id="single-batch-collect-kline-btn" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📥 单个采集</button>
-                            <label style="display: flex; align-items: center; gap: 4px;">
-                                批量：
-                                <input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 70px;">
-                            </label>
-                            <button id="collect-kline-btn" class="success-btn" style="padding: 6px 12px; font-size: 13px;">📥 批量采集</button>
+                        <!-- 采集区域横排布局 -->
+                        <div style="display: flex; gap: 20px; align-items: flex-start;">
+                            <!-- 单个采集（竖排） -->
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                                    数量：
+                                    <input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 50px;">
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                                    市场：
+                                    <select id="single-batch-market-select" style="padding: 4px 6px;">
+                                        <option value="ALL">全部</option>
+                                        <option value="A">A股</option>
+                                        <option value="HK">港股</option>
+                                    </select>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                                    周期：
+                                    <select id="single-batch-period-select" style="padding: 4px 6px;">
+                                        <option value="daily">日线</option>
+                                        <option value="1h">小时</option>
+                                    </select>
+                                </label>
+                                <button id="single-batch-collect-kline-btn" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📥 单个采集</button>
+                            </div>
+                            
+                            <!-- 批量采集（竖排） -->
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                                    批量：
+                                    <input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 70px;">
+                                </label>
+                                <button id="collect-kline-btn" class="success-btn" style="padding: 6px 12px; font-size: 13px;">📥 批量采集</button>
+                            </div>
+                            
+                            <!-- 采集快照按钮 -->
+                            <button id="collect-spot-btn" onclick="collectSpotData()" class="action-btn" style="padding: 8px 14px; font-size: 13px;">📊 采集快照</button>
                         </div>
                         
                         <!-- 采集状态和停止按钮 -->
