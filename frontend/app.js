@@ -2081,8 +2081,41 @@ async function loadMarket() {
                 if (result.data && result.data.length > 0) {
                 // 如果有排序或过滤，加载完原始数据后重新应用排序/过滤
                 if (currentSort !== 'default' || filterStockOnly) {
-                    // 加载完原始数据后重新应用过滤和排序
-                    applyFilterAndSort();
+                    // 在过滤模式下，第一页时才重新渲染，后续页面只追加新的过滤数据
+                    if (currentPage === 1) {
+                        // 第一页：重新计算并完整渲染
+                        applyFilterAndSort();
+                    } else {
+                        // 后续页：只追加新过滤的数据到DOM（避免重新渲染导致滚动位置重置）
+                        const newFilteredData = result.data.filter(stock => {
+                            if (filterStockOnly) {
+                                if (stock && stock.sec_type) {
+                                    return String(stock.sec_type) === 'stock';
+                                }
+                                const code = String(stock.code || '');
+                                const name = String(stock.name || '');
+                                if (currentMarket === 'a') {
+                                    if (name.includes('指数') || name.includes('ETF') || name.includes('LOF')) return false;
+                                    if (code.startsWith('399')) return false;
+                                    if (code.startsWith('000') && (name.includes('上证') || name.includes('深证') || name.includes('中证'))) return false;
+                                    if (code.startsWith('5') || code.startsWith('1')) return false;
+                                }
+                                if (currentMarket === 'hk') {
+                                    if (name.includes('指数') || name.includes('ETF') || name.includes('基金')) return false;
+                                }
+                            }
+                            return true;
+                        });
+                        
+                        // 直接追加新的过滤数据（不重新渲染整个列表）
+                        appendStockList(newFilteredData);
+                        
+                        // 更新filteredMarketData
+                        window.filteredMarketData = window.filteredMarketData || [];
+                        window.filteredMarketData = window.filteredMarketData.concat(newFilteredData);
+                        
+                        console.log(`[行情] 过滤模式追加: 新增${result.data.length}条原始数据，过滤后${newFilteredData.length}条，总过滤数${window.filteredMarketData.length}条`);
+                    }
                 } else {
                     // 无排序和过滤，直接追加数据
                     appendStockList(result.data);
