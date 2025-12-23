@@ -1860,7 +1860,7 @@ async def collect_spot_data_api(
                 # 采集港股（使用线程池+超时控制）
                 hk_result = []
                 hk_count = 0
-                hk_source = "AKShare(东方财富)"
+                hk_source = ""
                 try:
                     logger.info("[实时快照] 开始采集港股...")
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -1872,14 +1872,20 @@ async def collect_spot_data_api(
                                     future.cancel()
                                     raise Exception("用户停止采集")
                                 try:
-                                    hk_result = future.result(timeout=5)
+                                    result_tuple = future.result(timeout=5)
+                                    # 新的返回格式：(result, source_name)
+                                    if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
+                                        hk_result, hk_source = result_tuple
+                                    else:
+                                        hk_result = result_tuple
+                                        hk_source = "AKShare(东方财富)"
                                     break
                                 except concurrent.futures.TimeoutError:
                                     continue
                             else:
                                 logger.error("[实时快照] 港股采集超时（3分钟）")
                             hk_count = len(hk_result) if hk_result else 0
-                            logger.info(f"[实时快照] 港股采集完成: {hk_count}只")
+                            logger.info(f"[实时快照] 港股采集完成: {hk_count}只 [{hk_source}]")
                         except concurrent.futures.TimeoutError:
                             logger.error("[实时快照] 港股采集超时（3分钟）")
                 except Exception as e:
@@ -1906,7 +1912,7 @@ async def collect_spot_data_api(
                 
                 # 组合数据源显示
                 final_source = data_source or "未知"
-                if hk_count > 0:
+                if hk_count > 0 and hk_source:
                     final_source = f"A股:{data_source or '未知'} | 港股:{hk_source}"
                 
                 # 广播完成状态

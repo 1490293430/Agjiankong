@@ -57,10 +57,17 @@ def collect_job():
                 success = False
         
         # 采集港股
+        hk_source = ""
         try:
-            hk_result = fetch_hk_stock_spot()
+            result_tuple = fetch_hk_stock_spot()
+            # 新的返回格式：(result, source_name)
+            if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
+                hk_result, hk_source = result_tuple
+            else:
+                hk_result = result_tuple
+                hk_source = "AKShare(东方财富)"
             hk_count = len(hk_result) if hk_result else 0
-            logger.info(f"港股采集完成: {hk_count}只")
+            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]")
         except Exception as e:
             logger.error(f"港股采集失败: {e}", exc_info=True)
         

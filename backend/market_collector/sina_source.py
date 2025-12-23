@@ -159,3 +159,137 @@ def _safe_float(value: str) -> float:
         return float(value) if value else 0.0
     except (ValueError, TypeError):
         return 0.0
+
+
+def fetch_sina_hk_stock_spot(codes: List[str] = None, max_retries: int = 1) -> List[Dict[str, Any]]:
+    """
+    从新浪财经获取港股实时行情
+    
+    Args:
+        codes: 股票代码列表，如果为None则获取全部港股
+        max_retries: 最大重试次数
+    
+    Returns:
+        股票行情列表
+    """
+    for attempt in range(max_retries):
+        try:
+            # 如果没有指定代码，先获取港股列表
+            if not codes:
+                codes = _get_all_hk_stock_codes()
+                if not codes:
+                    raise Exception("无法获取港股代码列表")
+            
+            logger.info(f"[新浪港股] 开始获取 {len(codes)} 只股票行情...")
+            
+            # 分批获取（每批最多200只，港股接口限制更严格）
+            batch_size = 200
+            all_results = []
+            
+            for i in range(0, len(codes), batch_size):
+                batch_codes = codes[i:i + batch_size]
+                batch_results = _fetch_batch_sina_hk(batch_codes)
+                all_results.extend(batch_results)
+                
+            logger.info(f"[新浪港股] 获取完成，共 {len(all_results)} 只股票")
+            return all_results
+            
+        except Exception as e:
+            logger.warning(f"[新浪港股] 第{attempt + 1}次尝试失败: {e}")
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(1)
+            else:
+                logger.error(f"[新浪港股] 获取港股行情失败，已重试{max_retries}次")
+                raise
+    
+    return []
+
+
+def _get_all_hk_stock_codes() -> List[str]:
+    """获取所有港股代码列表"""
+    try:
+        # 使用akshare获取港股列表
+        import akshare as ak
+        df = ak.stock_hk_spot_em()
+        codes = df['代码'].tolist()
+        return codes
+    except Exception as e:
+        logger.error(f"[新浪港股] 获取港股代码列表失败: {e}")
+        return []
+
+
+def _fetch_batch_sina_hk(codes: List[str]) -> List[Dict[str, Any]]:
+    """批量获取新浪港股行情数据"""
+    results = []
+    
+    # 转换代码格式：00700 -> hk00700
+    sina_codes = []
+    for code in codes:
+        code = str(code).zfill(5)  # 港股代码5位
+        sina_codes.append(f"hk{code}")
+    
+    if not sina_codes:
+        return results
+    
+    # 请求新浪接口
+    url = SINA_API_URL + ",".join(sina_codes)
+    headers = {
+        "Referer": "http://finance.sina.com.cn",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=60)
+        response.encoding = 'gbk'
+        
+        # 解析返回数据
+        # 港股格式: var hq_str_hk00700="TENCENT,腾讯控股,368.200,369.600,372.000,366.000,...";
+        pattern = r'var hq_str_(\w+)="([^"]+)";'
+        matches = re.findall(pattern, response.text)
+        
+        for sina_code, data_str in matches:
+            if not data_str:
+                continue
+            
+            try:
+                fields = data_str.split(',')
+                if len(fields) < 15:
+                    continue
+                
+                # 提取代码（去掉hk前缀）
+                code = sina_code[2:]
+                
+                # 港股新浪数据格式：
+                # 0: 英文名, 1: 中文名, 2: 开盘价, 3: 昨收, 4: 最高, 5: 最低
+                # 6: 最新价, 7: 涨跌额, 8: 涨跌幅, 9: 买入价, 10: 卖出价
+                # 11: 成交量, 12: 成交额, 13: 市盈率, 14: 52周最高, 15: 52周最低
+                # 16: 日期, 17: 时间
+                result = {
+                    "code": code,
+                    "name": fields[1] if len(fields) > 1 else fields[0],
+                    "open": _safe_float(fields[2]),
+                    "pre_close": _safe_float(fields[3]),
+                    "high": _safe_float(fields[4]),
+                    "low": _safe_float(fields[5]),
+                    "price": _safe_float(fields[6]),
+                    "change": _safe_float(fields[7]),
+                    "pct": _safe_float(fields[8]),
+                    "volume": _safe_float(fields[11]),
+                    "amount": _safe_float(fields[12]),
+                    "pe": _safe_float(fields[13]) if len(fields) > 13 else 0,
+                    "update_time": datetime.now().isoformat(),
+                    "market": "HK"
+                }
+                
+                results.append(result)
+                
+            except Exception as e:
+                logger.debug(f"[新浪港股] 解析股票数据失败: {sina_code}, {e}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"[新浪港股] 请求失败: {e}")
+        raise
+    
+    return results

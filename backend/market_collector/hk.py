@@ -70,160 +70,178 @@ def _try_yahoo_formats(code: str) -> List[str]:
     return unique_formats
 
 
-def fetch_hk_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
+def fetch_hk_stock_spot(max_retries: int = 1) -> List[Dict[str, Any]]:
     """获取港股实时行情
     
+    数据源顺序：新浪财经 → AKShare(东方财富)
+    
     Args:
-        max_retries: 最大重试次数
+        max_retries: 最大重试次数（每个源只尝试1次）
     """
-    for attempt in range(max_retries):
+    # 数据源列表：新浪 → AKShare
+    sources = [
+        ("新浪财经", _fetch_hk_spot_sina),
+        ("AKShare(东方财富)", _fetch_hk_spot_akshare),
+    ]
+    
+    for source_name, fetch_func in sources:
         try:
-            # 使用线程池包装，增加总体超时时间（60秒）
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(ak.stock_hk_spot_em)
-                try:
-                    df = future.result(timeout=60)  # 60秒超时
-                except concurrent.futures.TimeoutError:
-                    raise TimeoutError("akshare API调用超时（60秒）")
-            
-            # 标准化字段名
-            df = df.rename(columns={
-                "代码": "code",
-                "名称": "name",
-                "最新价": "price",
-                "涨跌幅": "pct",
-                "涨跌额": "change",
-                "成交量": "volume",
-                "成交额": "amount",
-                "振幅": "amplitude",
-                "最高": "high",
-                "最低": "low",
-                "今开": "open",
-                "昨收": "pre_close",
-                "量比": "volume_ratio",
-                "换手率": "turnover",
-                "市盈率": "pe",
-                "总市值": "market_cap"
-            })
-            
-            # 转换数据类型
-            numeric_columns = ["price", "pct", "change", "volume", "amount",
-                              "amplitude", "high", "low", "open", "pre_close",
-                              "volume_ratio", "turnover", "pe", "market_cap"]
-            
-            for col in numeric_columns:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # 添加时间戳
-            df["update_time"] = datetime.now().isoformat()
-            df["market"] = "HK"
-            
-            # 转换为字典列表
-            result: List[Dict[str, Any]] = df.to_dict(orient="records")
-            
-            # ---------------- 差分更新逻辑（类似A股） ----------------
-            # 1. 读取旧快照（如果存在），作为基准数据
-            old_data: List[Dict[str, Any]] = get_json("market:hk:spot") or []
-            old_map: Dict[str, Dict[str, Any]] = {
-                str(item.get("code")): item for item in old_data if isinstance(item, dict)
-            }
-            
-            new_map: Dict[str, Dict[str, Any]] = {
-                str(item.get("code")): item for item in result if isinstance(item, dict)
-            }
-            
-            updated: List[Dict[str, Any]] = []
-            added: List[Dict[str, Any]] = []
-            
-            # 需要比较的关键字段（如果这些字段任一有变化，则认为该股票有更新）
-            compare_fields = [
-                "price",
-                "pct",
-                "change",
-                "volume",
-                "amount",
-                "amplitude",
-                "high",
-                "low",
-                "open",
-                "pre_close",
-                "volume_ratio",
-                "turnover",
-                "pe",
-                "market_cap",
-            ]
-            
-            for code, new_item in new_map.items():
-                old_item = old_map.get(code)
-                if not old_item:
-                    # 新增股票
-                    added.append(new_item)
-                    continue
-                
-                # 对比关键字段是否有变化
-                changed = False
-                for field in compare_fields:
-                    if old_item.get(field) != new_item.get(field):
-                        changed = True
-                        break
-                
-                if changed:
-                    updated.append(new_item)
-            
-            # 计算被删除的股票代码（通常较少发生）
-            old_codes: Set[str] = set(old_map.keys())
-            new_codes: Set[str] = set(new_map.keys())
-            removed_codes: List[str] = sorted(list(old_codes - new_codes))
-            
-            # 如果完全没有变化，则保留原有快照，不更新 Redis，避免无意义推送
-            if not updated and not added and not removed_codes:
-                logger.info("港股行情采集成功，本次数据与上次完全一致，跳过Redis更新")
-                return result
-            
-            # 将旧快照备份一份，方便需要时回溯（保留 30 天）
-            if old_data:
-                set_json("market:hk:spot_prev", old_data, ex=30 * 24 * 3600)
-            
-            # 2. 写入新的全量快照（前端HTTP/WS读取的主数据，保留 30 天）
-            set_json("market:hk:spot", result, ex=30 * 24 * 3600)
-            get_redis().set("market:hk:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
-            
-            # 3. 同时写入一份差分数据，供前端或WebSocket按需使用
-            diff_payload = {
-                "timestamp": datetime.now().isoformat(),
-                "added": added,
-                "updated": updated,
-                "removed_codes": removed_codes,
-            }
-            set_json("market:hk:spot_diff", diff_payload, ex=300)
-            
-            # 4. 通过SSE广播市场数据更新
-            try:
-                from market.service.sse import broadcast_market_update
-                broadcast_market_update("hk")
-            except Exception as e:
-                logger.debug(f"SSE广播港股数据失败（不影响数据采集）: {e}")
-            
-            logger.info(
-                f"港股行情采集成功，全量{len(result)}只股票，其中新增{len(added)}只，更新{len(updated)}只，删除{len(removed_codes)}只"
-            )
-            return result
-            
-        except Exception as e:
-            err_type = type(e).__name__
-            err_msg = str(e)
-            if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 2  # 递增等待时间：2s, 4s, 6s
-                if "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
-                    logger.warning(f"港股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} 网络超时")
-                else:
-                    logger.warning(f"港股行情采集失败（第{attempt + 1}次尝试），{wait_time}秒后重试: {err_type} {err_msg[:100]}")
-                time.sleep(wait_time)
+            logger.info(f"[港股实时行情] 尝试使用 {source_name} 数据源...")
+            result = fetch_func()
+            if result and len(result) > 0:
+                logger.info(f"[港股实时行情] {source_name} 获取成功，共 {len(result)} 只股票")
+                return result, source_name
             else:
-                logger.error(f"港股行情采集失败（已重试{max_retries}次）: {err_type} {err_msg[:200]}", exc_info=True)
-                return []
+                logger.warning(f"[港股实时行情] {source_name} 返回空数据，尝试下一个源")
+        except Exception as e:
+            logger.warning(f"[港股实时行情] {source_name} 失败: {e}，尝试下一个源")
+    
+    logger.error("[港股实时行情] 所有数据源都失败")
+    return [], ""
+
+
+def _fetch_hk_spot_sina() -> List[Dict[str, Any]]:
+    """使用新浪财经获取港股实时行情"""
+    from market_collector.sina_source import fetch_sina_hk_stock_spot
+    result = fetch_sina_hk_stock_spot(max_retries=1)
+    if not result:
+        raise Exception("新浪港股数据为空")
+    
+    # 保存到Redis并处理差分更新
+    _save_hk_spot_to_redis(result)
+    return result
+
+
+def _fetch_hk_spot_akshare() -> List[Dict[str, Any]]:
+    """使用AKShare(东方财富)获取港股实时行情"""
+    # 使用线程池包装，增加总体超时时间（180秒）
+    # 港股采集需要分46批请求，每批约2秒，总共需要约1.5分钟
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(ak.stock_hk_spot_em)
+        try:
+            df = future.result(timeout=180)  # 180秒超时
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError("akshare API调用超时（180秒）")
+    
+    # 标准化字段名
+    df = df.rename(columns={
+        "代码": "code",
+        "名称": "name",
+        "最新价": "price",
+        "涨跌幅": "pct",
+        "涨跌额": "change",
+        "成交量": "volume",
+        "成交额": "amount",
+        "振幅": "amplitude",
+        "最高": "high",
+        "最低": "low",
+        "今开": "open",
+        "昨收": "pre_close",
+        "量比": "volume_ratio",
+        "换手率": "turnover",
+        "市盈率": "pe",
+        "总市值": "market_cap"
+    })
+    
+    # 转换数据类型
+    numeric_columns = ["price", "pct", "change", "volume", "amount",
+                      "amplitude", "high", "low", "open", "pre_close",
+                      "volume_ratio", "turnover", "pe", "market_cap"]
+    
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # 添加时间戳
+    df["update_time"] = datetime.now().isoformat()
+    df["market"] = "HK"
+    
+    # 转换为字典列表
+    result: List[Dict[str, Any]] = df.to_dict(orient="records")
+    
+    if not result:
+        raise Exception("AKShare港股数据为空")
+    
+    # 保存到Redis并处理差分更新
+    _save_hk_spot_to_redis(result)
+    return result
+
+
+def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
+    """保存港股实时行情到Redis，并处理差分更新"""
+    # 读取旧快照（如果存在），作为基准数据
+    old_data: List[Dict[str, Any]] = get_json("market:hk:spot") or []
+    old_map: Dict[str, Dict[str, Any]] = {
+        str(item.get("code")): item for item in old_data if isinstance(item, dict)
+    }
+    
+    new_map: Dict[str, Dict[str, Any]] = {
+        str(item.get("code")): item for item in result if isinstance(item, dict)
+    }
+    
+    updated: List[Dict[str, Any]] = []
+    added: List[Dict[str, Any]] = []
+    
+    # 需要比较的关键字段
+    compare_fields = [
+        "price", "pct", "change", "volume", "amount",
+        "amplitude", "high", "low", "open", "pre_close",
+        "volume_ratio", "turnover", "pe", "market_cap",
+    ]
+    
+    for code, new_item in new_map.items():
+        old_item = old_map.get(code)
+        if not old_item:
+            added.append(new_item)
+            continue
+        
+        changed = False
+        for field in compare_fields:
+            if old_item.get(field) != new_item.get(field):
+                changed = True
+                break
+        
+        if changed:
+            updated.append(new_item)
+    
+    # 计算被删除的股票代码
+    old_codes: Set[str] = set(old_map.keys())
+    new_codes: Set[str] = set(new_map.keys())
+    removed_codes: List[str] = sorted(list(old_codes - new_codes))
+    
+    # 如果完全没有变化，跳过Redis更新
+    if not updated and not added and not removed_codes:
+        logger.info("港股行情采集成功，本次数据与上次完全一致，跳过Redis更新")
+        return
+    
+    # 备份旧快照
+    if old_data:
+        set_json("market:hk:spot_prev", old_data, ex=30 * 24 * 3600)
+    
+    # 写入新的全量快照
+    set_json("market:hk:spot", result, ex=30 * 24 * 3600)
+    get_redis().set("market:hk:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
+    
+    # 写入差分数据
+    diff_payload = {
+        "timestamp": datetime.now().isoformat(),
+        "added": added,
+        "updated": updated,
+        "removed_codes": removed_codes,
+    }
+    set_json("market:hk:spot_diff", diff_payload, ex=300)
+    
+    # SSE广播
+    try:
+        from market.service.sse import broadcast_market_update
+        broadcast_market_update("hk")
+    except Exception as e:
+        logger.debug(f"SSE广播港股数据失败（不影响数据采集）: {e}")
+    
+    logger.info(
+        f"港股行情采集成功，全量{len(result)}只股票，其中新增{len(added)}只，更新{len(updated)}只，删除{len(removed_codes)}只"
+    )
 
 
 def _standardize_hk_kline_data_minute(df: pd.DataFrame, code: str) -> List[Dict[str, Any]]:
