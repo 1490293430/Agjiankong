@@ -2019,10 +2019,9 @@ async function loadMarket() {
     
     console.log('[行情] 开始加载, currentPage=', currentPage, ', hasMore=', hasMore);
     
-    // 如果有排序或过滤，继续从后端加载更多原始数据，然后应用过滤
-    // 只在已有过滤数据且要加载下一页时，尝试从本地数据加载
-    if ((currentSort !== 'default' || filterStockOnly) && window.filteredMarketData && currentPage > 1) {
-        console.log(`[行情] 排序/过滤模式，尝试从本地过滤数据加载第${currentPage}页`);
+    // 如果有排序，尝试从本地数据加载（后端已处理 stock_only 过滤）
+    if (currentSort !== 'default' && window.filteredMarketData && currentPage > 1) {
+        console.log(`[行情] 排序模式，尝试从本地排序数据加载第${currentPage}页`);
         isLoading = true;
         
         const startIndex = (currentPage - 1) * pageSize;
@@ -2030,46 +2029,15 @@ async function loadMarket() {
         const nextPageData = window.filteredMarketData.slice(startIndex, endIndex);
         
         if (nextPageData.length > 0) {
-            // 本地过滤数据还有内容，直接显示
             appendStockList(nextPageData);
-            
-            // 检查是否还有更多数据
             hasMore = endIndex < window.filteredMarketData.length;
             if (hasMore) {
                 currentPage++;
-                console.log(`[行情] 本地过滤数据加载完成，还有更多数据，下一页=${currentPage}`);
-            } else {
-                console.log(`[行情] 本地过滤数据已全部加载，共${window.filteredMarketData.length}条，尝试加载更多原始数据`);
-                // 本地过滤数据已全部显示，但原始数据可能还有更多，继续从后端加载
-                // 不return，继续向后端请求更多原始数据
-                isLoading = false;
-                // 重新设置currentPage为原始数据的下一页
-                currentPage = Math.floor(window.filteredMarketData.length / pageSize) + 1;
-                // 继续向后端加载更多原始数据
-                loadMarket();
-                return;
             }
-        } else {
-            console.log(`[行情] 本地过滤数据无更多数据，需要加载原始数据`);
-            // 本地过滤数据不足，需要继续从后端加载原始数据
             isLoading = false;
-            // 不return，继续向后端请求原始数据
-        }
-        
-        isLoading = false;
-        
-        // 检查是否需要继续加载（内容不足以产生滚动条时）
-        if (nextPageData.length > 0) {
-            setTimeout(() => {
-                const container = document.querySelector('.stock-list-container');
-                if (container && container.scrollHeight <= container.clientHeight + 10) {
-                    console.log('[行情] 本地过滤数据加载后内容不足，继续加载更多');
-                    loadMarket();
-                }
-            }, 100);
             return;
         }
-        // 如果本地过滤数据为空，继续下面的后端加载逻辑
+        isLoading = false;
     }
     
     // 行情页每次都刷新，不再检查是否已有数据
@@ -2136,7 +2104,7 @@ async function loadMarket() {
         if (result.code === 0) {
             if (currentPage === 1) {
                 tbody.innerHTML = '';
-                // 第一页时保存所有数据（用于前端排序和过滤）
+                // 第一页时保存所有数据（用于前端排序）
                 allMarketData = result.data || [];
             } else {
                 // 追加数据
@@ -2144,45 +2112,17 @@ async function loadMarket() {
             }
             
                 if (result.data && result.data.length > 0) {
-                // 如果有排序或过滤，加载完原始数据后重新应用排序/过滤
-                if (currentSort !== 'default' || filterStockOnly) {
-                    // 在过滤模式下，第一页时才重新渲染，后续页面只追加新的过滤数据
+                // 后端已经处理了 stock_only 过滤，前端只需要处理排序
+                if (currentSort !== 'default') {
+                    // 有排序时，重新应用排序
                     if (currentPage === 1) {
-                        // 第一页：重新计算并完整渲染
                         applyFilterAndSort();
                     } else {
-                        // 后续页：只追加新过滤的数据到DOM（避免重新渲染导致滚动位置重置）
-                        const newFilteredData = result.data.filter(stock => {
-                            if (filterStockOnly) {
-                                if (stock && stock.sec_type) {
-                                    return String(stock.sec_type) === 'stock';
-                                }
-                                const code = String(stock.code || '');
-                                const name = String(stock.name || '');
-                                if (currentMarket === 'a') {
-                                    if (name.includes('指数') || name.includes('ETF') || name.includes('LOF')) return false;
-                                    if (code.startsWith('399')) return false;
-                                    if (code.startsWith('000') && (name.includes('上证') || name.includes('深证') || name.includes('中证'))) return false;
-                                    if (code.startsWith('5') || code.startsWith('1')) return false;
-                                }
-                                if (currentMarket === 'hk') {
-                                    if (name.includes('指数') || name.includes('ETF') || name.includes('基金')) return false;
-                                }
-                            }
-                            return true;
-                        });
-                        
-                        // 直接追加新的过滤数据（不重新渲染整个列表）
-                        appendStockList(newFilteredData);
-                        
-                        // 更新filteredMarketData
-                        window.filteredMarketData = window.filteredMarketData || [];
-                        window.filteredMarketData = window.filteredMarketData.concat(newFilteredData);
-                        
-                        console.log(`[行情] 过滤模式追加: 新增${result.data.length}条原始数据，过滤后${newFilteredData.length}条，总过滤数${window.filteredMarketData.length}条`);
+                        // 后续页直接追加（后端已排序）
+                        appendStockList(result.data);
                     }
                 } else {
-                    // 无排序和过滤，直接追加数据
+                    // 无排序，直接追加数据（后端已处理 stock_only 过滤）
                     appendStockList(result.data);
                 }
                 
@@ -2251,30 +2191,19 @@ async function loadMarket() {
                     }
                 }
                 
-                // 如果启用了过滤/排序，检查过滤后的数据是否足够显示
-                if (currentSort !== 'default' || filterStockOnly) {
+                // 如果启用了排序，检查排序后的数据
+                if (currentSort !== 'default') {
                     if (window.filteredMarketData) {
                         const filteredCount = window.filteredMarketData.length;
-                        const currentPageFilteredCount = Math.floor(filteredCount / pageSize) + (filteredCount % pageSize > 0 ? 1 : 0);
-                        console.log(`[行情] 过滤后数据: ${filteredCount}条, 可显示${currentPageFilteredCount}页`);
+                        console.log(`[行情] 排序后数据: ${filteredCount}条`);
                     }
                 }
                 
-                // 如果没有更多原始数据且已应用过滤，仅当过滤数据全部显示时才显示提示
+                // 如果没有更多数据，显示提示
                 if (!hasMore && currentPage > 1) {
-                    // 检查过滤后是否还需要加载更多
-                    if (currentSort !== 'default' || filterStockOnly) {
-                        if (!window.filteredMarketData || window.filteredMarketData.length === 0) {
-                            const endRow = document.createElement('tr');
-                            endRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
-                            tbody.appendChild(endRow);
-                        }
-                        // 否则不显示提示，因为还有过滤数据可以继续加载
-                    } else {
-                        const endRow = document.createElement('tr');
-                        endRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
-                        tbody.appendChild(endRow);
-                    }
+                    const endRow = document.createElement('tr');
+                    endRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
+                    tbody.appendChild(endRow);
                 }
             } else {
                 // 数据为空
