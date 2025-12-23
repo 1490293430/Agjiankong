@@ -1782,14 +1782,10 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     success_count = 0
     failed_count = 0
     
-    # 获取数据源信息（初始显示，后续会更新为具体使用的数据源）
-    if market.upper() == "A":
-        data_source = "准备中..."
-    else:
-        data_source = "AKShare"
-    
-    # 用于记录最近使用的数据源
-    last_used_source = None
+    # 用于记录最近使用的数据源（使用列表以便在闭包中修改）
+    last_used_source = [None]
+    import threading
+    source_lock = threading.Lock()
     
     # 初始化进度
     kline_collect_progress[task_id] = {
@@ -1802,13 +1798,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         "start_time": start_time,
         "progress": 0,
         "market": market,
-        "data_source": data_source
+        "data_source": "准备中..."
     }
     
     def collect_kline_for_stock(stock):
-        nonlocal success_count, failed_count, last_used_source
+        nonlocal success_count, failed_count
         from market.service.ws import kline_collect_stop_flags
-        import threading
         
         # 检查停止标志
         if kline_collect_stop_flags.get(task_id, False):
@@ -1824,7 +1819,8 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
             if isinstance(result, tuple):
                 kline_data, source_name = result
                 if source_name:
-                    last_used_source = source_name
+                    with source_lock:
+                        last_used_source[0] = source_name
             else:
                 kline_data = result
             
@@ -1877,7 +1873,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 if (current_time - last_update_time >= update_interval) or (current % 10 == 0):
                     progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
                     # 使用最近成功的数据源名称
-                    current_source = last_used_source or "准备中..."
+                    current_source = last_used_source[0] or "准备中..."
                     if task_id in kline_collect_progress:
                         kline_collect_progress[task_id].update({
                             "success": success_count,
@@ -1894,7 +1890,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                         logger.info(f"[{market}]K线数据采集进度：成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}")
         except Exception as e:
             end_time = datetime.now().isoformat()
-            final_source = last_used_source or "未知"
+            final_source = last_used_source[0] or "未知"
             kline_collect_progress[task_id] = {
                 "status": "failed",
                 "total": len(target_stocks),
@@ -1918,7 +1914,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         end_time = datetime.now().isoformat()
         is_cancelled = kline_collect_stop_flags.get(task_id, False)
         current_processed = success_count + failed_count
-        final_source = last_used_source or "未知"
+        final_source = last_used_source[0] or "未知"
         
         if is_cancelled:
             kline_collect_progress[task_id] = {
@@ -2091,9 +2087,12 @@ async def collect_batch_single_stock_kline_api(
                 }
                 return
             
-            # 确定数据源信息（初始显示，后续会更新为具体使用的数据源）
-            last_used_source_a = None
-            last_used_source_hk = None
+            # 确定数据源信息（使用列表以便在闭包中修改，线程安全）
+            import threading
+            source_lock_a = threading.Lock()
+            source_lock_hk = threading.Lock()
+            last_used_source_a = [None]
+            last_used_source_hk = [None]
             
             # 初始化进度
             kline_collect_progress[task_id] = {
@@ -2119,7 +2118,7 @@ async def collect_batch_single_stock_kline_api(
                 
                 def collect_a_stock(code):
                     """采集单只A股（带超时控制）"""
-                    nonlocal total_success, total_failed, total_processed, last_used_source_a
+                    nonlocal total_success, total_failed, total_processed
                     try:
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
@@ -2132,7 +2131,8 @@ async def collect_batch_single_stock_kline_api(
                                 if isinstance(result, tuple):
                                     kline_data, source_name = result
                                     if source_name:
-                                        last_used_source_a = source_name
+                                        with source_lock_a:
+                                            last_used_source_a[0] = source_name
                                 else:
                                     kline_data = result
                                 
@@ -2182,7 +2182,7 @@ async def collect_batch_single_stock_kline_api(
                             
                             # 更新进度（每完成一只股票更新一次）
                             progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
-                            current_source = last_used_source_a or "准备中..."
+                            current_source = last_used_source_a[0] or "准备中..."
                             kline_collect_progress[task_id].update({
                                 "success": total_success,
                                 "failed": total_failed,
@@ -2209,7 +2209,7 @@ async def collect_batch_single_stock_kline_api(
                 
                 def collect_hk_stock(code):
                     """采集单只港股（带超时控制）"""
-                    nonlocal total_success, total_failed, total_processed, last_used_source_hk
+                    nonlocal total_success, total_failed, total_processed
                     try:
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
@@ -2220,7 +2220,8 @@ async def collect_batch_single_stock_kline_api(
                                 result = future.result(timeout=120)  # 120秒超时
                                 if result and len(result) > 0:
                                     total_success += 1
-                                    last_used_source_hk = "AKShare"  # 港股目前只使用AKShare
+                                    with source_lock_hk:
+                                        last_used_source_hk[0] = "AKShare"  # 港股目前只使用AKShare
                                 else:
                                     total_failed += 1
                             except concurrent.futures.TimeoutError:
@@ -2265,7 +2266,7 @@ async def collect_batch_single_stock_kline_api(
                             
                             # 更新进度（每完成一只股票更新一次）
                             progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
-                            current_source = last_used_source_hk or "AKShare"
+                            current_source = last_used_source_hk[0] or "AKShare"
                             kline_collect_progress[task_id].update({
                                 "success": total_success,
                                 "failed": total_failed,
@@ -2287,7 +2288,7 @@ async def collect_batch_single_stock_kline_api(
             
             if is_cancelled:
                 # 确定最终使用的数据源
-                final_source = last_used_source_a or last_used_source_hk or "未知"
+                final_source = last_used_source_a[0] or last_used_source_hk[0] or "未知"
                 
                 kline_collect_progress[task_id] = {
                     "status": "cancelled",
@@ -2306,7 +2307,7 @@ async def collect_batch_single_stock_kline_api(
                 kline_collect_stop_flags.pop(task_id, None)
             else:
                 # 确定最终使用的数据源
-                final_source = last_used_source_a or last_used_source_hk or "未知"
+                final_source = last_used_source_a[0] or last_used_source_hk[0] or "未知"
                 
                 kline_collect_progress[task_id] = {
                     "status": "completed",
