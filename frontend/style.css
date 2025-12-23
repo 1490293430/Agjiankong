@@ -43,6 +43,9 @@ body {
     max-width: 1920px;
     margin: 0 auto;
     padding: 20px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
 }
 
 .header {
@@ -371,7 +374,9 @@ body.light-mode .market-status-value.loading {
 }
 
 .tab-content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 /* 行情表格 */
@@ -405,9 +410,10 @@ body.light-mode .market-status-value.loading {
     border-radius: 8px;
     overflow-y: auto;
     overflow-x: hidden;
-    /* 使用固定高度，确保容器可以滚动 */
-    height: 500px; /* 固定高度，确保可以滚动 */
-    max-height: calc(100vh - 300px); /* 最大高度限制 */
+    /* 弹性增长，占满剩余空间 */
+    flex: 1;
+    min-height: 300px;
+    max-height: calc(100vh - 280px);
     -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
     position: relative; /* 确保滚动定位正确 */
 }
@@ -1909,44 +1915,110 @@ body.light-mode .ai-analysis-table tbody tr:hover {
 /* 移动端响应式样式 - 简化版本，避免布局问题 */
 @media (max-width: 768px) {
     .container {
-        padding: 10px;
+        padding: 8px;
     }
     
     .header {
         flex-shrink: 0;
-        margin-bottom: 10px;
-        padding: 12px 16px;
-        flex-wrap: wrap;
-        gap: 10px;
+        margin-bottom: 8px;
+        padding: 8px;
+        flex-wrap: nowrap;
+        gap: 4px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        justify-content: flex-start;
+        align-items: center;
     }
     
     .header h1 {
-        font-size: 18px;
+        font-size: 14px;
+        flex-shrink: 0;
+        white-space: nowrap;
+        margin: 0;
     }
     
     .nav-tabs {
-        flex-wrap: wrap;
-        gap: 6px;
+        flex-wrap: nowrap;
+        gap: 2px;
+        flex-shrink: 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
     
     .tab-btn {
-        font-size: 12px;
-        padding: 6px 12px;
+        font-size: 10px;
+        padding: 4px 8px;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
     
     .header-actions {
-        flex-wrap: wrap;
-        gap: 8px;
+        flex-wrap: nowrap;
+        gap: 2px;
+        flex-shrink: 0;
+        margin-left: auto;
+        align-items: center;
+    }
+    
+    #spot-collect-result {
+        display: flex !important;
+        flex-direction: row;
+        gap: 2px;
+        font-size: 9px;
+        padding: 0;
+        flex-shrink: 0;
+    }
+    
+    .spot-collect-result .spot-result-row {
+        display: inline;
+        white-space: nowrap;
+        margin: 0;
+    }
+    
+    .spot-result-label {
+        font-size: 9px;
+        margin: 0 2px 0 0;
+    }
+    
+    .spot-result-value {
+        font-size: 9px;
+    }
+    
+    .spot-result-time {
+        font-size: 8px;
+        margin-left: 2px;
     }
     
     .market-status {
-        font-size: 11px;
-        padding: 6px 10px;
+        font-size: 9px;
+        padding: 0;
+        gap: 1px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: row;
+    }
+    
+    .market-status-item {
+        gap: 1px;
+        font-size: 9px;
+        margin: 0 3px 0 0;
+    }
+    
+    .market-status-label {
+        font-size: 9px;
+        margin: 0;
+    }
+    
+    .market-status-value {
+        font-size: 9px;
+        margin: 0;
     }
     
     .theme-toggle-btn {
-        font-size: 11px;
-        padding: 6px 12px;
+        font-size: 9px;
+        padding: 4px 8px;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
     
     /* Tab内容区域占满剩余高度 */
@@ -1967,6 +2039,8 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         display: flex;
         flex-direction: column;
         gap: 10px;
+        height: calc(100vh - 140px); /* 占满可用高度（减去头部和底部空间） */
+        overflow: hidden;
     }
     
     .market-controls {
@@ -1987,14 +2061,20 @@ body.light-mode .ai-analysis-table tbody tr:hover {
         padding: 6px 12px;
     }
     
+    .market-sort-bar {
+        flex-shrink: 0;
+        min-height: auto;
+    }
+    
     /* 股票列表容器占满剩余高度 */
     .stock-list-container {
         flex: 1;
-        min-height: 300px;
-        max-height: calc(100vh - 280px) !important; /* 固定最大高度，确保可以滚动 */
-        height: auto;
+        min-height: 200px;
+        height: 100%;
         overflow-y: auto;
+        overflow-x: hidden;
         -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
+        border-radius: 8px;
     }
     
     /* 自选页布局优化 */
