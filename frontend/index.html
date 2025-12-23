@@ -549,6 +549,21 @@
                             </label>
                         </div>
                         
+                        <!-- K线数据源选择 -->
+                        <div class="config-item">
+                            <label>
+                                K线数据源：
+                                <select id="cfg-kline-data-source" style="padding: 6px 12px; border-radius: 4px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0;">
+                                    <option value="auto">自动切换（推荐）</option>
+                                    <option value="akshare">仅 AKShare</option>
+                                    <option value="tushare">仅 Tushare</option>
+                                </select>
+                            </label>
+                            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                                自动切换：优先使用 AKShare，失败时自动切换到 Tushare
+                            </div>
+                        </div>
+                        
                         <!-- Tushare 数据源配置 -->
                         <div class="config-item" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #334155;">
                             <label style="display: block; margin-bottom: 8px; color: #60a5fa; font-weight: 500;">
@@ -565,6 +580,20 @@
                         <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
                             获取 Token：<a href="https://tushare.pro/register?reg=7" target="_blank" style="color: #60a5fa;">https://tushare.pro</a> 注册后在个人中心获取
                         </div>
+                        
+                        <!-- 手动采集操作 -->
+                        <div class="config-item" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #334155;">
+                            <label style="display: block; margin-bottom: 8px; color: #60a5fa; font-weight: 500;">
+                                手动采集
+                            </label>
+                        </div>
+                        <div class="config-item" style="display: flex; gap: 12px; align-items: center;">
+                            <button id="collect-spot-btn" onclick="collectSpotData()" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                                📊 采集实时快照
+                            </button>
+                            <span style="font-size: 11px; color: #64748b;">采集A股和港股的实时行情数据</span>
+                        </div>
+                        <div id="spot-collect-status" style="margin-top: 8px; font-size: 12px; color: #94a3b8;"></div>
                     </div>
                 </div>
                 

@@ -79,6 +79,10 @@ class RuntimeConfig(BaseModel):
     kline_years: float = Field(
         default=1.0, ge=0.5, le=10.0, description="K线数据加载年限（年），范围0.5-10年"
     )
+    kline_data_source: str = Field(
+        default="auto",
+        description="K线数据源：auto（自动切换）、akshare（仅AKShare）、tushare（仅Tushare）"
+    )
     
     # AI / OpenAI 配置（用于AI分析）
     openai_api_key: Optional[str] = Field(
@@ -162,6 +166,7 @@ class RuntimeConfigUpdate(BaseModel):
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
+    kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、akshare、tushare")
     
     # 通知渠道详细配置
     notify_telegram_enabled: Optional[bool] = None

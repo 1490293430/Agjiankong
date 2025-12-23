@@ -25,8 +25,8 @@ def _create_clickhouse_client() -> Client:
         database=settings.clickhouse_db,
         user=settings.clickhouse_user,
         password=settings.clickhouse_password,
-        connect_timeout=5,
-        send_receive_timeout=10
+        connect_timeout=10,
+        send_receive_timeout=30  # 增加超时时间，避免高并发时超时
     )
     
     # 设置线程限制，降低CPU占用
@@ -52,8 +52,8 @@ def get_clickhouse() -> Client:
                 database=settings.clickhouse_db,
                 user=settings.clickhouse_user,
                 password=settings.clickhouse_password,
-                connect_timeout=5,  # 5秒连接超时
-                send_receive_timeout=10  # 10秒发送接收超时
+                connect_timeout=10,  # 10秒连接超时
+                send_receive_timeout=30  # 30秒发送接收超时（高并发时需要更长时间）
             )
             # 测试连接
             _client.execute("SELECT 1")

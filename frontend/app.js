@@ -329,6 +329,11 @@ function handleSSEMessage(message) {
             console.log(`[SSE处理] 处理K线采集进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleKlineCollectProgress(message.task_id, message.progress);
             break;
+        case 'spot_collect_progress':
+            // 实时快照采集进度（始终处理）
+            console.log(`[SSE处理] 处理实时快照采集进度: task_id=${message.task_id}, progress=${message.progress}`);
+            handleSpotCollectProgress(message.task_id, message.progress);
+            break;
         case 'selection_progress':
             // 选股进度（始终处理）
             console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, data=`, message.data);
@@ -800,6 +805,106 @@ function handleKlineCollectProgress(taskId, progress) {
         if (btn) {
             btn.disabled = false;
             btn.textContent = '📥 批量采集';
+        }
+    }
+}
+
+// 处理实时快照采集进度（SSE推送）
+function handleSpotCollectProgress(taskId, progress) {
+    console.log('[SSE] 实时快照采集进度:', taskId, progress);
+    
+    const statusEl = document.getElementById('spot-collect-status');
+    const btn = document.getElementById('collect-spot-btn');
+    
+    if (!statusEl) {
+        console.log('[SSE] 实时快照采集进度: 状态元素不存在，跳过更新');
+        return;
+    }
+    
+    if (!progress) {
+        return;
+    }
+    
+    const message = progress.message || '';
+    const aCount = progress.a_count || 0;
+    const hkCount = progress.hk_count || 0;
+    
+    if (progress.status === 'running') {
+        statusEl.innerHTML = `
+            <div style="color: #10b981; font-weight: 500;">
+                ⏳ ${message}
+            </div>
+        `;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '采集中...';
+        }
+    } else if (progress.status === 'completed') {
+        statusEl.innerHTML = `
+            <div style="color: #10b981; font-weight: 500;">
+                ✅ ${message}
+            </div>
+        `;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '📊 采集实时快照';
+        }
+        // 30秒后清除状态
+        setTimeout(() => {
+            if (statusEl) statusEl.innerHTML = '';
+        }, 30000);
+    } else if (progress.status === 'failed') {
+        statusEl.innerHTML = `
+            <div style="color: #ef4444; font-weight: 500;">
+                ❌ ${message}
+            </div>
+        `;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '📊 采集实时快照';
+        }
+    }
+}
+
+// 采集实时快照
+async function collectSpotData() {
+    const btn = document.getElementById('collect-spot-btn');
+    const statusEl = document.getElementById('spot-collect-status');
+    
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '启动中...';
+    }
+    
+    if (statusEl) {
+        statusEl.innerHTML = '<div style="color: #60a5fa;">正在启动采集任务...</div>';
+    }
+    
+    try {
+        const res = await apiFetch(`${API_BASE}/api/market/spot/collect`, {
+            method: 'POST'
+        });
+        
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        if (data.code !== 0) {
+            throw new Error(data.message || '启动失败');
+        }
+        
+        // 任务已启动，等待SSE推送进度
+        console.log('[实时快照] 采集任务已启动:', data.data?.task_id);
+        
+    } catch (error) {
+        console.error('[实时快照] 启动采集失败:', error);
+        if (statusEl) {
+            statusEl.innerHTML = `<div style="color: #ef4444;">❌ 启动失败: ${error.message}</div>`;
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '📊 采集实时快照';
         }
     }
 }
@@ -6886,6 +6991,12 @@ async function loadConfig() {
         document.getElementById('cfg-collector-interval').value = data.collector_interval_seconds ?? 60;
         document.getElementById('cfg-kline-years').value = data.kline_years ?? 1;
         
+        // K线数据源选择
+        const klineDataSourceEl = document.getElementById('cfg-kline-data-source');
+        if (klineDataSourceEl) {
+            klineDataSourceEl.value = data.kline_data_source || 'auto';
+        }
+        
         // Tushare Token（不回显，只在服务端保存）
         document.getElementById('cfg-tushare-token').value = '';
         
@@ -6969,6 +7080,7 @@ async function saveConfig() {
         
         const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
+        const klineDataSource = document.getElementById('cfg-kline-data-source')?.value || 'auto';
         const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
 
         const channels = [];
@@ -6980,7 +7092,7 @@ async function saveConfig() {
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
-        console.log('[配置] 准备保存配置', { interval, klineYears, hasTushareToken: !!tushareToken });
+        console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, hasTushareToken: !!tushareToken });
         
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
@@ -6988,6 +7100,7 @@ async function saveConfig() {
             body: JSON.stringify({
                 collector_interval_seconds: interval,
                 kline_years: klineYears,
+                kline_data_source: klineDataSource,
                 tushare_token: tushareToken,
                 // AI 配置
                 openai_api_key: document.getElementById('cfg-ai-api-key')?.value?.trim() || null,

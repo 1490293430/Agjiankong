@@ -1701,24 +1701,112 @@ async def collect_spot_data_api(
     说明：
     - 采集A股和港股的实时行情数据到Redis
     - 后台异步执行，避免阻塞
+    - 通过SSE广播采集进度
     - 主要用于新部署环境初始化或手动刷新数据
     """
     try:
-        from market_collector.scheduler import collect_job
+        from market_collector.cn import fetch_a_stock_spot
+        from market_collector.hk import fetch_hk_stock_spot
+        from market.service.sse import broadcast_message
+        import uuid
+        from datetime import datetime
         
-        def run_collect():
+        task_id = f"spot_{uuid.uuid4().hex[:8]}"
+        
+        def run_collect_with_progress():
             try:
-                collect_job()
+                start_time = datetime.now().isoformat()
+                
+                # 广播开始状态
+                broadcast_message({
+                    "type": "spot_collect_progress",
+                    "task_id": task_id,
+                    "progress": {
+                        "status": "running",
+                        "step": "a_stock",
+                        "message": "正在采集A股实时行情...",
+                        "start_time": start_time
+                    }
+                })
+                
+                # 采集A股
+                a_result = []
+                try:
+                    a_result = fetch_a_stock_spot()
+                    a_count = len(a_result) if a_result else 0
+                    logger.info(f"A股实时行情采集完成: {a_count}只")
+                except Exception as e:
+                    logger.error(f"A股实时行情采集失败: {e}")
+                    a_count = 0
+                
+                # 广播A股完成，开始港股
+                broadcast_message({
+                    "type": "spot_collect_progress",
+                    "task_id": task_id,
+                    "progress": {
+                        "status": "running",
+                        "step": "hk_stock",
+                        "message": f"A股采集完成({a_count}只)，正在采集港股实时行情...",
+                        "a_count": a_count,
+                        "start_time": start_time
+                    }
+                })
+                
+                # 采集港股
+                hk_result = []
+                try:
+                    hk_result = fetch_hk_stock_spot()
+                    hk_count = len(hk_result) if hk_result else 0
+                    logger.info(f"港股实时行情采集完成: {hk_count}只")
+                except Exception as e:
+                    logger.error(f"港股实时行情采集失败: {e}")
+                    hk_count = 0
+                
+                end_time = datetime.now().isoformat()
+                
+                # 广播完成状态
+                broadcast_message({
+                    "type": "spot_collect_progress",
+                    "task_id": task_id,
+                    "progress": {
+                        "status": "completed",
+                        "step": "done",
+                        "message": f"采集完成！A股 {a_count} 只，港股 {hk_count} 只",
+                        "a_count": a_count,
+                        "hk_count": hk_count,
+                        "start_time": start_time,
+                        "end_time": end_time
+                    }
+                })
+                
+                # 采集完成后，自动检查交易计划
+                try:
+                    from trading.plan import check_trade_plans_by_spot_price
+                    result = check_trade_plans_by_spot_price()
+                    if result.get("checked", 0) > 0:
+                        logger.info(f"交易计划检查完成：检查{result.get('checked')}个")
+                except Exception as e:
+                    logger.debug(f"检查交易计划失败: {e}")
+                    
             except Exception as e:
                 logger.error(f"行情数据采集失败: {e}", exc_info=True)
+                broadcast_message({
+                    "type": "spot_collect_progress",
+                    "task_id": task_id,
+                    "progress": {
+                        "status": "failed",
+                        "step": "error",
+                        "message": f"采集失败: {str(e)}"
+                    }
+                })
         
         # 后台异步执行
-        background_tasks.add_task(run_collect)
+        background_tasks.add_task(run_collect_with_progress)
         
         return {
             "code": 0,
-            "data": {"status": "started"},
-            "message": "行情数据采集任务已启动，请稍后查看结果"
+            "data": {"status": "started", "task_id": task_id},
+            "message": "行情数据采集任务已启动"
         }
     except Exception as e:
         logger.error(f"触发行情数据采集失败: {e}", exc_info=True)
@@ -1851,9 +1939,10 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         import concurrent.futures
         import time
         
-        # 动态调整并发数：根据股票数量，但不超过50
-        max_workers = min(50, max(10, len(target_stocks) // 20))
+        # 动态调整并发数：根据股票数量，但不超过20（降低并发避免数据库超时）
+        max_workers = min(20, max(5, len(target_stocks) // 50))
         executor = ThreadPoolExecutor(max_workers=max_workers)
+        logger.info(f"[{market}]批量采集并发数: {max_workers}")
         
         # 进度更新计数器（每完成10只股票或每2秒更新一次）
         last_update_time = time.time()

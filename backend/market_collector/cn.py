@@ -740,8 +740,8 @@ def fetch_a_stock_kline(
                 database=settings.clickhouse_db,
                 user=settings.clickhouse_user,
                 password=settings.clickhouse_password,
-                connect_timeout=1,  # 优化：减少到1秒，快速检查
-                send_receive_timeout=2  # 优化：减少到2秒
+                connect_timeout=5,  # 5秒连接超时
+                send_receive_timeout=10  # 10秒查询超时（高并发时需要更长时间）
             )
             # 设置线程限制，降低CPU占用
             try:
@@ -793,7 +793,7 @@ def fetch_a_stock_kline(
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(get_kline_from_db, code, start_date, default_end, period)
                         try:
-                            return future.result(timeout=3)  # 3秒超时
+                            return future.result(timeout=8)  # 8秒超时（高并发时需要更长时间）
                         except concurrent.futures.TimeoutError:
                             logger.debug(f"从数据库获取K线数据超时 {code}，将从数据源获取")
                         except Exception as e:
@@ -832,13 +832,32 @@ def fetch_a_stock_kline(
     
     logger.info(f"开始{fetch_mode}获取K线数据 {code}: {fetch_start} 到 {default_end}")
     
+    # 获取配置的数据源选择
+    from common.runtime_config import get_runtime_config
+    config = get_runtime_config()
+    preferred_source = config.kline_data_source or "auto"
+    
     # 定义数据源列表（按优先级排序）
-    data_sources = [
-        ("数据源1(主)", _fetch_kline_source1),
-        ("数据源2(备用1)", _fetch_kline_source2),
-        ("数据源3(备用2)", _fetch_kline_source3),
-        ("数据源4(Tushare)", _fetch_kline_source4),  # Tushare 作为最后的备用数据源
-    ]
+    if preferred_source == "akshare":
+        # 仅使用 AKShare
+        data_sources = [
+            ("AKShare数据源1", _fetch_kline_source1),
+            ("AKShare数据源2", _fetch_kline_source2),
+            ("AKShare数据源3", _fetch_kline_source3),
+        ]
+    elif preferred_source == "tushare":
+        # 仅使用 Tushare
+        data_sources = [
+            ("Tushare数据源", _fetch_kline_source4),
+        ]
+    else:
+        # 自动切换（默认）：优先 AKShare，失败时切换到 Tushare
+        data_sources = [
+            ("AKShare数据源1", _fetch_kline_source1),
+            ("AKShare数据源2", _fetch_kline_source2),
+            ("AKShare数据源3", _fetch_kline_source3),
+            ("Tushare数据源", _fetch_kline_source4),
+        ]
     
     # 依次尝试各个数据源获取增量数据
     new_kline_data = []
@@ -892,7 +911,7 @@ def fetch_a_stock_kline(
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(get_kline_from_db, code, query_start, default_end, period)
             try:
-                full_data = future.result(timeout=3)  # 3秒超时
+                full_data = future.result(timeout=8)  # 8秒超时（增加超时时间避免高并发时失败）
             except concurrent.futures.TimeoutError:
                 logger.debug(f"从数据库查询完整K线数据超时 {code}，返回新获取的数据")
             except Exception as e:
