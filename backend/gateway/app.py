@@ -1702,22 +1702,28 @@ async def collect_spot_data_api(
     - 采集A股和港股的实时行情数据到Redis
     - 后台异步执行，避免阻塞
     - 通过SSE广播采集进度
+    - 支持多数据源：AKShare、新浪财经、Easyquotation
     - 主要用于新部署环境初始化或手动刷新数据
     """
     try:
-        from market_collector.cn import fetch_a_stock_spot
+        from market_collector.cn import fetch_a_stock_spot_with_source
         from market_collector.hk import fetch_hk_stock_spot
         from market.service.sse import broadcast_message
+        from common.runtime_config import get_runtime_config
         import uuid
         from datetime import datetime
         
         task_id = f"spot_{uuid.uuid4().hex[:8]}"
         
+        # 获取配置的数据源
+        config = get_runtime_config()
+        spot_source = config.spot_data_source or "auto"
+        
         def run_collect_with_progress():
             try:
                 import concurrent.futures
                 start_time = datetime.now().isoformat()
-                data_source = "AKShare(东方财富)"  # 实时快照使用的数据源
+                data_source = ""
                 
                 # 广播开始状态
                 broadcast_message({
@@ -1727,22 +1733,22 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "a_stock",
                         "message": "正在采集A股实时行情...",
-                        "data_source": data_source,
+                        "data_source": "",
                         "start_time": start_time
                     }
                 })
                 
-                # 采集A股（使用线程池+超时控制）
+                # 采集A股（使用多数据源+超时控制）
                 a_result = []
                 a_count = 0
                 try:
-                    logger.info("[实时快照] 开始采集A股...")
+                    logger.info(f"[实时快照] 开始采集A股，数据源配置: {spot_source}")
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(fetch_a_stock_spot)
+                        future = executor.submit(fetch_a_stock_spot_with_source, spot_source, 2)
                         try:
-                            a_result = future.result(timeout=180)  # 3分钟超时
+                            a_result, data_source = future.result(timeout=180)  # 3分钟超时
                             a_count = len(a_result) if a_result else 0
-                            logger.info(f"[实时快照] A股采集完成: {a_count}只")
+                            logger.info(f"[实时快照] A股采集完成: {a_count}只，数据源: {data_source}")
                         except concurrent.futures.TimeoutError:
                             logger.error("[实时快照] A股采集超时（3分钟）")
                             future.cancel()
@@ -1757,7 +1763,7 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "hk_stock",
                         "message": f"A股采集完成({a_count}只)，正在采集港股实时行情...",
-                        "data_source": data_source,
+                        "data_source": data_source or "",
                         "a_count": a_count,
                         "start_time": start_time
                     }
@@ -1766,6 +1772,7 @@ async def collect_spot_data_api(
                 # 采集港股（使用线程池+超时控制）
                 hk_result = []
                 hk_count = 0
+                hk_source = "AKShare(东方财富)"
                 try:
                     logger.info("[实时快照] 开始采集港股...")
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -1782,6 +1789,11 @@ async def collect_spot_data_api(
                 
                 end_time = datetime.now().isoformat()
                 
+                # 组合数据源显示
+                final_source = data_source or "未知"
+                if hk_count > 0:
+                    final_source = f"A股:{data_source or '未知'} | 港股:{hk_source}"
+                
                 # 广播完成状态
                 broadcast_message({
                     "type": "spot_collect_progress",
@@ -1790,7 +1802,7 @@ async def collect_spot_data_api(
                         "status": "completed",
                         "step": "done",
                         "message": f"采集完成！A股 {a_count} 只，港股 {hk_count} 只",
-                        "data_source": data_source,
+                        "data_source": final_source,
                         "a_count": a_count,
                         "hk_count": hk_count,
                         "start_time": start_time,

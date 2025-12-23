@@ -32,6 +32,7 @@ document.addEventListener('click', function(e) {
 
 // 筛选配置折叠功能 - 必须在文件开头定义，确保HTML onclick可以调用
 function toggleSelectionConfig() {
+    const section = document.querySelector('.selection-config-section');
     const content = document.getElementById('selection-config-content');
     const arrow = document.getElementById('selection-config-arrow');
     
@@ -43,26 +44,136 @@ function toggleSelectionConfig() {
     if (content.classList.contains('hidden')) {
         // 展开
         content.classList.remove('hidden');
-        arrow.classList.remove('collapsed');
+        if (section) section.classList.add('expanded');
         arrow.textContent = '▼';
     } else {
         // 折叠
         content.classList.add('hidden');
-        arrow.classList.add('collapsed');
+        if (section) section.classList.remove('expanded');
         arrow.textContent = '▶';
     }
 }
 window.toggleSelectionConfig = toggleSelectionConfig;
 
+// 保存选股配置
+async function saveSelectionConfig() {
+    const btn = document.getElementById('save-selection-config-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '保存中...';
+    }
+    
+    try {
+        // 收集配置数据
+        const config = {
+            selection_max_count: parseInt(document.getElementById('selection-max-count')?.value || '30'),
+            filter_rsi_min: parseInt(document.getElementById('filter-rsi-min')?.value || '30'),
+            filter_rsi_max: parseInt(document.getElementById('filter-rsi-max')?.value || '75'),
+            filter_volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value || '0.8'),
+            filter_volume_ratio_max: parseFloat(document.getElementById('filter-volume-ratio-max')?.value || '8'),
+        };
+        
+        console.log('[选股配置] 保存配置:', config);
+        
+        const res = await apiFetch(`${API_BASE}/api/config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        if (data.code === 0) {
+            showToast('选股配置保存成功', 'success');
+        } else {
+            throw new Error(data.message || '保存失败');
+        }
+    } catch (error) {
+        console.error('[选股配置] 保存失败:', error);
+        showToast('保存失败: ' + error.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '💾 保存配置';
+        }
+    }
+}
+window.saveSelectionConfig = saveSelectionConfig;
+
+// 加载选股配置（从服务器读取并填充到表单）
+async function loadSelectionConfig() {
+    try {
+        const res = await apiFetch(`${API_BASE}/api/config`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        
+        // 填充选股配置
+        const maxCountEl = document.getElementById('selection-max-count');
+        if (maxCountEl) maxCountEl.value = data.selection_max_count || 30;
+        
+        const rsiMinEl = document.getElementById('filter-rsi-min');
+        if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min || 30;
+        
+        const rsiMaxEl = document.getElementById('filter-rsi-max');
+        if (rsiMaxEl) rsiMaxEl.value = data.filter_rsi_max || 75;
+        
+        const volumeMinEl = document.getElementById('filter-volume-ratio-min');
+        if (volumeMinEl) volumeMinEl.value = data.filter_volume_ratio_min || 0.8;
+        
+        const volumeMaxEl = document.getElementById('filter-volume-ratio-max');
+        if (volumeMaxEl) volumeMaxEl.value = data.filter_volume_ratio_max || 8;
+        
+        // 更新预览显示
+        updateFilterPreviews();
+        
+        console.log('[选股配置] 配置加载成功');
+    } catch (error) {
+        console.error('[选股配置] 加载失败:', error);
+    }
+}
+window.loadSelectionConfig = loadSelectionConfig;
+
+// 更新筛选项预览显示
+function updateFilterPreviews() {
+    // RSI预览
+    const rsiMin = document.getElementById('filter-rsi-min')?.value || '30';
+    const rsiMax = document.getElementById('filter-rsi-max')?.value || '75';
+    const rsiPreview = document.querySelector('[data-filter="rsi"] .filter-item-preview');
+    if (rsiPreview) rsiPreview.textContent = `(${rsiMin}-${rsiMax})`;
+    
+    // 量比预览
+    const volMin = document.getElementById('filter-volume-ratio-min')?.value || '0.8';
+    const volMax = document.getElementById('filter-volume-ratio-max')?.value || '8';
+    const volPreview = document.querySelector('[data-filter="volume-ratio"] .filter-item-preview');
+    if (volPreview) volPreview.textContent = `(${volMin}-${volMax})`;
+    
+    // BIAS预览
+    const biasMin = document.getElementById('filter-bias-min')?.value || '-6';
+    const biasMax = document.getElementById('filter-bias-max')?.value || '6';
+    const biasPreview = document.querySelector('[data-filter="bias"] .filter-item-preview');
+    if (biasPreview) biasPreview.textContent = `(${biasMin}~${biasMax})`;
+    
+    // ADX预览
+    const adxMin = document.getElementById('filter-adx-min')?.value || '25';
+    const adxPreview = document.querySelector('[data-filter="adx"] .filter-item-preview');
+    if (adxPreview) adxPreview.textContent = `> ${adxMin}`;
+}
+window.updateFilterPreviews = updateFilterPreviews;
+
 // 强制折叠筛选配置
 function collapseSelectionConfig() {
+    const section = document.querySelector('.selection-config-section');
     const content = document.getElementById('selection-config-content');
     const arrow = document.getElementById('selection-config-arrow');
     
     if (!content || !arrow) return;
     
     content.classList.add('hidden');
-    arrow.classList.add('collapsed');
+    if (section) section.classList.remove('expanded');
     arrow.textContent = '▶';
 }
 window.collapseSelectionConfig = collapseSelectionConfig;
@@ -4622,6 +4733,7 @@ function initSelectionConfig() {
             if (min >= max) {
                 rsiMaxInput.value = Math.min(100, min + 10);
             }
+            updateFilterPreviews();
         });
         
         rsiMaxInput.addEventListener('change', () => {
@@ -4630,8 +4742,27 @@ function initSelectionConfig() {
             if (max <= min) {
                 rsiMinInput.value = Math.max(0, max - 10);
             }
+            updateFilterPreviews();
         });
     }
+    
+    // 量比范围变化时更新预览
+    if (volumeMinInput) {
+        volumeMinInput.addEventListener('change', updateFilterPreviews);
+    }
+    if (volumeMaxInput) {
+        volumeMaxInput.addEventListener('change', updateFilterPreviews);
+    }
+    
+    // BIAS范围变化时更新预览
+    const biasMinInput = document.getElementById('filter-bias-min');
+    const biasMaxInput = document.getElementById('filter-bias-max');
+    if (biasMinInput) biasMinInput.addEventListener('change', updateFilterPreviews);
+    if (biasMaxInput) biasMaxInput.addEventListener('change', updateFilterPreviews);
+    
+    // ADX变化时更新预览
+    const adxMinInput = document.getElementById('filter-adx-min');
+    if (adxMinInput) adxMinInput.addEventListener('change', updateFilterPreviews);
 }
 
 // 选股模块
@@ -4643,6 +4774,9 @@ function initStrategy() {
     
     // 初始化筛选配置
     initSelectionConfig();
+    
+    // 从服务器加载选股配置（持久化配置）
+    loadSelectionConfig();
     
     // 加载保存的选股结果
     const savedResults = loadSelectionResults();
@@ -7027,6 +7161,12 @@ async function loadConfig() {
             klineDataSourceEl.value = data.kline_data_source || 'auto';
         }
         
+        // 实时行情数据源选择
+        const spotDataSourceEl = document.getElementById('cfg-spot-data-source');
+        if (spotDataSourceEl) {
+            spotDataSourceEl.value = data.spot_data_source || 'auto';
+        }
+        
         // Tushare Token（不回显，只在服务端保存）
         document.getElementById('cfg-tushare-token').value = '';
         
@@ -7111,6 +7251,7 @@ async function saveConfig() {
         const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
         const klineDataSource = document.getElementById('cfg-kline-data-source')?.value || 'auto';
+        const spotDataSource = document.getElementById('cfg-spot-data-source')?.value || 'auto';
         const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
 
         const channels = [];
@@ -7122,7 +7263,7 @@ async function saveConfig() {
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
-        console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, hasTushareToken: !!tushareToken });
+        console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, spotDataSource, hasTushareToken: !!tushareToken });
         
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
@@ -7131,6 +7272,7 @@ async function saveConfig() {
                 collector_interval_seconds: interval,
                 kline_years: klineYears,
                 kline_data_source: klineDataSource,
+                spot_data_source: spotDataSource,
                 tushare_token: tushareToken,
                 // AI 配置
                 openai_api_key: document.getElementById('cfg-ai-api-key')?.value?.trim() || null,

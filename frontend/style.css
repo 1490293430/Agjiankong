@@ -3635,3 +3635,104 @@ body.light-mode .filter-tag-count {
 body.light-mode .filter-tag-count .filter-tag-name {
     color: #d97706;
 }
+
+
+/* ========== 选股配置折叠区域 ========== */
+.selection-config-section {
+    background: #1e293b;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #334155;
+    overflow: visible;
+}
+
+.selection-config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #334155;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 8px 8px 0 0;
+    transition: background 0.2s;
+}
+
+.selection-config-header:hover {
+    background: #475569;
+}
+
+.selection-config-section:not(.expanded) .selection-config-header {
+    border-radius: 8px;
+}
+
+.selection-config-header h3 {
+    margin: 0;
+    color: #60a5fa;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.selection-config-arrow {
+    color: #94a3b8;
+    font-size: 12px;
+    transition: transform 0.3s;
+}
+
+.selection-config-section.expanded .selection-config-arrow {
+    transform: rotate(90deg);
+}
+
+.selection-config-content {
+    padding: 12px;
+}
+
+.selection-config-content.hidden {
+    display: none;
+}
+
+.selection-config-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid #334155;
+}
+
+.selection-config-actions .primary-btn {
+    padding: 8px 20px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.selection-config-actions .primary-btn:hover {
+    background: #2563eb;
+}
+
+/* 亮色模式 - 选股配置 */
+body.light-mode .selection-config-section {
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .selection-config-header {
+    background: #e5e7eb;
+}
+
+body.light-mode .selection-config-header:hover {
+    background: #d1d5db;
+}
+
+body.light-mode .selection-config-header h3 {
+    color: #2563eb;
+}
+
+body.light-mode .selection-config-actions {
+    border-top-color: #e2e8f0;
+}

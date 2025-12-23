@@ -19,3 +19,5 @@ pytz==2024.1
 yfinance==0.2.38
 # Tushare 数据源
 tushare==1.4.19
+# Easyquotation 实时行情数据源
+easyquotation==0.7.5

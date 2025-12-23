@@ -84,6 +84,12 @@ class RuntimeConfig(BaseModel):
         description="K线数据源：auto（自动切换）、akshare（仅AKShare）、tushare（仅Tushare）"
     )
     
+    # 实时行情数据源配置
+    spot_data_source: str = Field(
+        default="auto",
+        description="实时行情数据源：auto（自动切换）、akshare（仅AKShare）、sina（仅新浪）、easyquotation（仅Easyquotation）"
+    )
+    
     # AI / OpenAI 配置（用于AI分析）
     openai_api_key: Optional[str] = Field(
         default=None,
@@ -167,6 +173,7 @@ class RuntimeConfigUpdate(BaseModel):
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
     kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、akshare、tushare")
+    spot_data_source: Optional[str] = Field(default=None, description="实时行情数据源：auto、akshare、sina、easyquotation")
     
     # 通知渠道详细配置
     notify_telegram_enabled: Optional[bool] = None
