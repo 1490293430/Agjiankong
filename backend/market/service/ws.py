@@ -13,3 +13,9 @@ kline_collect_progress: dict = {}
 
 # K线采集任务停止标志（存储task_id -> should_stop标志）
 kline_collect_stop_flags: dict = {}
+
+# 实时行情采集进度管理器
+spot_collect_progress: dict = {}
+
+# 实时行情采集任务停止标志
+spot_collect_stop_flags: dict = {}

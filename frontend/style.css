@@ -198,6 +198,91 @@ body.light-mode .market-status-label {
     color: #64748b;
 }
 
+/* 实时数据采集状态显示 */
+.spot-collect-result {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.spot-collect-result.success {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.spot-collect-result.failed {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.spot-result-icon {
+    font-size: 14px;
+}
+
+.spot-result-text {
+    color: #cbd5f5;
+    font-weight: 500;
+}
+
+.spot-collect-result.success .spot-result-text {
+    color: #10b981;
+}
+
+.spot-collect-result.failed .spot-result-text {
+    color: #ef4444;
+}
+
+.spot-result-time {
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+.spot-result-source {
+    color: #60a5fa;
+    font-size: 11px;
+}
+
+body.light-mode .spot-collect-result {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .spot-collect-result.success {
+    border-color: #059669;
+    background: rgba(5, 150, 105, 0.1);
+}
+
+body.light-mode .spot-collect-result.failed {
+    border-color: #dc2626;
+    background: rgba(220, 38, 38, 0.1);
+}
+
+body.light-mode .spot-result-text {
+    color: #1f2937;
+}
+
+body.light-mode .spot-collect-result.success .spot-result-text {
+    color: #059669;
+}
+
+body.light-mode .spot-collect-result.failed .spot-result-text {
+    color: #dc2626;
+}
+
+body.light-mode .spot-result-time {
+    color: #64748b;
+}
+
+body.light-mode .spot-result-source {
+    color: #2563eb;
+}
+
 body.light-mode .market-status-value {
     color: #1f2937;
 }

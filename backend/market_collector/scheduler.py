@@ -25,12 +25,61 @@ def collect_job():
     - 这里始终尝试采集一次 A 股和港股，方便在启动时或手动触发时获取最新快照，
       避免非交易时间页面完全没有数据。
     - 采集完成后自动检查交易计划
+    - 采集结果会通过SSE广播到前端顶部状态栏
     """
+    a_count = 0
+    hk_count = 0
+    data_source = "AKShare"
+    success = True
+    
     try:
         logger.info("开始采集行情数据...")
-        fetch_a_stock_spot()
-        fetch_hk_stock_spot()
+        
+        # 采集A股（使用多数据源）
+        try:
+            from market_collector.cn import fetch_a_stock_spot_with_source
+            from common.runtime_config import get_runtime_config
+            
+            config = get_runtime_config()
+            spot_source = config.spot_data_source or "auto"
+            
+            a_result, data_source = fetch_a_stock_spot_with_source(spot_source, 2)
+            a_count = len(a_result) if a_result else 0
+            logger.info(f"A股采集完成: {a_count}只，数据源: {data_source}")
+        except Exception as e:
+            logger.error(f"A股采集失败: {e}", exc_info=True)
+            # 回退到原始方法
+            try:
+                fetch_a_stock_spot()
+                data_source = "AKShare"
+            except Exception as e2:
+                logger.error(f"A股采集回退也失败: {e2}")
+                success = False
+        
+        # 采集港股
+        try:
+            hk_result = fetch_hk_stock_spot()
+            hk_count = len(hk_result) if hk_result else 0
+            logger.info(f"港股采集完成: {hk_count}只")
+        except Exception as e:
+            logger.error(f"港股采集失败: {e}", exc_info=True)
+        
         logger.info("行情数据采集完成")
+        
+        # 广播采集结果到前端顶部状态栏
+        try:
+            from market.service.sse import broadcast_message
+            broadcast_message({
+                "type": "spot_collect_result",
+                "data": {
+                    "success": success and (a_count > 0 or hk_count > 0),
+                    "time": datetime.now().strftime("%H:%M"),
+                    "source": data_source,
+                    "message": f"A股{a_count}只 港股{hk_count}只" if success else "采集失败"
+                }
+            })
+        except Exception as e:
+            logger.debug(f"广播采集结果失败: {e}")
         
         # 采集完成后，自动检查交易计划
         try:
@@ -42,6 +91,20 @@ def collect_job():
             logger.warning(f"自动检查交易计划失败: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"采集任务执行失败: {e}", exc_info=True)
+        # 广播失败结果
+        try:
+            from market.service.sse import broadcast_message
+            broadcast_message({
+                "type": "spot_collect_result",
+                "data": {
+                    "success": False,
+                    "time": datetime.now().strftime("%H:%M"),
+                    "source": "",
+                    "message": "采集失败"
+                }
+            })
+        except Exception as e2:
+            logger.debug(f"广播采集失败结果失败: {e2}")
 
 
 def batch_compute_indicators_job(market: str = "A"):

@@ -1703,12 +1703,14 @@ async def collect_spot_data_api(
     - 后台异步执行，避免阻塞
     - 通过SSE广播采集进度
     - 支持多数据源：AKShare、新浪财经、Easyquotation
+    - 支持停止功能
     - 主要用于新部署环境初始化或手动刷新数据
     """
     try:
         from market_collector.cn import fetch_a_stock_spot_with_source
         from market_collector.hk import fetch_hk_stock_spot
         from market.service.sse import broadcast_message
+        from market.service.ws import spot_collect_progress, spot_collect_stop_flags
         from common.runtime_config import get_runtime_config
         import uuid
         from datetime import datetime
@@ -1719,11 +1721,33 @@ async def collect_spot_data_api(
         config = get_runtime_config()
         spot_source = config.spot_data_source or "auto"
         
+        # 初始化进度和停止标志
+        spot_collect_stop_flags[task_id] = False
+        spot_collect_progress[task_id] = {
+            "status": "running",
+            "step": "init",
+            "start_time": datetime.now().isoformat()
+        }
+        
         def run_collect_with_progress():
             try:
                 import concurrent.futures
                 start_time = datetime.now().isoformat()
                 data_source = ""
+                
+                # 检查是否已被停止
+                if spot_collect_stop_flags.get(task_id, False):
+                    broadcast_message({
+                        "type": "spot_collect_progress",
+                        "task_id": task_id,
+                        "progress": {
+                            "status": "cancelled",
+                            "step": "stopped",
+                            "message": "采集已停止",
+                            "start_time": start_time
+                        }
+                    })
+                    return
                 
                 # 广播开始状态
                 broadcast_message({
@@ -1738,6 +1762,13 @@ async def collect_spot_data_api(
                     }
                 })
                 
+                # 更新进度
+                spot_collect_progress[task_id] = {
+                    "status": "running",
+                    "step": "a_stock",
+                    "start_time": start_time
+                }
+                
                 # 采集A股（使用多数据源+超时控制）
                 a_result = []
                 a_count = 0
@@ -1746,14 +1777,57 @@ async def collect_spot_data_api(
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(fetch_a_stock_spot_with_source, spot_source, 2)
                         try:
-                            a_result, data_source = future.result(timeout=180)  # 3分钟超时
+                            # 分段检查停止标志
+                            for _ in range(36):  # 36 * 5s = 180s
+                                if spot_collect_stop_flags.get(task_id, False):
+                                    future.cancel()
+                                    raise Exception("用户停止采集")
+                                try:
+                                    a_result, data_source = future.result(timeout=5)
+                                    break
+                                except concurrent.futures.TimeoutError:
+                                    continue
+                            else:
+                                logger.error("[实时快照] A股采集超时（3分钟）")
                             a_count = len(a_result) if a_result else 0
                             logger.info(f"[实时快照] A股采集完成: {a_count}只，数据源: {data_source}")
                         except concurrent.futures.TimeoutError:
                             logger.error("[实时快照] A股采集超时（3分钟）")
-                            future.cancel()
                 except Exception as e:
+                    if "用户停止采集" in str(e):
+                        broadcast_message({
+                            "type": "spot_collect_progress",
+                            "task_id": task_id,
+                            "progress": {
+                                "status": "cancelled",
+                                "step": "stopped",
+                                "message": f"采集已停止（A股已采集{a_count}只）",
+                                "a_count": a_count,
+                                "start_time": start_time
+                            }
+                        })
+                        spot_collect_progress[task_id]["status"] = "cancelled"
+                        spot_collect_stop_flags.pop(task_id, None)
+                        return
                     logger.error(f"[实时快照] A股采集失败: {e}", exc_info=True)
+                
+                # 检查是否已被停止
+                if spot_collect_stop_flags.get(task_id, False):
+                    broadcast_message({
+                        "type": "spot_collect_progress",
+                        "task_id": task_id,
+                        "progress": {
+                            "status": "cancelled",
+                            "step": "stopped",
+                            "message": f"采集已停止（A股已采集{a_count}只）",
+                            "a_count": a_count,
+                            "data_source": data_source or "",
+                            "start_time": start_time
+                        }
+                    })
+                    spot_collect_progress[task_id]["status"] = "cancelled"
+                    spot_collect_stop_flags.pop(task_id, None)
+                    return
                 
                 # 广播A股完成，开始港股
                 broadcast_message({
@@ -1769,6 +1843,9 @@ async def collect_spot_data_api(
                     }
                 })
                 
+                # 更新进度
+                spot_collect_progress[task_id]["step"] = "hk_stock"
+                
                 # 采集港股（使用线程池+超时控制）
                 hk_result = []
                 hk_count = 0
@@ -1778,13 +1855,40 @@ async def collect_spot_data_api(
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(fetch_hk_stock_spot)
                         try:
-                            hk_result = future.result(timeout=180)  # 3分钟超时
+                            # 分段检查停止标志
+                            for _ in range(36):  # 36 * 5s = 180s
+                                if spot_collect_stop_flags.get(task_id, False):
+                                    future.cancel()
+                                    raise Exception("用户停止采集")
+                                try:
+                                    hk_result = future.result(timeout=5)
+                                    break
+                                except concurrent.futures.TimeoutError:
+                                    continue
+                            else:
+                                logger.error("[实时快照] 港股采集超时（3分钟）")
                             hk_count = len(hk_result) if hk_result else 0
                             logger.info(f"[实时快照] 港股采集完成: {hk_count}只")
                         except concurrent.futures.TimeoutError:
                             logger.error("[实时快照] 港股采集超时（3分钟）")
-                            future.cancel()
                 except Exception as e:
+                    if "用户停止采集" in str(e):
+                        broadcast_message({
+                            "type": "spot_collect_progress",
+                            "task_id": task_id,
+                            "progress": {
+                                "status": "cancelled",
+                                "step": "stopped",
+                                "message": f"采集已停止（A股{a_count}只，港股{hk_count}只）",
+                                "a_count": a_count,
+                                "hk_count": hk_count,
+                                "data_source": data_source or "",
+                                "start_time": start_time
+                            }
+                        })
+                        spot_collect_progress[task_id]["status"] = "cancelled"
+                        spot_collect_stop_flags.pop(task_id, None)
+                        return
                     logger.error(f"[实时快照] 港股采集失败: {e}", exc_info=True)
                 
                 end_time = datetime.now().isoformat()
@@ -1810,6 +1914,29 @@ async def collect_spot_data_api(
                     }
                 })
                 
+                # 广播采集结果到顶部状态栏（只显示最新一条）
+                end_time_obj = datetime.fromisoformat(end_time) if isinstance(end_time, str) else datetime.now()
+                broadcast_message({
+                    "type": "spot_collect_result",
+                    "data": {
+                        "success": True,
+                        "time": end_time_obj.strftime("%H:%M"),
+                        "source": data_source or "未知",
+                        "message": f"A股{a_count}只 港股{hk_count}只"
+                    }
+                })
+                
+                # 更新进度
+                spot_collect_progress[task_id] = {
+                    "status": "completed",
+                    "step": "done",
+                    "start_time": start_time,
+                    "end_time": end_time
+                }
+                
+                # 清理停止标志
+                spot_collect_stop_flags.pop(task_id, None)
+                
                 # 采集完成后，自动检查交易计划
                 try:
                     from trading.plan import check_trade_plans_by_spot_price
@@ -1830,6 +1957,18 @@ async def collect_spot_data_api(
                         "message": f"采集失败: {str(e)}"
                     }
                 })
+                # 广播失败结果到顶部状态栏
+                broadcast_message({
+                    "type": "spot_collect_result",
+                    "data": {
+                        "success": False,
+                        "time": datetime.now().strftime("%H:%M"),
+                        "source": "",
+                        "message": "采集失败"
+                    }
+                })
+                spot_collect_progress[task_id]["status"] = "failed"
+                spot_collect_stop_flags.pop(task_id, None)
         
         # 后台异步执行
         background_tasks.add_task(run_collect_with_progress)
@@ -2493,57 +2632,74 @@ async def collect_batch_single_stock_kline_api(
 
 @api_router.post("/market/kline/collect/stop")
 async def stop_kline_collect_api():
-    """停止正在进行的K线采集任务
+    """停止正在进行的采集任务（K线采集或实时行情采集）
     
     说明：
-    - 停止当前最新的采集任务（单个批量采集或批量采集）
+    - 停止当前最新的采集任务
+    - 支持K线采集和实时行情采集
     - 通过设置停止标志来中断采集循环
     """
     try:
         from market.service.ws import kline_collect_progress, kline_collect_stop_flags
+        from market.service.ws import spot_collect_progress, spot_collect_stop_flags
         from datetime import datetime
         
-        # 找到最新的运行中的任务
-        running_tasks = [
+        stopped_tasks = []
+        
+        # 查找运行中的K线采集任务
+        running_kline_tasks = [
             (task_id, progress) 
             for task_id, progress in kline_collect_progress.items()
             if progress.get("status") == "running"
         ]
         
-        if not running_tasks:
+        # 查找运行中的实时行情采集任务
+        running_spot_tasks = [
+            (task_id, progress) 
+            for task_id, progress in spot_collect_progress.items()
+            if progress.get("status") == "running"
+        ]
+        
+        # 停止K线采集任务
+        for task_id, progress in running_kline_tasks:
+            kline_collect_stop_flags[task_id] = True
+            kline_collect_progress[task_id].update({
+                "status": "cancelled",
+                "message": "用户手动停止采集任务",
+                "end_time": datetime.now().isoformat()
+            })
+            stopped_tasks.append(f"K线采集:{task_id}")
+            logger.info(f"用户停止K线采集任务: {task_id}")
+        
+        # 停止实时行情采集任务
+        for task_id, progress in running_spot_tasks:
+            spot_collect_stop_flags[task_id] = True
+            spot_collect_progress[task_id].update({
+                "status": "cancelled",
+                "message": "用户手动停止采集任务",
+                "end_time": datetime.now().isoformat()
+            })
+            stopped_tasks.append(f"实时行情:{task_id}")
+            logger.info(f"用户停止实时行情采集任务: {task_id}")
+        
+        if not stopped_tasks:
             return {
                 "code": 1,
                 "data": {},
                 "message": "没有正在运行的采集任务"
             }
         
-        # 获取最新的任务（按start_time排序）
-        latest_task = max(running_tasks, key=lambda x: x[1].get("start_time", ""))
-        task_id, progress = latest_task
-        
-        # 设置停止标志
-        kline_collect_stop_flags[task_id] = True
-        
-        # 更新任务状态为取消
-        kline_collect_progress[task_id].update({
-            "status": "cancelled",
-            "message": "用户手动停止采集任务",
-            "end_time": datetime.now().isoformat()
-        })
-        
-        logger.info(f"用户停止K线采集任务: {task_id}")
-        
         return {
             "code": 0,
             "data": {
-                "task_id": task_id,
+                "stopped_tasks": stopped_tasks,
                 "status": "stopped"
             },
-            "message": "已发送停止信号，采集任务将在下一个循环停止"
+            "message": f"已发送停止信号，{len(stopped_tasks)}个任务将停止"
         }
         
     except Exception as e:
-        logger.error(f"停止K线采集失败: {e}", exc_info=True)
+        logger.error(f"停止采集失败: {e}", exc_info=True)
         return {"code": 1, "data": {}, "message": f"停止失败: {str(e)}"}
 
 

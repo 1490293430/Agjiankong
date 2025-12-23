@@ -471,6 +471,11 @@ function handleSSEMessage(message) {
             console.log(`[SSE处理] 处理实时快照采集进度: task_id=${message.task_id}, progress=${message.progress}`);
             handleSpotCollectProgress(message.task_id, message.progress);
             break;
+        case 'spot_collect_result':
+            // 实时数据采集结果（始终处理，显示在顶部状态栏）
+            console.log(`[SSE处理] 处理实时数据采集结果:`, message.data);
+            handleSpotCollectResult(message.data);
+            break;
         case 'selection_progress':
             // 选股进度（始终处理）
             console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, data=`, message.data);
@@ -1048,6 +1053,41 @@ async function collectSpotData() {
             btn.textContent = '📊 采集实时快照';
         }
     }
+}
+
+// 处理实时数据采集结果（显示在顶部状态栏）
+function handleSpotCollectResult(data) {
+    console.log('[SSE] 实时数据采集结果:', data);
+    
+    const container = document.getElementById('spot-collect-result');
+    const iconEl = document.getElementById('spot-collect-result-icon');
+    const textEl = document.getElementById('spot-collect-result-text');
+    const timeEl = document.getElementById('spot-collect-result-time');
+    const sourceEl = document.getElementById('spot-collect-result-source');
+    
+    if (!container) {
+        console.warn('[SSE] 实时数据采集结果元素未找到');
+        return;
+    }
+    
+    const success = data.success;
+    const time = data.time || '';
+    const source = data.source || '';
+    const message = data.message || (success ? '采集成功' : '采集失败');
+    
+    // 更新显示
+    container.style.display = 'flex';
+    container.className = 'spot-collect-result ' + (success ? 'success' : 'failed');
+    
+    if (iconEl) iconEl.textContent = success ? '✅' : '❌';
+    if (textEl) textEl.textContent = message;
+    if (timeEl) timeEl.textContent = time;
+    if (sourceEl) {
+        sourceEl.textContent = source ? `[${source}]` : '';
+        sourceEl.style.display = source ? 'inline' : 'none';
+    }
+    
+    console.log(`[SSE] 实时数据采集结果已更新: ${success ? '成功' : '失败'}, 时间=${time}, 数据源=${source}`);
 }
 
 // 处理选股进度（SSE推送）
