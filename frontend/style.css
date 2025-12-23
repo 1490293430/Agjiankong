@@ -368,10 +368,35 @@ body.light-mode .market-status-value.loading {
 
 .tab-content {
     display: none;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .tab-content.active {
-    display: block;
+    display: flex;
+}
+
+/* 自选页、选股页、资讯页内容区域可滚动 */
+#watchlist-tab {
+    display: none;
+}
+#watchlist-tab.active {
+    display: flex;
+}
+
+#strategy-tab {
+    display: none;
+}
+#strategy-tab.active {
+    display: flex;
+}
+
+#news-tab {
+    display: none;
+}
+#news-tab.active {
+    display: flex;
 }
 
 /* 行情表格 */
@@ -1966,6 +1991,15 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     
     .tab-content.active {
         display: flex !important;
+    }
+    
+    /* 自选页、选股页、资讯页内容区域可滚动 */
+    #watchlist-tab .watchlist-container,
+    #strategy-tab .selected-stocks-container,
+    #news-tab .news-list {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
     }
     
     /* 行情页布局优化 */

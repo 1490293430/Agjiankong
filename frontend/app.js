@@ -4962,8 +4962,12 @@ function initStrategy() {
     }
     
     // 初始化选股页无限滚动
-    const selectedStocksContainer = document.getElementById('selected-stocks');
-    if (selectedStocksContainer) {
+    function setupSelectionScrollListener() {
+        const selectedStocksContainer = document.getElementById('selected-stocks');
+        if (!selectedStocksContainer) {
+            return;
+        }
+        
         // 监听容器滚动事件
         selectedStocksContainer.addEventListener('scroll', () => {
             const strategyTab = document.getElementById('strategy-tab');
@@ -4988,7 +4992,22 @@ function initStrategy() {
                 });
             }
         });
+        console.log('[选股] 滚动监听器已设置');
     }
+    
+    // 初始设置
+    setupSelectionScrollListener();
+    
+    // 当tab切换到选股页时重新设置监听器
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.getAttribute('data-tab');
+            if (tab === 'strategy') {
+                setTimeout(setupSelectionScrollListener, 100);
+            }
+        });
+    });
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
             // 默认同时采集A股和港股
