@@ -9,6 +9,7 @@ html {
     -webkit-text-size-adjust: 100%;
     -ms-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    height: 100%;
 }
 
 /* 强制移动端视口宽度 */
@@ -37,12 +38,19 @@ body {
     background: #0f172a;
     color: #cbd5f5;
     line-height: 1.6;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .container {
     max-width: 1920px;
     margin: 0 auto;
     padding: 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .header {
@@ -380,6 +388,10 @@ body.light-mode .market-status-value.loading {
 /* 自选页、选股页、资讯页内容区域可滚动 */
 #watchlist-tab {
     display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 #watchlist-tab.active {
     display: flex;
@@ -387,6 +399,10 @@ body.light-mode .market-status-value.loading {
 
 #strategy-tab {
     display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 #strategy-tab.active {
     display: flex;
@@ -394,6 +410,10 @@ body.light-mode .market-status-value.loading {
 
 #news-tab {
     display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 #news-tab.active {
     display: flex;
