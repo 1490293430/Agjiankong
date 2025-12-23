@@ -922,7 +922,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                     "layer2_processed": idx2,
                     "indicators_count": len(indicators_map),
                     "elapsed_time": round(elapsed_time, 1)
-                }
+                })
             
             code = str(stock.get("code", ""))
             
