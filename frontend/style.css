@@ -512,6 +512,21 @@ body.light-mode textarea {
     color: #1f2937;
 }
 
+/* 配置页面下拉框样式 */
+.config-select {
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+body.light-mode .config-select {
+    background: #ffffff;
+    border-color: #d1d5db;
+    color: #1f2937;
+}
+
 /* K线图 */
 /* 自选股样式 */
 .watchlist-controls {
