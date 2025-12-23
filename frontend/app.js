@@ -7663,17 +7663,13 @@ function initMarketStatus() {
             return;
         }
         
-        // 立即更新一次
+        // 立即更新一次（页面加载时获取初始状态）
         console.log('[市场状态] 立即执行第一次更新');
         updateMarketStatus();
         
-        // 每10秒更新一次市场状态
-        marketStatusInterval = setInterval(() => {
-            console.log('[市场状态] 定时器触发，执行更新');
-            updateMarketStatus();
-        }, 10000);
-        
-        console.log('[市场状态] ========== 初始化完成，定时器已设置（每10秒更新一次） ==========');
+        // 不再轮询，后续依赖SSE推送市场状态更新
+        // SSE会在 handleMarketStatusUpdate 中处理状态更新
+        console.log('[市场状态] ========== 初始化完成，后续依赖SSE推送更新 ==========');
     } catch (error) {
         console.error('[市场状态] 初始化失败:', error);
         console.error('[市场状态] 错误堆栈:', error.stack);
