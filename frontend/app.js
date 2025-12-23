@@ -2315,16 +2315,36 @@ async function applyFilterAndSort() {
             const marketSelect = document.getElementById('market-select');
             const market = marketSelect ? marketSelect.value || 'a' : 'a';
             
-            // 请求所有数据（不分页）
-            const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=1&page_size=10000`);
-            if (response.ok) {
-                const result = await response.json();
-                if (result.code === 0 && result.data) {
-                    allMarketData = result.data;
-                    hasMore = false; // 已加载所有数据
-                    console.log(`[行情] 已加载所有数据: ${allMarketData.length}条`);
+            // 循环加载所有数据
+            let page = Math.ceil(allMarketData.length / pageSize) + 1; // 从下一页开始
+            let loadMore = true;
+            
+            while (loadMore && page <= 200) { // 最多200页，避免无限循环
+                console.log(`[行情] 加载第${page}页数据...`);
+                const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${page}&page_size=${pageSize}`);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.code === 0 && result.data && result.data.length > 0) {
+                        allMarketData = allMarketData.concat(result.data);
+                        
+                        // 检查是否还有更多
+                        if (result.pagination) {
+                            loadMore = page < result.pagination.total_pages;
+                        } else {
+                            loadMore = result.data.length === pageSize;
+                        }
+                        page++;
+                    } else {
+                        loadMore = false;
+                    }
+                } else {
+                    console.error(`[行情] 加载第${page}页失败:`, response.status);
+                    loadMore = false;
                 }
             }
+            
+            console.log(`[行情] 已加载所有数据: ${allMarketData.length}条`);
         } catch (error) {
             console.error('[行情] 加载所有数据失败:', error);
         }
