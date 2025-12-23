@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20251223_09">
+    <link rel="stylesheet" href="style.css?v=20251223_10">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -459,31 +459,9 @@
             <!-- 选股控制区域 -->
             <div class="strategy-controls">
                 <div class="strategy-controls-row">
-                    <label>单个数量：<input type="number" id="single-batch-size-input" value="1" min="1" max="100" class="small-input"></label>
-                    <label>
-                        市场：
-                        <select id="single-batch-market-select" class="small-select">
-                            <option value="ALL">A股+港股</option>
-                            <option value="A">A股</option>
-                            <option value="HK">港股</option>
-                        </select>
-                    </label>
-                    <label>
-                        周期：
-                        <select id="single-batch-period-select" class="small-select">
-                            <option value="daily">日线</option>
-                            <option value="1h">小时</option>
-                        </select>
-                    </label>
-                    <button id="single-batch-collect-kline-btn" class="action-btn">📥 单个批量采集</button>
-                    <label>采集数量：<input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" class="small-input"></label>
-                    <button id="collect-kline-btn" class="success-btn">📥 批量采集</button>
-                    <button id="stop-collect-kline-btn" class="danger-btn">🛑 停止采集</button>
-                    <div class="strategy-controls-spacer"></div>
                     <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>
                     <button id="select-btn" class="primary-btn">🎯 开始选股</button>
                 </div>
-                <div id="collect-kline-status" class="status-text"></div>
                 <!-- 选股进度显示 -->
                 <div id="selection-progress-container" class="selection-progress-container" style="display: none;">
                     <div class="selection-progress-bar-wrapper">
@@ -699,40 +677,92 @@
                 </div>
             </div>
             
-            <!-- 账户安全配置（单独折叠项，位于数据配置下面） -->
-            <div class="config-main-section" style="margin-top: 16px;">
-                <div class="config-main-header" onclick="toggleConfigSection('security')">
-                    <h3 style="margin: 0; display: inline-block;">账户安全</h3>
-                    <span class="config-main-arrow" id="arrow-security">▶</span>
+            <!-- 数据采集和账户安全并排 -->
+            <div class="config-layout" style="margin-top: 16px;">
+                <!-- 数据采集配置 -->
+                <div class="config-main-section">
+                    <div class="config-main-header" onclick="toggleConfigSection('collect')">
+                        <h3 style="margin: 0; display: inline-block;">数据采集</h3>
+                        <span class="config-main-arrow" id="arrow-collect">▶</span>
+                    </div>
+                    <div class="config-main-content hidden" id="content-collect">
+                        <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                            批量采集K线数据到数据库，用于选股分析。
+                        </div>
+                        
+                        <!-- 单个批量采集 -->
+                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                            <label style="display: flex; align-items: center; gap: 4px;">
+                                数量：
+                                <input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 60px;">
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px;">
+                                市场：
+                                <select id="single-batch-market-select" style="padding: 4px 8px;">
+                                    <option value="ALL">A股+港股</option>
+                                    <option value="A">A股</option>
+                                    <option value="HK">港股</option>
+                                </select>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px;">
+                                周期：
+                                <select id="single-batch-period-select" style="padding: 4px 8px;">
+                                    <option value="daily">日线</option>
+                                    <option value="1h">小时</option>
+                                </select>
+                            </label>
+                            <button id="single-batch-collect-kline-btn" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📥 单个采集</button>
+                        </div>
+                        
+                        <!-- 批量采集 -->
+                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px;">
+                            <label style="display: flex; align-items: center; gap: 4px;">
+                                采集数量：
+                                <input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 80px;">
+                            </label>
+                            <button id="collect-kline-btn" class="success-btn" style="padding: 6px 12px; font-size: 13px;">📥 批量采集</button>
+                            <button id="stop-collect-kline-btn" class="danger-btn" style="padding: 6px 12px; font-size: 13px;">🛑 停止采集</button>
+                        </div>
+                        
+                        <!-- 采集状态 -->
+                        <div id="collect-kline-status" class="status-text" style="margin-top: 10px; min-height: 20px;"></div>
+                    </div>
                 </div>
-                <div class="config-main-content hidden" id="content-security">
-                    <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
-                        修改管理员登录密码。密码将保存在服务器（Redis）中，优先于环境变量。
+                
+                <!-- 账户安全配置 -->
+                <div class="config-main-section">
+                    <div class="config-main-header" onclick="toggleConfigSection('security')">
+                        <h3 style="margin: 0; display: inline-block;">账户安全</h3>
+                        <span class="config-main-arrow" id="arrow-security">▶</span>
                     </div>
-                    <div class="config-item">
-                        <label>
-                            当前密码：
-                            <input type="password" id="cfg-old-password" placeholder="请输入当前密码" style="width: 300px; margin-left: 8px;">
-                        </label>
-                    </div>
-                    <div class="config-item">
-                        <label>
-                            新密码：
-                            <input type="password" id="cfg-new-password" placeholder="请输入新密码（至少6个字符）" style="width: 300px; margin-left: 8px;">
-                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">至少6个字符</span>
-                        </label>
-                    </div>
-                    <div class="config-item">
-                        <label>
-                            确认新密码：
-                            <input type="password" id="cfg-confirm-password" placeholder="请再次输入新密码" style="width: 300px; margin-left: 8px;">
-                        </label>
-                    </div>
-                    <div class="config-item">
-                        <button id="cfg-change-password-btn" class="config-save-btn" style="padding: 6px 16px; font-size: 14px;">
-                            修改密码
-                        </button>
-                        <span id="cfg-password-status" style="margin-left: 12px; font-size: 13px; color: #94a3b8;"></span>
+                    <div class="config-main-content hidden" id="content-security">
+                        <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                            修改管理员登录密码。密码将保存在服务器（Redis）中，优先于环境变量。
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                当前密码：
+                                <input type="password" id="cfg-old-password" placeholder="请输入当前密码" style="width: 200px; margin-left: 8px;">
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                新密码：
+                                <input type="password" id="cfg-new-password" placeholder="至少6个字符" style="width: 200px; margin-left: 8px;">
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                确认密码：
+                                <input type="password" id="cfg-confirm-password" placeholder="再次输入新密码" style="width: 200px; margin-left: 8px;">
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <button id="cfg-change-password-btn" class="config-save-btn" style="padding: 6px 16px; font-size: 14px;">
+                                修改密码
+                            </button>
+                            <span id="cfg-password-status" style="margin-left: 12px; font-size: 13px; color: #94a3b8;"></span>
+                        </div>
                     </div>
                 </div>
             </div>

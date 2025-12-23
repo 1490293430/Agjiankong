@@ -28,6 +28,19 @@ function toggleSelectionConfig() {
 }
 window.toggleSelectionConfig = toggleSelectionConfig;
 
+// 强制折叠筛选配置
+function collapseSelectionConfig() {
+    const content = document.getElementById('selection-config-content');
+    const arrow = document.getElementById('selection-config-arrow');
+    
+    if (!content || !arrow) return;
+    
+    content.classList.add('hidden');
+    arrow.classList.add('collapsed');
+    arrow.textContent = '▶';
+}
+window.collapseSelectionConfig = collapseSelectionConfig;
+
 const { createChart, ColorType } = window.LightweightCharts || {};
 console.log('[全局] LightweightCharts 可用:', !!createChart);
 
@@ -4443,6 +4456,9 @@ function initStrategy() {
             
             localStorage.setItem('selectionConfig', JSON.stringify(config));
             showToast('筛选配置已保存', 'success');
+            
+            // 保存成功后自动折叠配置面板
+            collapseSelectionConfig();
         });
     }
     
