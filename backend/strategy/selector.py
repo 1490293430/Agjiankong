@@ -165,12 +165,12 @@ def filter_stocks_by_criteria(
     """
     result = []
     
-    # 解析筛选配置
-    volume_ratio_enable = config.get("volume_ratio_enable", True)
+    # 解析筛选配置（不使用默认值，只用勾选的指标）
+    volume_ratio_enable = config.get("volume_ratio_enable", False)
     volume_ratio_min = config.get("volume_ratio_min", 0.8)
     volume_ratio_max = config.get("volume_ratio_max", 8.0)
     
-    rsi_enable = config.get("rsi_enable", True)
+    rsi_enable = config.get("rsi_enable", False)
     rsi_min = config.get("rsi_min", 30)
     rsi_max = config.get("rsi_max", 75)
     
@@ -212,9 +212,9 @@ def filter_stocks_by_criteria(
     ])
     
     if not any_filter_enabled:
-        logger.warning("没有启用任何筛选条件，使用默认筛选（量比+RSI）")
-        volume_ratio_enable = True
-        rsi_enable = True
+        # 没有启用任何筛选条件，返回全部股票
+        logger.info("没有启用任何筛选条件，返回全部股票")
+        return stocks
     
     for stock in stocks:
         code = str(stock.get("code", ""))

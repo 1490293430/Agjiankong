@@ -494,16 +494,18 @@ def _broadcast_selection_progress(task_id: str, progress_data: dict):
 
 
 def _run_selection_task(task_id: str, market: str, max_count: int, filter_config: dict):
-    """执行选股任务（同步函数，在线程池中运行）"""
+    """执行选股任务（简化版：只用勾选的指标筛选全部股票）"""
     from market.service.ws import selection_progress
     
     try:
-        from strategy.selector import (
-            check_market_environment,
-            filter_stocks_by_criteria,
-            save_selected_stocks
-        )
+        from strategy.selector import save_selected_stocks
         from market_collector.hk import fetch_hk_stock_kline
+        from common.db import batch_get_indicators, save_indicator, get_stock_list_from_db, get_stock_name_map
+        from market.indicator.ta import calculate_all_indicators
+        import time
+        import math
+        
+        start_time = time.time()
         
         # 读取系统运行时配置
         cfg = get_runtime_config()
@@ -513,7 +515,6 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             market = cfg.selection_market
         
         # 从ClickHouse获取股票列表
-        from common.db import get_stock_list_from_db, get_stock_name_map
         all_stocks = get_stock_list_from_db(market.upper())
         
         if market.upper() == "HK":
@@ -525,575 +526,379 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             return {
                 "code": 1, 
                 "data": [], 
-                "message": f"未获取到{market}股行情数据。ClickHouse的kline表中没有数据，请先运行数据采集程序采集K线数据。",
+                "message": f"未获取到{market}股行情数据，请先运行数据采集程序。",
                 "task_id": task_id
             }
         
-        # 从stock_info表获取股票名称映射
+        # 获取股票名称映射
         stock_name_map = get_stock_name_map(market.upper())
         if stock_name_map:
-            logger.info(f"从数据库获取到 {len(stock_name_map)} 只股票的名称映射")
-            # 将名称添加到股票数据中
             for stock in all_stocks:
                 code = str(stock.get("code", ""))
                 if code in stock_name_map:
                     stock["name"] = stock_name_map[code]
-        else:
-            logger.warning(f"stock_info表中没有{market}股数据，股票名称将为空。请先执行一次K线采集以同步股票信息。")
         
-        # 1. 检查市场环境（上涨家数比率 > 50%）
         logger.info(f"开始选股：市场={market}，总股票数={len(all_stocks)}")
-        _broadcast_selection_progress(task_id, {
-            "status": "running",
-            "stage": "market_check",
-            "message": "开始选股...",
-            "progress": 5,
-            "total": len(all_stocks),
-            "processed": 0,
-            "passed": 0
-        })
-        # 市场环境检查已移除，直接开始选股
-        logger.info(f"开始选股，跳过市场环境检查")
-        _broadcast_selection_progress(task_id, {
-            "status": "running",
-            "stage": "layer1",
-            "message": "开始第一层筛选...",
-            "progress": 10,
-            "total": len(all_stocks),
-            "processed": 0,
-            "passed": 0
-        })
         
-        # 2. 分层计算，逐步淘汰（CPU优化）
-        from common.db import batch_get_indicators, get_indicator, save_indicator
-        from market.indicator.ta import calculate_ma60_only
-        from datetime import datetime
-        
-        today = datetime.now().strftime("%Y-%m-%d")
-        
-        # 检查ClickHouse连接，如果连接失败，使用简化模式（不依赖数据库缓存）
-        clickhouse_available = True
-        try:
-            from common.db import get_clickhouse
-            get_clickhouse()
-        except Exception as e:
-            logger.warning(f"ClickHouse连接失败，将使用简化模式（不依赖数据库缓存）: {e}")
-            clickhouse_available = False
-        
-        # 先过滤掉无效股票（price为NaN或无效的）
-        import math
+        # 过滤无效股票
         valid_stocks = []
         for stock in all_stocks:
             price = stock.get("price", 0)
             if price is None or (isinstance(price, float) and math.isnan(price)):
                 continue
             try:
-                price_val = float(price)
-                if price_val > 0 and not math.isnan(price_val):
+                if float(price) > 0:
                     valid_stocks.append(stock)
             except (ValueError, TypeError):
                 continue
         
         if not valid_stocks:
-            logger.warning(f"没有有效的股票数据（所有股票的price都是NaN或无效）")
+            return {"code": 0, "data": [], "message": "没有有效的股票数据", "task_id": task_id}
+        
+        total_stocks = len(valid_stocks)
+        logger.info(f"有效股票数：{total_stocks}")
+        
+        # 解析启用的筛选指标（只用勾选的，不使用默认指标）
+        enabled_filters = []
+        filter_names = []
+        
+        # 按计算复杂度排序：简单的先筛选
+        if filter_config.get("volume_ratio_enable"):
+            enabled_filters.append(("volume_ratio", filter_config))
+            filter_names.append("量比")
+        if filter_config.get("rsi_enable"):
+            enabled_filters.append(("rsi", filter_config))
+            filter_names.append("RSI")
+        if filter_config.get("ma_enable"):
+            enabled_filters.append(("ma", filter_config))
+            filter_names.append(f"MA{filter_config.get('ma_period', 20)}")
+        if filter_config.get("ema_enable"):
+            enabled_filters.append(("ema", filter_config))
+            filter_names.append(f"EMA{filter_config.get('ema_period', 12)}")
+        if filter_config.get("macd_enable"):
+            enabled_filters.append(("macd", filter_config))
+            filter_names.append("MACD")
+        if filter_config.get("kdj_enable"):
+            enabled_filters.append(("kdj", filter_config))
+            filter_names.append("KDJ")
+        if filter_config.get("bias_enable"):
+            enabled_filters.append(("bias", filter_config))
+            filter_names.append("BIAS")
+        if filter_config.get("williams_r_enable"):
+            enabled_filters.append(("williams_r", filter_config))
+            filter_names.append("威廉指标")
+        if filter_config.get("break_high_enable"):
+            enabled_filters.append(("break_high", filter_config))
+            filter_names.append("突破高点")
+        if filter_config.get("boll_enable"):
+            enabled_filters.append(("boll", filter_config))
+            filter_names.append("布林带")
+        if filter_config.get("adx_enable"):
+            enabled_filters.append(("adx", filter_config))
+            filter_names.append("ADX")
+        if filter_config.get("ichimoku_enable"):
+            enabled_filters.append(("ichimoku", filter_config))
+            filter_names.append("一目均衡")
+        
+        if not enabled_filters:
+            # 没有启用任何筛选，返回全部股票（按成交额排序）
+            sorted_stocks = sorted(valid_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
+            selected = sorted_stocks[:max_count]
+            save_selected_stocks(selected, market.upper())
             _broadcast_selection_progress(task_id, {
-                "status": "failed",
-                "stage": "data_check",
-                "message": "没有有效的股票数据，请检查数据采集是否正常",
-                "progress": 0
-            })
-            return {"code": 0, "data": [], "message": "没有有效的股票数据，请检查数据采集是否正常", "task_id": task_id}
-        
-        logger.info(f"过滤后有效股票数：{len(valid_stocks)}/{len(all_stocks)}")
-        
-        # 先按成交额排序，优先处理活跃股票
-        sorted_stocks = sorted(valid_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
-        
-        logger.info(f"开始分层筛选：市场={market}，总股票数={len(sorted_stocks)}（处理全部股票）")
-        
-        # 第一层：尝试从缓存读取MA60（或快速计算），筛选价格>MA60且MA60向上的股票
-        # 如果缓存中没有MA60，暂时跳过MA60检查，只做基本筛选（价格>0，涨幅>0等）
-        layer1_passed = []
-        cached_count = 0
-        calc_ma60_count = 0
-        skip_ma60_count = 0  # 跳过MA60检查的股票数
-        
-        # 先批量读取缓存（如果有很多股票，可以分批读取）
-        # 使用 None 获取最新缓存，不限制日期
-        all_codes = [str(s.get("code", "")) for s in sorted_stocks]
-        logger.info(f"准备批量读取缓存，股票数量={len(all_codes)}")
-        cached_indicators = {}
-        cache_coverage = 0.0
-        
-        if clickhouse_available:
-            try:
-                # 传入 None 获取最新缓存，不限制日期
-                cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
-                cache_coverage = len(cached_indicators) / len(all_codes) if all_codes else 0
-                logger.info(f"批量读取缓存完成，缓存命中={len(cached_indicators)}只股票，覆盖率={cache_coverage:.1%}")
-            except Exception as e:
-                logger.warning(f"批量读取缓存失败，将跳过缓存: {e}")
-                cached_indicators = {}
-                cache_coverage = 0.0
-        else:
-            logger.info(f"ClickHouse不可用，缓存覆盖率视为0%")
-            cache_coverage = 0.0
-        
-        # 只有在缓存覆盖率低于30%时才批量计算指标（首次运行或缓存不足）
-        if cache_coverage < 0.3 and len(all_codes) > 0:
-            logger.warning(f"缓存覆盖率过低（{cache_coverage:.1%}），开始批量计算指标...")
-            _broadcast_selection_progress(task_id, {
-                "status": "running",
-                "stage": "precompute",
-                "message": f"缓存不足，正在批量计算指标（已缓存{len(cached_indicators)}/{len(all_codes)}）...",
-                "progress": 5,
-                "total": len(sorted_stocks),
-                "processed": 0,
-                "passed": 0,
-                "elapsed_time": 0
-            })
-            
-            # 批量计算指标（全量计算模式，计算前2000只活跃股票）
-            from strategy.indicator_batch import batch_compute_indicators
-            batch_result = batch_compute_indicators(market.upper(), max_count=2000, incremental=False)
-            logger.info(f"批量计算指标完成：成功={batch_result.get('success', 0)}，失败={batch_result.get('failed', 0)}，跳过={batch_result.get('skipped', 0)}")
-            
-            # 重新读取缓存（如果ClickHouse可用）
-            if clickhouse_available:
-                try:
-                    # 传入 None 获取最新缓存
-                    cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
-                    cache_coverage = len(cached_indicators) / len(all_codes) if all_codes else 0
-                    logger.info(f"重新读取缓存完成，缓存命中={len(cached_indicators)}只股票，覆盖率={cache_coverage:.1%}")
-                except Exception as e:
-                    logger.warning(f"重新读取缓存失败: {e}")
-        else:
-            # 缓存覆盖率足够，直接使用缓存
-            logger.info(f"缓存覆盖率足够（{cache_coverage:.1%}），直接使用缓存，跳过批量计算")
-        
-        # 智能分批处理：根据缓存覆盖率和股票数量动态调整策略
-        import time
-        import concurrent.futures
-        from threading import Lock
-        
-        start_time = time.time()
-        
-        # 动态调整处理策略
-        total_stocks = len(sorted_stocks)
-        if cache_coverage > 0.8:
-            # 高缓存覆盖率：快速处理，较长超时
-            max_process_time = 45
-            batch_size = 200
-            max_stocks_to_process = min(total_stocks, 3000)
-        elif cache_coverage > 0.5:
-            # 中等缓存覆盖率：平衡处理
-            max_process_time = 35
-            batch_size = 100
-            max_stocks_to_process = min(total_stocks, 2000)
-        else:
-            # 低缓存覆盖率：保守处理，避免超时
-            max_process_time = 25
-            batch_size = 50
-            max_stocks_to_process = min(total_stocks, 1500)
-        
-        logger.info(f"智能分批策略：缓存覆盖率={cache_coverage:.1%}，批次大小={batch_size}，最大处理数={max_stocks_to_process}，超时={max_process_time}秒")
-        
-        # 只处理前N只最活跃的股票，避免处理全部股票导致超时
-        stocks_to_process = sorted_stocks[:max_stocks_to_process]
-        
-        # 分批处理股票
-        layer1_passed = []
-        cached_count = 0
-        calc_ma60_count = 0
-        skip_ma60_count = 0
-        processed_count = 0
-        
-        # 线程安全的计数器
-        progress_lock = Lock()
-        
-        def process_stock_batch(batch_stocks, batch_start_idx):
-            """处理一批股票"""
-            batch_passed = []
-            batch_cached = 0
-            batch_calc = 0
-            batch_skip = 0
-            
-            for local_idx, stock in enumerate(batch_stocks):
-                global_idx = batch_start_idx + local_idx
-                code = str(stock.get("code", ""))
-                current_price = stock.get("price", 0)
-                
-                # 过滤掉价格无效的股票
-                import math
-                if current_price is None or (isinstance(current_price, float) and math.isnan(current_price)):
-                    continue
-                try:
-                    current_price = float(current_price)
-                    if current_price <= 0 or math.isnan(current_price):
-                        continue
-                except (ValueError, TypeError):
-                    continue
-                
-                # 优先从缓存读取
-                cached = cached_indicators.get(code)
-                if cached and cached.get("ma60") and cached.get("ma60_trend"):
-                    batch_cached += 1
-                    ma60 = cached["ma60"]
-                    ma60_trend = cached["ma60_trend"]
-                    
-                    # 检查价格 > MA60 且 MA60 向上（放宽条件）
-                    if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
-                        batch_passed.append(stock)
-                    continue
-                
-                # 缓存未命中，尝试快速计算MA60（带超时）
-                ma60_available = False
-                try:
-                    # 使用更短的超时时间，避免单个股票耗时过长
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(fetch_kline_func, code, "daily", "", None, None, False, False)
-                        try:
-                            kline_data = future.result(timeout=3)  # 3秒超时
-                        except concurrent.futures.TimeoutError:
-                            batch_skip += 1
-                            continue
-                        except Exception:
-                            batch_skip += 1
-                            continue
-                    
-                    if kline_data and len(kline_data) >= 60:
-                        df = pd.DataFrame(kline_data)
-                        ma60_data = calculate_ma60_only(df)
-                        
-                        if ma60_data:
-                            batch_calc += 1
-                            ma60 = ma60_data["ma60"]
-                            ma60_trend = ma60_data.get("ma60_trend", "")
-                            
-                            # 检查价格 > MA60 且 MA60 向上
-                            if current_price > ma60 and (ma60_trend in ["向上", "up"] or not ma60_trend):
-                                batch_passed.append(stock)
-                                
-                                # 异步保存指标（不阻塞）
-                                background_tasks.add_task(
-                                    compute_indicator_async,
-                                    code,
-                                    market.upper(),
-                                    kline_data
-                                )
-                        else:
-                            batch_skip += 1
-                    else:
-                        batch_skip += 1
-                        
-                except Exception:
-                    batch_skip += 1
-                    continue
-                
-                # 如果没有MA60数据，使用基本筛选
-                if not ma60_available:
-                    pct = stock.get("pct", 0)
-                    if isinstance(pct, (int, float)) and not math.isnan(pct) and pct >= 0:
-                        batch_passed.append(stock)
-                        batch_skip += 1
-            
-            return batch_passed, batch_cached, batch_calc, batch_skip
-        
-        # 分批并发处理
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = []
-            
-            for i in range(0, len(stocks_to_process), batch_size):
-                batch = stocks_to_process[i:i + batch_size]
-                future = executor.submit(process_stock_batch, batch, i)
-                futures.append(future)
-                
-                # 检查超时
-                elapsed_time = time.time() - start_time
-                if elapsed_time > max_process_time:
-                    logger.warning(f"第一层筛选超时（{elapsed_time:.1f}秒），停止提交新批次")
-                    break
-            
-            # 收集结果并更新进度
-            for i, future in enumerate(futures):
-                try:
-                    # 为每个批次设置超时
-                    remaining_time = max_process_time - (time.time() - start_time)
-                    if remaining_time <= 0:
-                        logger.warning(f"第一层筛选总体超时，取消剩余批次")
-                        future.cancel()
-                        break
-                    
-                    batch_passed, batch_cached, batch_calc, batch_skip = future.result(timeout=min(remaining_time, 10))
-                    
-                    # 线程安全地更新计数器
-                    with progress_lock:
-                        layer1_passed.extend(batch_passed)
-                        cached_count += batch_cached
-                        calc_ma60_count += batch_calc
-                        skip_ma60_count += batch_skip
-                        processed_count += batch_size
-                        
-                        # 更新进度（每批次更新一次）
-                        elapsed_time = time.time() - start_time
-                        progress_pct = min(70, 10 + int((processed_count / len(stocks_to_process)) * 60))
-                        _broadcast_selection_progress(task_id, {
-                            "status": "running",
-                            "stage": "layer1",
-                            "message": f"第一层筛选中：已处理 {processed_count}/{len(stocks_to_process)} 只，通过 {len(layer1_passed)} 只",
-                            "progress": progress_pct,
-                            "total": len(stocks_to_process),
-                            "processed": processed_count,
-                            "passed": len(layer1_passed),
-                            "elapsed_time": round(elapsed_time, 1)
-                        })
-                        
-                        # 每处理几个批次记录一次日志
-                        if i % 3 == 0:
-                            logger.info(f"第一层筛选进度：批次{i+1}/{len(futures)}，已处理{processed_count}只，通过{len(layer1_passed)}只，耗时{elapsed_time:.1f}秒")
-                
-                except concurrent.futures.TimeoutError:
-                    logger.warning(f"批次{i}处理超时，跳过")
-                    continue
-                except Exception as e:
-                    logger.error(f"批次{i}处理失败: {e}")
-                    continue
-                
-                # 早期退出：如果已经找到足够多的候选股票，可以提前结束
-                if len(layer1_passed) >= max_count * 10:  # 找到目标数量的10倍候选股票就够了
-                    logger.info(f"第一层筛选早期退出：已找到{len(layer1_passed)}只候选股票，超过目标{max_count * 10}只")
-                    # 取消剩余的批次
-                    for remaining_future in futures[i+1:]:
-                        remaining_future.cancel()
-                    break
-        
-        elapsed_time = time.time() - start_time
-        logger.info(f"第一层筛选完成：总耗时{elapsed_time:.1f}秒，缓存命中={cached_count}，计算MA60={calc_ma60_count}，跳过MA60={skip_ma60_count}，通过={len(layer1_passed)}只")
-        if calc_ma60_count == 0 and cached_count == 0:
-            logger.warning(f"第一层筛选：没有获取到任何MA60数据（缓存命中=0，计算=0），已跳过MA60检查{skip_ma60_count}只股票，使用基本筛选条件。已处理{processed_count}只股票")
-        if len(layer1_passed) == 0 and skip_ma60_count > 0:
-            # 如果跳过了MA60检查但没有股票通过，说明基本筛选条件可能太严格
-            logger.warning(f"第一层筛选：跳过了{skip_ma60_count}只股票的MA60检查，但没有股票通过基本筛选。可能原因：1) 所有股票的涨幅<0；2) 涨幅数据为NaN")
-            # 尝试放宽条件：只检查前10只股票的数据
-            sample_count = min(10, len(stocks_to_process))
-            for i in range(sample_count):
-                sample_stock = stocks_to_process[i]
-                sample_pct = sample_stock.get("pct", 0)
-                sample_price = sample_stock.get("price", 0)
-                logger.debug(f"样本股票 {sample_stock.get('code')}：价格={sample_price}, 涨幅={sample_pct}, 涨幅类型={type(sample_pct)}")
-        
-        _broadcast_selection_progress(task_id, {
-            "status": "running",
-            "stage": "layer1_complete",
-            "message": f"第一层筛选完成：通过 {len(layer1_passed)} 只股票",
-            "progress": 70,
-            "total": len(stocks_to_process),
-            "processed": processed_count,
-            "passed": len(layer1_passed),
-            "elapsed_time": round(elapsed_time, 1)
-        })
-        
-        if not layer1_passed:
-            logger.warning(f"第一层筛选未通过任何股票，可能原因：1) 市场环境不佳；2) 筛选条件过严；3) 处理时间不足（只处理了部分股票）")
-            _broadcast_selection_progress(task_id, {
-                "status": "failed",
-                "stage": "layer1_complete",
-                "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）",
+                "status": "completed",
+                "stage": "completed", 
+                "message": f"未启用筛选条件，返回成交额前{len(selected)}只股票",
                 "progress": 100,
-                "total": len(stocks_to_process),
-                "processed": processed_count,
-                "passed": 0,
-                "elapsed_time": round(elapsed_time, 1)
+                "total": total_stocks,
+                "selected": len(selected),
+                "elapsed_time": round(time.time() - start_time, 1)
             })
-            return {"code": 0, "data": [], "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）", "task_id": task_id}
+            return {"code": 0, "data": selected, "message": "success", "task_id": task_id}
         
-        # 第二层：对通过第一层的股票，获取完整指标（优先从缓存读取，缺失的再计算）
-        _broadcast_selection_progress(task_id, {
-            "status": "running",
-            "stage": "layer2",
-            "message": f"开始第二层筛选：获取 {len(layer1_passed)} 只股票的完整指标...",
-            "progress": 75,
-            "total": len(stocks_to_process),
-            "processed": processed_count,
-            "passed": len(layer1_passed),
-            "elapsed_time": round(time.time() - start_time, 1)
-        })
+        total_filters = len(enabled_filters)
+        logger.info(f"启用的筛选指标：{filter_names}，共{total_filters}个")
         
-        indicators_map = {}
-        from_cache_count = 0
-        calc_full_count = 0
+        # 批量读取缓存
+        all_codes = [str(s.get("code", "")) for s in valid_stocks]
+        cached_indicators = {}
+        try:
+            cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
+            logger.info(f"缓存命中：{len(cached_indicators)}只股票")
+        except Exception as e:
+            logger.warning(f"读取缓存失败: {e}")
         
-        layer1_codes = [str(s.get("code", "")) for s in layer1_passed]
-        full_cached = {}
-        if clickhouse_available:
-            try:
-                # 传入 None 获取最新缓存
-                full_cached = batch_get_indicators(layer1_codes, market.upper(), None)
-            except Exception as e:
-                logger.warning(f"批量读取完整指标缓存失败，将跳过缓存: {e}")
-                full_cached = {}
+        # 筛选结果
+        passed_stocks = valid_stocks.copy()
+        indicators_map = {}  # 存储每只股票的指标
         
-        for idx2, stock in enumerate(layer1_passed):
-            # 每处理10只股票更新一次进度
-            if idx2 > 0 and idx2 % 10 == 0:
-                elapsed_time = time.time() - start_time
-                progress_pct = min(90, 75 + int((idx2 / len(layer1_passed)) * 15))  # 75-90%进度
-                _broadcast_selection_progress(task_id, {
-                    "status": "running",
-                    "stage": "layer2",
-                    "message": f"第二层筛选中：已处理 {idx2}/{len(layer1_passed)} 只，获取指标 {len(indicators_map)} 个",
-                    "progress": progress_pct,
-                    "total": len(stocks_to_process),
-                    "processed": processed_count,
-                    "passed": len(layer1_passed),
-                    "layer2_processed": idx2,
-                    "indicators_count": len(indicators_map),
-                    "elapsed_time": round(elapsed_time, 1)
-                })
-            
-            code = str(stock.get("code", ""))
-            
-            # 优先从缓存读取完整指标
-            cached_full = full_cached.get(code)
-            if cached_full and cached_full.get("rsi") is not None:
-                # 将缓存的指标转换为筛选函数期望的格式
-                indicators_map[code] = {
-                    "ma60": cached_full.get("ma60"),
-                    "ma60_trend": cached_full.get("ma60_trend"),
-                    "ma5": cached_full.get("ma5"),
-                    "ma10": cached_full.get("ma10"),
-                    "ma20": cached_full.get("ma20"),
-                    "ma5_trend": cached_full.get("ma5_trend"),
-                    "ma10_trend": cached_full.get("ma10_trend"),
-                    "vol_ratio": cached_full.get("vol_ratio"),
-                    "rsi": cached_full.get("rsi"),
-                    "williams_r": cached_full.get("williams_r"),
-                    "williams_r_prev": cached_full.get("williams_r_prev"),
-                    "break_high_20d": cached_full.get("break_high_20d"),
-                    "boll_middle": cached_full.get("boll_middle"),
-                    "boll_expanding": cached_full.get("boll_expanding"),
-                }
-                from_cache_count += 1
-                continue
-            
-            # 缓存未命中，同步计算完整指标（已通过第一层筛选，数量少，计算成本可接受）
-            # 但保存到缓存使用异步任务，不阻塞响应
-            # 添加超时控制：如果单只股票处理时间超过3秒，跳过（更激进的超时）
-            try:
-                import concurrent.futures
-                
-                # 使用线程池执行，带超时控制
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    # 不跳过数据库，让数据保存到ClickHouse（skip_db=False）
-                    future = executor.submit(fetch_kline_func, code, "daily", "", None, None, False, False)
-                    try:
-                        kline_data = future.result(timeout=3)  # 3秒超时（更激进）
-                    except concurrent.futures.TimeoutError:
-                        logger.debug(f"获取K线数据超时 {code}，跳过")
-                        continue
-                    except Exception as e:
-                        logger.debug(f"获取K线数据失败 {code}: {e}")
-                        continue
-                
-                if kline_data and len(kline_data) >= 60:
-                    df = pd.DataFrame(kline_data)
-                    indicators = calculate_all_indicators(df)
-                    if indicators:
-                        indicators_map[code] = indicators
-                        calc_full_count += 1
-                        
-                        # 异步保存到缓存（后台任务，不阻塞选股流程）
-                        from strategy.indicator_batch import compute_indicator_async
-                        background_tasks.add_task(
-                            compute_indicator_async,
-                            code,
-                            market.upper(),
-                            kline_data
-                        )
-            except Exception as e:
-                logger.debug(f"计算完整指标失败 {code}: {e}")
-                continue
-        
-        elapsed_time = time.time() - start_time
-        logger.info(f"第二层指标获取完成：耗时{elapsed_time:.1f}秒，缓存={from_cache_count}，计算={calc_full_count}，有效指标={len(indicators_map)}个")
-        
-        # 4. 构建筛选配置
-        filter_config = {
-            "volume_ratio_min": cfg.filter_volume_ratio_min,
-            "volume_ratio_max": cfg.filter_volume_ratio_max,
-            "rsi_min": cfg.filter_rsi_min,
-            "rsi_max": cfg.filter_rsi_max,
-            "williams_r_enable": cfg.filter_williams_r_enable,
-            "break_high_enable": cfg.filter_break_high_enable,
-            "boll_enable": cfg.filter_boll_enable,
-        }
-        
-        # 5. 执行筛选（使用通过第一层的股票和完整指标）
+        # 初始化进度
         _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "filtering",
-            "message": f"执行筛选条件：通过第一层 {len(layer1_passed)} 只，有指标数据 {len(indicators_map)} 只",
-            "progress": 90,
-            "total": len(stocks_to_process),
-            "processed": processed_count,
-            "passed": len(layer1_passed),
-            "indicators_count": len(indicators_map),
-            "elapsed_time": round(time.time() - start_time, 1)
+            "message": f"开始筛选，共{total_filters}个指标：{', '.join(filter_names)}",
+            "progress": 5,
+            "total": total_stocks,
+            "processed": 0,
+            "filters_total": total_filters,
+            "filters_done": 0,
+            "current_filter": filter_names[0] if filter_names else ""
         })
         
-        logger.info(f"开始第二层筛选：通过第一层={len(layer1_passed)}只，有指标数据={len(indicators_map)}只")
-        filtered = filter_stocks_by_criteria(layer1_passed, indicators_map, filter_config)
-        logger.info(f"第二层筛选完成：筛选出{len(filtered)}只股票")
-        
-        if not filtered:
-            logger.warning(f"第二层筛选未通过任何股票")
+        # 逐个指标筛选全部股票
+        for filter_idx, (filter_type, cfg_item) in enumerate(enabled_filters):
+            current_filter_name = filter_names[filter_idx]
+            remaining_filters = total_filters - filter_idx - 1
+            
             _broadcast_selection_progress(task_id, {
-                "status": "failed",
+                "status": "running",
                 "stage": "filtering",
-                "message": f"未找到符合条件的股票（第二层筛选未通过任何股票）",
-                "progress": 100,
-                "total": len(stocks_to_process),
-                "processed": processed_count,
-                "passed": len(layer1_passed),
-                "selected": 0,
-                "elapsed_time": round(time.time() - start_time, 1)
+                "message": f"正在筛选【{current_filter_name}】，还剩{remaining_filters}个指标",
+                "progress": 5 + int((filter_idx / total_filters) * 85),
+                "total": total_stocks,
+                "candidates": len(passed_stocks),
+                "filters_total": total_filters,
+                "filters_done": filter_idx,
+                "filters_remaining": remaining_filters,
+                "current_filter": current_filter_name
             })
-            return {"code": 0, "data": [], "message": "未找到符合条件的股票（第二层筛选未通过任何股票）", "task_id": task_id}
+            
+            new_passed = []
+            processed = 0
+            
+            for stock in passed_stocks:
+                code = str(stock.get("code", ""))
+                current_price = stock.get("price", 0)
+                
+                # 获取或计算指标
+                if code not in indicators_map:
+                    cached = cached_indicators.get(code)
+                    if cached:
+                        indicators_map[code] = cached
+                    else:
+                        # 需要计算指标
+                        try:
+                            kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+                            if kline_data and len(kline_data) >= 20:
+                                df = pd.DataFrame(kline_data)
+                                indicators = calculate_all_indicators(df)
+                                if indicators:
+                                    indicators_map[code] = indicators
+                                    # 保存到缓存（永久有效）
+                                    try:
+                                        save_indicator(code, market.upper(), indicators)
+                                    except Exception as e:
+                                        logger.debug(f"保存指标缓存失败 {code}: {e}")
+                        except Exception as e:
+                            logger.debug(f"计算指标失败 {code}: {e}")
+                
+                indicators = indicators_map.get(code, {})
+                
+                # 根据指标类型筛选
+                passed = _check_single_filter(filter_type, filter_config, stock, indicators, current_price)
+                
+                if passed:
+                    new_passed.append(stock)
+                
+                processed += 1
+                
+                # 每处理100只更新一次进度
+                if processed % 100 == 0:
+                    _broadcast_selection_progress(task_id, {
+                        "status": "running",
+                        "stage": "filtering",
+                        "message": f"【{current_filter_name}】筛选中 {processed}/{len(passed_stocks)}，还剩{remaining_filters}个指标",
+                        "progress": 5 + int((filter_idx / total_filters) * 85) + int((processed / len(passed_stocks)) * (85 / total_filters)),
+                        "total": total_stocks,
+                        "candidates": len(passed_stocks),
+                        "current_passed": len(new_passed),
+                        "filters_total": total_filters,
+                        "filters_done": filter_idx,
+                        "filters_remaining": remaining_filters,
+                        "current_filter": current_filter_name
+                    })
+            
+            passed_stocks = new_passed
+            logger.info(f"【{current_filter_name}】筛选完成，剩余{len(passed_stocks)}只")
+            
+            # 如果没有股票通过，提前结束
+            if not passed_stocks:
+                _broadcast_selection_progress(task_id, {
+                    "status": "completed",
+                    "stage": "completed",
+                    "message": f"【{current_filter_name}】筛选后无股票通过",
+                    "progress": 100,
+                    "total": total_stocks,
+                    "selected": 0,
+                    "filters_total": total_filters,
+                    "filters_done": filter_idx + 1,
+                    "elapsed_time": round(time.time() - start_time, 1)
+                })
+                return {"code": 0, "data": [], "message": f"【{current_filter_name}】筛选后无股票通过", "task_id": task_id}
         
-        # 6. 限制数量
-        selected = filtered[:max_count]
+        # 按成交额排序，取前N只
+        passed_stocks = sorted(passed_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
+        selected = passed_stocks[:max_count]
         
-        # 7. 保存选股结果
+        # 保存结果
         save_selected_stocks(selected, market.upper())
         
         total_time = time.time() - start_time
-        logger.info(f"选股完成：{market}股市场，从{len(all_stocks)}只中筛选出{len(selected)}只，总耗时{total_time:.1f}秒")
+        logger.info(f"选股完成：从{total_stocks}只中筛选出{len(selected)}只，耗时{total_time:.1f}秒")
         
-        # 更新最终进度
         _broadcast_selection_progress(task_id, {
             "status": "completed",
             "stage": "completed",
-            "message": f"选股完成：筛选出 {len(selected)} 只股票",
+            "message": f"选股完成：筛选出{len(selected)}只股票",
             "progress": 100,
-            "total": len(stocks_to_process),
-            "processed": processed_count,
-            "passed": len(layer1_passed),
+            "total": total_stocks,
             "selected": len(selected),
+            "filters_total": total_filters,
+            "filters_done": total_filters,
             "elapsed_time": round(total_time, 1)
         })
         
         return {"code": 0, "data": selected, "message": "success", "task_id": task_id}
+        
     except Exception as e:
         logger.error(f"选股失败: {e}", exc_info=True)
-        # 更新失败进度
         _broadcast_selection_progress(task_id, {
             "status": "failed",
             "stage": "error",
             "message": f"选股失败: {str(e)[:100]}",
-            "progress": 0,
-            "elapsed_time": 0
+            "progress": 0
         })
         return {"code": 1, "data": [], "message": str(e), "task_id": task_id}
+
+
+def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators: dict, current_price: float) -> bool:
+    """检查单个筛选条件"""
+    import math
+    
+    if not indicators:
+        return False
+    
+    if filter_type == "volume_ratio":
+        vol_ratio = indicators.get("vol_ratio", 0)
+        min_val = config.get("volume_ratio_min", 0.8)
+        max_val = config.get("volume_ratio_max", 8.0)
+        return min_val <= vol_ratio <= max_val
+    
+    elif filter_type == "rsi":
+        rsi = indicators.get("rsi")
+        if rsi is None:
+            return False
+        min_val = config.get("rsi_min", 30)
+        max_val = config.get("rsi_max", 75)
+        return min_val <= rsi <= max_val
+    
+    elif filter_type == "ma":
+        period = config.get("ma_period", "20")
+        condition = config.get("ma_condition", "above")
+        ma_key = f"ma{period}"
+        ma_value = indicators.get(ma_key)
+        if not ma_value:
+            return False
+        if condition == "above":
+            return current_price > ma_value
+        elif condition == "below":
+            return current_price < ma_value
+        elif condition == "up":
+            return indicators.get(f"{ma_key}_trend") in ["向上", "up"]
+        return True
+    
+    elif filter_type == "ema":
+        period = config.get("ema_period", "12")
+        condition = config.get("ema_condition", "above")
+        ema_key = f"ema{period}"
+        ema_value = indicators.get(ema_key)
+        if not ema_value:
+            return False
+        if condition == "above":
+            return current_price > ema_value
+        elif condition == "golden":
+            ema12 = indicators.get("ema12")
+            ema26 = indicators.get("ema26")
+            return ema12 and ema26 and ema12 > ema26
+        return True
+    
+    elif filter_type == "macd":
+        condition = config.get("macd_condition", "golden")
+        macd_dif = indicators.get("macd_dif")
+        macd_dea = indicators.get("macd_dea")
+        if macd_dif is None or macd_dea is None:
+            return False
+        if condition == "golden":
+            return macd_dif > macd_dea
+        elif condition == "dead":
+            return macd_dif < macd_dea
+        elif condition == "above_zero":
+            return macd_dif > 0
+        elif condition == "below_zero":
+            return macd_dif < 0
+        return True
+    
+    elif filter_type == "kdj":
+        condition = config.get("kdj_condition", "golden")
+        kdj_k = indicators.get("kdj_k")
+        kdj_d = indicators.get("kdj_d")
+        if kdj_k is None or kdj_d is None:
+            return False
+        if condition == "golden":
+            return kdj_k > kdj_d
+        elif condition == "dead":
+            return kdj_k < kdj_d
+        elif condition == "oversold":
+            return kdj_k < 20
+        elif condition == "overbought":
+            return kdj_k > 80
+        return True
+    
+    elif filter_type == "bias":
+        bias = indicators.get("bias")
+        if bias is None:
+            return False
+        min_val = config.get("bias_min", -6)
+        max_val = config.get("bias_max", 6)
+        return min_val <= bias <= max_val
+    
+    elif filter_type == "williams_r":
+        wr = indicators.get("williams_r")
+        if wr is None:
+            return False
+        return wr > -80
+    
+    elif filter_type == "break_high":
+        return indicators.get("break_high_20d", False)
+    
+    elif filter_type == "boll":
+        condition = config.get("boll_condition", "expanding")
+        if condition == "expanding":
+            return indicators.get("boll_expanding", False)
+        elif condition == "above_mid":
+            boll_middle = indicators.get("boll_middle")
+            return boll_middle and current_price > boll_middle
+        return True
+    
+    elif filter_type == "adx":
+        adx = indicators.get("adx")
+        if adx is None:
+            return False
+        min_val = config.get("adx_min", 25)
+        return adx >= min_val
+    
+    elif filter_type == "ichimoku":
+        condition = config.get("ichimoku_condition", "above_cloud")
+        senkou_a = indicators.get("ichimoku_senkou_a")
+        senkou_b = indicators.get("ichimoku_senkou_b")
+        if senkou_a is None or senkou_b is None:
+            return False
+        cloud_top = max(senkou_a, senkou_b)
+        if condition == "above_cloud":
+            return current_price > cloud_top
+        return True
+    
+    return True
 
 
 @api_router.get("/strategy/selected")
