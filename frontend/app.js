@@ -67,6 +67,7 @@ async function saveSelectionConfig() {
         // 收集配置数据
         const config = {
             selection_max_count: parseInt(document.getElementById('selection-max-count')?.value || '30'),
+            filter_stock_only: document.getElementById('filter-stock-only-enable')?.checked || false,
             filter_rsi_min: parseInt(document.getElementById('filter-rsi-min')?.value || '30'),
             filter_rsi_max: parseInt(document.getElementById('filter-rsi-max')?.value || '75'),
             filter_volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value || '0.8'),
@@ -117,6 +118,10 @@ async function loadSelectionConfig() {
         // 填充选股配置
         const maxCountEl = document.getElementById('selection-max-count');
         if (maxCountEl) maxCountEl.value = data.selection_max_count || 30;
+        
+        // 仅股票筛选
+        const stockOnlyEl = document.getElementById('filter-stock-only-enable');
+        if (stockOnlyEl) stockOnlyEl.checked = data.filter_stock_only !== false; // 默认勾选
         
         const rsiMinEl = document.getElementById('filter-rsi-min');
         if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min || 30;
@@ -541,6 +546,12 @@ function handleMarketUpdate(data) {
         return;  // 不在行情页，不更新
     }
     
+    // 如果正在加载数据，跳过 SSE 更新（避免闪烁）
+    if (isLoading) {
+        console.log('[SSE] 正在加载数据，跳过市场行情更新');
+        return;
+    }
+    
     // 使用防抖，避免频繁更新（100ms内多次更新只执行最后一次）
     if (marketUpdateTimer) {
         clearTimeout(marketUpdateTimer);
@@ -571,15 +582,49 @@ function _doMarketUpdate(data) {
     }
     
     const marketSelect = document.getElementById('market-select');
-    const currentMarket = marketSelect ? marketSelect.value || 'a' : 'a';
+    const currentMarketValue = marketSelect ? marketSelect.value || 'a' : 'a';
     
     // 根据当前选择的市场获取对应数据
-    const stocks = currentMarket === 'a' ? (data.a || []) : (data.hk || []);
+    const stocks = currentMarketValue === 'a' ? (data.a || []) : (data.hk || []);
     
     if (stocks.length === 0) return;
     
-    // 只更新第一页的数据（避免影响滚动位置和分页）
+    // 检查表格是否为空或只有加载提示
     const existingRows = Array.from(tbody.querySelectorAll('tr'));
+    const hasValidData = existingRows.some(tr => {
+        const text = tr.textContent || '';
+        const cells = tr.querySelectorAll('td');
+        return cells.length > 1 && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
+    });
+    
+    // 如果表格为空，直接渲染数据
+    if (!hasValidData) {
+        console.log('[SSE] 表格为空，直接渲染SSE推送的数据');
+        tbody.innerHTML = '';
+        allMarketData = stocks;
+        currentPage = 1;
+        
+        // 应用过滤（如果启用了"仅显示股票"）
+        let displayData = stocks;
+        if (filterStockOnly) {
+            displayData = stocks.filter(stock => {
+                if (stock && stock.sec_type) {
+                    return String(stock.sec_type) === 'stock';
+                }
+                return true; // 没有 sec_type 的数据默认显示
+            });
+            console.log(`[SSE] 应用"仅显示股票"过滤: ${stocks.length} -> ${displayData.length}`);
+        }
+        
+        hasMore = displayData.length >= pageSize;
+        appendStockList(displayData.slice(0, pageSize));
+        if (displayData.length > pageSize) {
+            currentPage = 2;
+        }
+        return;
+    }
+    
+    // 只更新第一页的数据（避免影响滚动位置和分页）
     const updateCount = Math.min(stocks.length, existingRows.length);
     
     // 构建股票代码到数据的映射
@@ -677,9 +722,9 @@ function _doWatchlistSync(data) {
     console.log('[SSE] 本地自选股:', localCodes);
     console.log('[SSE] 服务器自选股:', serverCodes);
     
-    // 如果数据有变化，更新本地缓存
-    if (localCodes !== serverCodes) {
-        console.log('[SSE] ✅ 检测到数据变化，通过SSE无感更新UI');
+    // 始终更新本地缓存（确保数据同步）
+    if (serverData.length > 0 || localCodes !== serverCodes) {
+        console.log('[SSE] ✅ 更新本地缓存');
         localStorage.setItem('watchlist', JSON.stringify(serverData));
         
         // 更新按钮状态（无论在哪一页都要更新）
@@ -707,7 +752,7 @@ function _doWatchlistSync(data) {
                 }
             });
         } else {
-            console.log('[SSE] 当前不在自选页，只更新按钮状态');
+            console.log('[SSE] 当前不在自选页，只更新按钮状态和本地缓存');
         }
     } else {
         console.log('[SSE] ⚠️ 数据无变化，跳过更新');
@@ -1588,6 +1633,22 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
         
+        // 切换到选股页时，加载选股结果
+        if (targetTab === 'strategy') {
+            console.log('[选股] 切换到选股页');
+            // 如果选股结果为空，尝试从 localStorage 加载
+            if (!selectedAllStocks || selectedAllStocks.length === 0) {
+                const savedResults = loadSelectionResults();
+                if (savedResults && savedResults.length > 0) {
+                    console.log('[选股] 从 localStorage 恢复选股结果');
+                    renderSelectedStocks(savedResults, false);
+                } else {
+                    // 尝试从服务器加载
+                    loadLastSelectionResult();
+                }
+            }
+        }
+        
         // 切换到配置页时，加载配置
         if (targetTab === 'config') {
             console.log('[配置] 切换到配置页');
@@ -1830,7 +1891,8 @@ async function initMarket() {
             filterStockOnly = filterStockOnlyCheckbox.checked;
             localStorage.setItem('filterStockOnly', filterStockOnly);
             console.log('[行情] 切换过滤:', filterStockOnly ? '仅显示股票' : '显示全部');
-            applyFilterAndSort();
+            // 为确保切换过滤时列表立即生效且与后端数据同步，强制重置并重新加载第一页
+            resetAndLoadMarket();
         });
     }
     
@@ -1945,7 +2007,7 @@ async function loadMarket() {
     }
     
     if (isLoading) {
-        console.log('行情数据正在加载中，跳过重复请求');
+        console.log('[行情] ⚠️ 数据正在加载中，跳过重复请求, currentPage=', currentPage);
         return;
     }
     
@@ -1954,6 +2016,8 @@ async function loadMarket() {
         console.warn('行情页表格不存在，跳过加载');
         return;
     }
+    
+    console.log('[行情] 开始加载, currentPage=', currentPage, ', hasMore=', hasMore);
     
     // 如果有排序或过滤，继续从后端加载更多原始数据，然后应用过滤
     // 只在已有过滤数据且要加载下一页时，尝试从本地数据加载
@@ -2039,8 +2103,9 @@ async function loadMarket() {
             controller.abort('Request timeout after 10 seconds');
         }, 10000); // 10秒超时
         
-        console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}`);
-        const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}`, {
+        console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}, stockOnly=${filterStockOnly}`);
+        const stockOnlyParam = filterStockOnly ? '&stock_only=true' : '';
+        const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}${stockOnlyParam}`, {
             signal: controller.signal
         });
         
@@ -5048,6 +5113,8 @@ async function runSelection() {
     
     // 收集筛选配置
     const filterConfig = {
+        // 仅股票（排除ETF/指数）
+        stock_only: document.getElementById('filter-stock-only-enable')?.checked || false,
         // 量比
         volume_ratio_enable: document.getElementById('filter-volume-ratio-enable')?.checked || false,
         volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value) || 0.8,

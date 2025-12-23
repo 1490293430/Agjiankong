@@ -568,6 +568,17 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         if not valid_stocks:
             return {"code": 0, "data": [], "message": "没有有效的股票数据", "task_id": task_id}
         
+        # 如果启用了"仅股票"筛选，过滤掉 ETF/指数/基金
+        if filter_config.get("stock_only"):
+            before_count = len(valid_stocks)
+            valid_stocks = [
+                s for s in valid_stocks 
+                if s.get("sec_type") == "stock" or not s.get("sec_type")
+            ]
+            filtered_count = before_count - len(valid_stocks)
+            if filtered_count > 0:
+                logger.info(f"仅股票筛选：过滤掉 {filtered_count} 只 ETF/指数/基金")
+        
         total_stocks = len(valid_stocks)
         logger.info(f"有效股票数：{total_stocks}")
         

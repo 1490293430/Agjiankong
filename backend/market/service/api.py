@@ -72,7 +72,8 @@ def _calculate_stock_heat(stock: Dict[str, Any]) -> float:
 @router.get("/a/spot")
 async def get_a_stock_spot(
     page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500")
+    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500"),
+    stock_only: bool = Query(False, description="是否仅显示股票（排除ETF/指数）")
 ):
     """获取A股实时行情（支持分页）"""
     try:
@@ -94,6 +95,10 @@ async def get_a_stock_spot(
                 "message": "数据格式错误，请稍后刷新"
             }
         data = _sanitize_spot_data(data)
+        
+        # 如果启用了"仅显示股票"，先过滤数据
+        if stock_only:
+            data = [item for item in data if item.get('sec_type') == 'stock']
         
         # 按热度排序（最热的排最前）
         # 为每只股票计算热度值

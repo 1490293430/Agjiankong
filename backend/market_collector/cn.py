@@ -38,24 +38,52 @@ def _classify_security(code: str, name: str) -> str:
     except Exception:
         return "stock"
 
-    if "指数" in name or "指数" in name_str:
-        return "index"
+    # 排除真正的股票公司名称（优先判断）
+    stock_names = ["指南针", "新华联", "新希望", "新城控股", "新和成", "新宙邦", 
+                   "有色金属", "中际旭创"]
+    if name in stock_names:
+        return "stock"
+    
+    # ETF 优先判断（名称含 ETF）
     if "ETF" in name_str:
         return "etf"
-    if "LOF" in name_str or "基金" in name or "债" in name or "可转债" in name:
+    
+    # LOF 和基金
+    if "LOF" in name_str or "基金" in name:
         return "fund"
+    
+    # 债券
+    if "债" in name or "可转债" in name:
+        return "fund"
+    
+    # 代码规则判断
     if code_str.startswith("399"):
         return "index"
-    if code_str.startswith("000") and ("上证" in name or "深证" in name or "中证" in name):
-        return "index"
-    if code_str.startswith("51") or code_str.startswith("159") or code_str.startswith("15"):
-        if "ETF" in name_str:
-            return "etf"
-        return "fund"
-    if code_str.startswith("5") or code_str.startswith("1"):
-        if "ETF" in name_str:
-            return "etf"
-        return "fund"
+    if code_str.startswith("51") or code_str.startswith("159"):
+        return "etf"  # 51/159 开头的大多是 ETF
+    if code_str.startswith("501") or code_str.startswith("502"):
+        return "fund"  # 501/502 开头的是分级基金
+    
+    # 指数名称关键词（放在最后，避免误判 ETF）
+    index_keywords = [
+        "指数", "综指", "成指", "等权", "全指", "红利", "价值", "成长", 
+        "基本面", "低碳", "新能源", "消费", "金融", "医药", "工业", "材料",
+        "信息", "通信", "可选", "主题", "资源", "装备", "科创", "央企",
+        "国企", "沪深", "中证", "上证", "深证", "创业板", "中小板",
+        "央视", "沪股通", "深股通", "港股通", "基本", "周期", "非周期",
+        "高贝", "低贝", "波动", "稳定", "动态", "治理", "ESG", "碳中和",
+        "新丝路", "一带一路", "互联", "大宗商品", "细分", "优势",
+        "有色", "能源", "银行", "地产", "汽车", "军工", "电子", "计算机",
+        "传媒", "农业", "环保", "电力", "煤炭", "钢铁", "建材", "化工",
+        "食品", "饮料", "家电", "纺织", "服装", "零售", "旅游", "酒店",
+        "航空", "航运", "港口", "公路", "铁路", "物流", "电信", "保险",
+        "券商", "银行", "房地产", "建筑", "机械", "电气", "仪器", "仪表"
+    ]
+    
+    for kw in index_keywords:
+        if kw in name:
+            return "index"
+    
     return "stock"
 
 # 禁用SSL警告
@@ -126,8 +154,70 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             df["update_time"] = datetime.now().isoformat()
             df["market"] = "A"
             
-            # 转换为字典列表（最新全量快照）
-            result: List[Dict[str, Any]] = df.to_dict(orient="records")
+            # 转换为字典列表（股票数据）
+            stock_list: List[Dict[str, Any]] = df.to_dict(orient="records")
+            
+            # ============ 额外获取 ETF 和指数数据 ============
+            etf_list: List[Dict[str, Any]] = []
+            index_list: List[Dict[str, Any]] = []
+            
+            # 获取 ETF 实时行情
+            try:
+                etf_df = ak.fund_etf_spot_em()
+                if not etf_df.empty:
+                    etf_df = etf_df.rename(columns={
+                        "代码": "code", "名称": "name", "最新价": "price",
+                        "涨跌幅": "pct", "涨跌额": "change", "成交量": "volume",
+                        "成交额": "amount", "最高": "high", "最低": "low",
+                        "今开": "open", "昨收": "pre_close", "换手率": "turnover"
+                    })
+                    for col in ["price", "pct", "change", "volume", "amount", "high", "low", "open", "pre_close", "turnover"]:
+                        if col in etf_df.columns:
+                            etf_df[col] = pd.to_numeric(etf_df[col], errors='coerce')
+                    etf_df["update_time"] = datetime.now().isoformat()
+                    etf_df["market"] = "A"
+                    etf_df["sec_type"] = "etf"
+                    etf_list = etf_df.to_dict(orient="records")
+                    logger.info(f"额外获取 ETF 数据: {len(etf_list)} 只")
+            except Exception as e:
+                logger.warning(f"获取 ETF 数据失败（不影响主数据）: {e}")
+            
+            # 获取指数实时行情
+            try:
+                index_df = ak.stock_zh_index_spot_em()
+                if not index_df.empty:
+                    index_df = index_df.rename(columns={
+                        "代码": "code", "名称": "name", "最新价": "price",
+                        "涨跌幅": "pct", "涨跌额": "change", "成交量": "volume",
+                        "成交额": "amount", "最高": "high", "最低": "low",
+                        "今开": "open", "昨收": "pre_close"
+                    })
+                    for col in ["price", "pct", "change", "volume", "amount", "high", "low", "open", "pre_close"]:
+                        if col in index_df.columns:
+                            index_df[col] = pd.to_numeric(index_df[col], errors='coerce')
+                    index_df["update_time"] = datetime.now().isoformat()
+                    index_df["market"] = "A"
+                    index_df["sec_type"] = "index"
+                    index_list = index_df.to_dict(orient="records")
+                    logger.info(f"额外获取指数数据: {len(index_list)} 只")
+            except Exception as e:
+                logger.warning(f"获取指数数据失败（不影响主数据）: {e}")
+            
+            # ============ 合并数据，去重时优先保留 ETF/指数 ============
+            # 收集 ETF 和指数的代码
+            etf_codes = {str(item.get('code', '')) for item in etf_list}
+            index_codes = {str(item.get('code', '')) for item in index_list}
+            non_stock_codes = etf_codes | index_codes
+            
+            # 过滤掉股票列表中与 ETF/指数代码重复的
+            filtered_stock_list = [
+                item for item in stock_list 
+                if str(item.get('code', '')) not in non_stock_codes
+            ]
+            logger.info(f"股票数据去重: 原{len(stock_list)}只，去除与ETF/指数重复后{len(filtered_stock_list)}只")
+            
+            # 合并：ETF + 指数 + 过滤后的股票
+            result: List[Dict[str, Any]] = etf_list + index_list + filtered_stock_list
 
             # ---------------- 差分更新逻辑 ----------------
             # 1. 读取旧快照（如果存在），作为基准数据
@@ -199,9 +289,15 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             except Exception:
                 tushare_codes = set()
 
-            # 为每条记录注入 sec_type：优先用 tushare 列表判定（存在即为股票），否则使用启发式回退
+            # 为每条记录注入 sec_type：
+            # - 如果已经有 sec_type（ETF/指数数据），保留原值
+            # - 否则优先用 tushare 列表判定（存在即为股票），否则使用启发式回退
             for item in result:
                 try:
+                    # 如果已经有 sec_type，跳过（保留 ETF/指数的原始标记）
+                    if item.get('sec_type'):
+                        continue
+                    
                     code = str(item.get('code') or '').strip()
                     name = item.get('name') or ''
                     if tushare_codes and code in tushare_codes:

@@ -308,6 +308,15 @@
                 <div class="selection-config-content hidden" id="selection-config-content">
                     <!-- 筛选标签栏 -->
                     <div class="filter-bar">
+                        <!-- 仅股票 -->
+                        <div class="filter-item" data-filter="stock-only">
+                            <div class="filter-item-header">
+                                <input type="checkbox" id="filter-stock-only-enable" checked onclick="event.stopPropagation()">
+                                <span class="filter-item-name">📊 仅股票</span>
+                                <span class="filter-item-preview">(排除ETF/指数)</span>
+                            </div>
+                        </div>
+                        
                         <!-- RSI -->
                         <div class="filter-item" data-filter="rsi">
                             <div class="filter-item-header" onclick="toggleFilterItem(this)">

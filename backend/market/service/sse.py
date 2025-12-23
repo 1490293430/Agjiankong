@@ -44,6 +44,26 @@ def _sanitize_spot_data(data: Optional[list]) -> list:
     return sanitized
 
 
+def _get_balanced_spot_data(data: Optional[list], limit: int = 100) -> list:
+    """
+    获取平衡的行情数据，确保股票数据优先
+    避免 SSE 推送的数据全是 ETF/指数导致"仅显示股票"过滤后无数据
+    """
+    if not data:
+        return []
+    
+    # 分离股票和非股票数据
+    stocks = [item for item in data if item.get('sec_type') == 'stock']
+    others = [item for item in data if item.get('sec_type') != 'stock']
+    
+    # 优先取股票数据，剩余配额给其他类型
+    stock_limit = min(len(stocks), limit)
+    other_limit = limit - stock_limit
+    
+    result = stocks[:stock_limit] + others[:other_limit]
+    return _sanitize_spot_data(result)
+
+
 async def create_sse_stream(
     request: Request,
     current_tab: Optional[str] = None,
@@ -68,9 +88,9 @@ async def create_sse_stream(
             # 1. 推送市场行情数据
             a_stocks = get_json("market:a:spot") or []
             hk_stocks = get_json("market:hk:spot") or []
-            # 清理 NaN/Inf 值，避免 JSON 序列化错误
-            a_stocks_limited = _sanitize_spot_data(a_stocks[:100])
-            hk_stocks_limited = _sanitize_spot_data(hk_stocks[:100])
+            # 使用平衡的数据获取，确保股票数据优先
+            a_stocks_limited = _get_balanced_spot_data(a_stocks, 100)
+            hk_stocks_limited = _get_balanced_spot_data(hk_stocks, 100)
             market_data = {'type': 'market', 'data': {'a': a_stocks_limited, 'hk': hk_stocks_limited}}
             market_json = json.dumps(market_data)
             logger.info(f"[SSE推送] [{client_id}] 推送初始市场行情数据: A股={len(a_stocks_limited)}只, 港股={len(hk_stocks_limited)}只, 数据大小={len(market_json)}字节")
@@ -274,13 +294,13 @@ def broadcast_market_update(market_type: str = "both"):
     
     if market_type in ["a", "both"]:
         a_stocks = get_json("market:a:spot") or []
-        # 清理 NaN/Inf 值，避免 JSON 序列化错误
-        data["a"] = _sanitize_spot_data(a_stocks[:100])  # 只推送前100只，避免数据过大
+        # 使用平衡的数据获取，确保股票数据优先
+        data["a"] = _get_balanced_spot_data(a_stocks, 100)
     
     if market_type in ["hk", "both"]:
         hk_stocks = get_json("market:hk:spot") or []
-        # 清理 NaN/Inf 值，避免 JSON 序列化错误
-        data["hk"] = _sanitize_spot_data(hk_stocks[:100])  # 只推送前100只，避免数据过大
+        # 使用平衡的数据获取，确保股票数据优先
+        data["hk"] = _get_balanced_spot_data(hk_stocks, 100)
     
     if data:
         a_count = len(data.get('a', []))
