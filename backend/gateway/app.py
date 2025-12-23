@@ -532,27 +532,18 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "market_check",
-            "message": "检查市场环境...",
+            "message": "开始选股...",
             "progress": 5,
             "total": len(all_stocks),
             "processed": 0,
             "passed": 0
         })
-        market_ok = check_market_environment(all_stocks)
-        if not market_ok:
-            logger.warning(f"市场环境不佳，上涨家数比率 <= 50%，暂停选股")
-            _broadcast_selection_progress(task_id, {
-                "status": "failed",
-                "stage": "market_check",
-                "message": "市场环境不佳，上涨家数比率 <= 50%，暂停选股",
-                "progress": 0
-            })
-            return {"code": 0, "data": [], "message": "市场环境不佳，暂停选股", "task_id": task_id}
-        logger.info(f"市场环境检查通过，继续选股")
+        # 市场环境检查已移除，直接开始选股
+        logger.info(f"开始选股，跳过市场环境检查")
         _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "layer1",
-            "message": "市场环境检查通过，开始第一层筛选...",
+            "message": "开始第一层筛选...",
             "progress": 10,
             "total": len(all_stocks),
             "processed": 0,
@@ -2859,8 +2850,11 @@ if frontend_path and os.path.exists(frontend_path):
             logger.info(f"成功加载首页: {index_file}")
             return FileResponse(
                 index_file,
-                media_type="text/html",
-                headers={"Cache-Control": "no-cache"}
+                media_type="text/html; charset=utf-8",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Content-Type-Options": "nosniff",
+                }
             )
         logger.error(f"前端文件未找到: {index_file}")
         return {"message": "前端文件未找到", "path": index_file, "frontend_path": frontend_path}
@@ -2880,8 +2874,11 @@ if frontend_path and os.path.exists(frontend_path):
             if os.path.exists(index_file):
                 return FileResponse(
                     index_file,
-                    media_type="text/html",
-                    headers={"Cache-Control": "no-cache"}
+                    media_type="text/html; charset=utf-8",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "X-Content-Type-Options": "nosniff",
+                    }
                 )
         
         # 处理前端资源文件
