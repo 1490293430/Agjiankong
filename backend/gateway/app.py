@@ -1779,6 +1779,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     last_used_source = [None]
     import threading
     source_lock = threading.Lock()
+    first_source_broadcasted = [False]  # 标记是否已广播过第一个数据源
     
     # 初始化进度（数据源为空，等获取到具体数据源后再显示）
     kline_collect_progress[task_id] = {
@@ -1820,6 +1821,17 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 if source_name:
                     with source_lock:
                         last_used_source[0] = source_name
+                        # 第一次获取到数据源时，立即广播进度更新
+                        if not first_source_broadcasted[0]:
+                            first_source_broadcasted[0] = True
+                            if task_id in kline_collect_progress:
+                                kline_collect_progress[task_id]["data_source"] = source_name
+                                try:
+                                    from market.service.sse import broadcast_kline_collect_progress
+                                    broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+                                    logger.info(f"[{market}]首次获取到数据源: {source_name}，立即广播")
+                                except Exception as e:
+                                    logger.debug(f"SSE广播首次数据源失败: {e}")
             else:
                 kline_data = result
             
