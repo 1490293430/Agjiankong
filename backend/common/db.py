@@ -1019,75 +1019,35 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
             """
             params = {'market': market.upper(), 'date': date_str}
         else:
-            # 获取每个股票的最新指标（使用FINAL和分组）
-            # ClickHouse的ReplacingMergeTree配合FINAL可以自动去重获取最新数据
+            # 获取每个股票的最新指标（使用子查询获取最新记录）
             # 对于IN子句，直接拼接代码列表（已转义）
             codes_str = ','.join([f"'{c}'" for c in codes])
             query = f"""
-                SELECT code, market, 
-                    argMax(date, update_time) as date,
-                    argMax(ma5, update_time) as ma5,
-                    argMax(ma10, update_time) as ma10,
-                    argMax(ma20, update_time) as ma20,
-                    argMax(ma60, update_time) as ma60,
-                    argMax(ma5_trend, update_time) as ma5_trend,
-                    argMax(ma10_trend, update_time) as ma10_trend,
-                    argMax(ma20_trend, update_time) as ma20_trend,
-                    argMax(ma60_trend, update_time) as ma60_trend,
-                    argMax(macd_dif, update_time) as macd_dif,
-                    argMax(macd_dea, update_time) as macd_dea,
-                    argMax(macd, update_time) as macd,
-                    argMax(macd_dif_trend, update_time) as macd_dif_trend,
-                    argMax(rsi, update_time) as rsi,
-                    argMax(boll_upper, update_time) as boll_upper,
-                    argMax(boll_middle, update_time) as boll_middle,
-                    argMax(boll_lower, update_time) as boll_lower,
-                    argMax(boll_expanding, update_time) as boll_expanding,
-                    argMax(boll_contracting, update_time) as boll_contracting,
-                    argMax(kdj_k, update_time) as kdj_k,
-                    argMax(kdj_d, update_time) as kdj_d,
-                    argMax(kdj_j, update_time) as kdj_j,
-                    argMax(williams_r, update_time) as williams_r,
-                    argMax(williams_r_prev, update_time) as williams_r_prev,
-                    argMax(vol_ratio, update_time) as vol_ratio,
-                    argMax(high_20d, update_time) as high_20d,
-                    argMax(break_high_20d, update_time) as break_high_20d,
-                    argMax(current_price, update_time) as current_price,
-                    argMax(current_open, update_time) as current_open,
-                    argMax(current_high, update_time) as current_high,
-                    argMax(current_low, update_time) as current_low,
-                    argMax(current_close, update_time) as current_close,
-                    max(update_time) as update_time
-                FROM indicators
+                SELECT code, market, date, ma5, ma10, ma20, ma60,
+                    ma5_trend, ma10_trend, ma20_trend, ma60_trend,
+                    macd_dif, macd_dea, macd, macd_dif_trend, rsi,
+                    boll_upper, boll_middle, boll_lower, boll_expanding, boll_contracting,
+                    kdj_k, kdj_d, kdj_j, williams_r, williams_r_prev, vol_ratio,
+                    high_20d, break_high_20d, current_price, current_open, current_high,
+                    current_low, current_close, update_time
+                FROM indicators FINAL
                 WHERE code IN ({codes_str}) AND market = %(market)s
-                GROUP BY code, market
+                ORDER BY code
             """
             params = {'market': market.upper()}
         
         result = client.execute(query, params)
         
-        if date:
-            # 有日期时，使用标准列顺序
-            columns = [
-                "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
-                "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
-                "macd_dif", "macd_dea", "macd", "macd_dif_trend", "rsi",
-                "boll_upper", "boll_middle", "boll_lower", "boll_expanding", "boll_contracting",
-                "kdj_k", "kdj_d", "kdj_j", "williams_r", "williams_r_prev", "vol_ratio",
-                "high_20d", "break_high_20d", "current_price", "current_open", "current_high",
-                "current_low", "current_close", "update_time"
-            ]
-        else:
-            # 使用argMax时，列顺序就是SELECT中的顺序
-            columns = [
-                "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
-                "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
-                "macd_dif", "macd_dea", "macd", "macd_dif_trend", "rsi",
-                "boll_upper", "boll_middle", "boll_lower", "boll_expanding", "boll_contracting",
-                "kdj_k", "kdj_d", "kdj_j", "williams_r", "williams_r_prev", "vol_ratio",
-                "high_20d", "break_high_20d", "current_price", "current_open", "current_high",
-                "current_low", "current_close", "update_time"
-            ]
+        # 列顺序（两种情况都一样，使用FINAL自动去重）
+        columns = [
+            "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
+            "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
+            "macd_dif", "macd_dea", "macd", "macd_dif_trend", "rsi",
+            "boll_upper", "boll_middle", "boll_lower", "boll_expanding", "boll_contracting",
+            "kdj_k", "kdj_d", "kdj_j", "williams_r", "williams_r_prev", "vol_ratio",
+            "high_20d", "break_high_20d", "current_price", "current_open", "current_high",
+            "current_low", "current_close", "update_time"
+        ]
         
         indicators_map = {}
         for row in result:

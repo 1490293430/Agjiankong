@@ -670,11 +670,8 @@ function handleKlineCollectProgress(taskId, progress) {
 function handleSelectionProgress(taskId, progressData) {
     console.log('[SSE] 选股进度:', taskId, progressData);
     
-    // 检查是否是当前任务的进度（如果有任务ID过滤）
-    if (window.currentSelectionTaskId && taskId && taskId !== window.currentSelectionTaskId) {
-        console.log('[SSE] 跳过非当前任务的进度:', taskId, '当前任务:', window.currentSelectionTaskId);
-        return;
-    }
+    // 不再过滤 task_id，始终显示最新的选股进度
+    // 这样刷新页面后也能看到正在进行的选股任务
     
     // 显示进度容器
     const progressContainer = document.getElementById('selection-progress-container');
@@ -750,11 +747,14 @@ function handleSelectionProgress(taskId, progressData) {
         progressText.textContent = text;
     }
     
-    // 如果选股完成或失败，记录日志
-    if (status === 'completed') {
-        console.log('[SSE] 选股完成，选中:', selected || 0, '只股票');
-    } else if (status === 'failed') {
-        console.log('[SSE] 选股失败:', message);
+    // 如果选股完成或失败，3秒后隐藏进度条
+    if (status === 'completed' || status === 'failed') {
+        console.log('[SSE] 选股' + (status === 'completed' ? '完成' : '失败') + '，选中:', selected || 0, '只股票');
+        setTimeout(() => {
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+        }, 3000);
     }
 }
 
