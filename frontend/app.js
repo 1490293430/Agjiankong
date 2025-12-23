@@ -4964,17 +4964,17 @@ function initStrategy() {
     // 初始化选股页无限滚动
     const selectedStocksContainer = document.getElementById('selected-stocks');
     if (selectedStocksContainer) {
-        // 使用window滚动事件（因为selected-stocks可能没有独立的滚动容器）
-        window.addEventListener('scroll', () => {
+        // 监听容器滚动事件
+        selectedStocksContainer.addEventListener('scroll', () => {
             const strategyTab = document.getElementById('strategy-tab');
             if (!strategyTab || !strategyTab.classList.contains('active')) {
                 return;
             }
             
             // 检查是否滚动到底部
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            const scrollHeight = document.documentElement.scrollHeight;
-            const clientHeight = window.innerHeight;
+            const scrollTop = selectedStocksContainer.scrollTop;
+            const scrollHeight = selectedStocksContainer.scrollHeight;
+            const clientHeight = selectedStocksContainer.clientHeight;
             
             // 距离底部200px时加载下一批
             if (scrollTop + clientHeight >= scrollHeight - 200 && 

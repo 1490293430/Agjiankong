@@ -657,6 +657,8 @@ body.light-mode .config-select {
     border-radius: 8px;
     padding: 20px;
     min-height: 400px;
+    flex: 1;
+    overflow-y: auto;
 }
 
 .watchlist-placeholder {
@@ -2572,7 +2574,9 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     background: #1e293b;
     border-radius: 8px;
     border: 1px solid #334155;
-    overflow: hidden;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .selected-stocks-table {
