@@ -2077,8 +2077,10 @@ async function loadMarket() {
             }
             
                 if (result.data && result.data.length > 0) {
-                // 如果有排序或过滤，应用它们
+                // 如果有排序或过滤，应用它们（第一页加载时不需要重新请求，直接用当前数据）
                 if (currentSort !== 'default' || filterStockOnly) {
+                    // 第一页时直接应用排序/过滤，不重新请求
+                    // applyFilterAndSort会检测hasMore，如果需要会加载更多
                     applyFilterAndSort();
                 } else {
                     appendStockList(result.data);
@@ -2290,7 +2292,35 @@ function formatAmount(amount) {
 }
 
 // 应用过滤和排序（前端处理）
-function applyFilterAndSort() {
+// 如果数据不完整，先加载所有数据
+async function applyFilterAndSort() {
+    const tbody = document.getElementById('stock-list');
+    if (!tbody) return;
+    
+    // 如果还有更多数据未加载，先加载所有数据
+    if (hasMore && allMarketData.length > 0) {
+        console.log('[行情] 排序/过滤需要完整数据，开始加载所有数据...');
+        tbody.innerHTML = '<tr><td colspan="6" class="loading">加载全部数据中...</td></tr>';
+        
+        try {
+            const marketSelect = document.getElementById('market-select');
+            const market = marketSelect ? marketSelect.value || 'a' : 'a';
+            
+            // 请求所有数据（不分页）
+            const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=1&page_size=10000`);
+            if (response.ok) {
+                const result = await response.json();
+                if (result.code === 0 && result.data) {
+                    allMarketData = result.data;
+                    hasMore = false; // 已加载所有数据
+                    console.log(`[行情] 已加载所有数据: ${allMarketData.length}条`);
+                }
+            }
+        } catch (error) {
+            console.error('[行情] 加载所有数据失败:', error);
+        }
+    }
+    
     if (!allMarketData || allMarketData.length === 0) {
         console.log('[行情] 无数据可排序');
         return;
@@ -2359,9 +2389,6 @@ function applyFilterAndSort() {
     window.filteredMarketData = filteredData;
     
     // 重新渲染列表（只显示第一页，保持无限滚动）
-    const tbody = document.getElementById('stock-list');
-    if (!tbody) return;
-    
     tbody.innerHTML = '';
     currentPage = 1;
     hasMore = filteredData.length > pageSize;
