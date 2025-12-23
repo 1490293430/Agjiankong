@@ -361,6 +361,17 @@ async def get_market_status():
         }
 
 
+@api_router.get("/spot/collect/result", dependencies=[])  # 不需要认证，公开接口
+async def get_spot_collect_result():
+    """获取最近一次实时数据采集结果"""
+    try:
+        result = get_json("spot:collect:result")
+        return {"code": 0, "data": result, "message": "success"}
+    except Exception as e:
+        logger.error(f"获取采集结果失败: {e}", exc_info=True)
+        return {"code": 1, "data": None, "message": str(e)}
+
+
 @api_router.get("/tushare/status")
 async def get_tushare_status():
     """检查 Tushare 数据源连接状态"""
@@ -1916,18 +1927,21 @@ async def collect_spot_data_api(
                 
                 # 广播采集结果到顶部状态栏（只显示最新一条）
                 end_time_obj = datetime.fromisoformat(end_time) if isinstance(end_time, str) else datetime.now()
-                time_str = end_time_obj.strftime("%H:%M")
+                time_str = end_time_obj.strftime("%m-%d %H:%M")
+                spot_result_data = {
+                    "success": True,
+                    "time": time_str,
+                    "a_count": a_count,
+                    "hk_count": hk_count,
+                    "a_time": time_str,
+                    "hk_time": time_str,
+                    "source": data_source or "未知"
+                }
+                # 保存到Redis持久化
+                set_json("spot:collect:result", spot_result_data)
                 broadcast_message({
                     "type": "spot_collect_result",
-                    "data": {
-                        "success": True,
-                        "time": time_str,
-                        "a_count": a_count,
-                        "hk_count": hk_count,
-                        "a_time": time_str,
-                        "hk_time": time_str,
-                        "source": data_source or "未知"
-                    }
+                    "data": spot_result_data
                 })
                 
                 # 更新进度
@@ -1962,17 +1976,21 @@ async def collect_spot_data_api(
                     }
                 })
                 # 广播失败结果到顶部状态栏
+                time_str = datetime.now().strftime("%m-%d %H:%M")
+                spot_result_data = {
+                    "success": False,
+                    "time": time_str,
+                    "a_count": 0,
+                    "hk_count": 0,
+                    "a_time": time_str,
+                    "hk_time": time_str,
+                    "source": ""
+                }
+                # 保存到Redis持久化
+                set_json("spot:collect:result", spot_result_data)
                 broadcast_message({
                     "type": "spot_collect_result",
-                    "data": {
-                        "success": False,
-                        "time": datetime.now().strftime("%H:%M"),
-                        "a_count": 0,
-                        "hk_count": 0,
-                        "a_time": datetime.now().strftime("%H:%M"),
-                        "hk_time": datetime.now().strftime("%H:%M"),
-                        "source": ""
-                    }
+                    "data": spot_result_data
                 })
                 spot_collect_progress[task_id]["status"] = "failed"
                 spot_collect_stop_flags.pop(task_id, None)

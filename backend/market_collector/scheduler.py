@@ -69,18 +69,22 @@ def collect_job():
         # 广播采集结果到前端顶部状态栏
         try:
             from market.service.sse import broadcast_message
-            time_str = datetime.now().strftime("%H:%M")
+            from common.redis import set_json
+            time_str = datetime.now().strftime("%m-%d %H:%M")
+            spot_result_data = {
+                "success": success and (a_count > 0 or hk_count > 0),
+                "time": time_str,
+                "a_count": a_count,
+                "hk_count": hk_count,
+                "a_time": time_str,
+                "hk_time": time_str,
+                "source": data_source
+            }
+            # 保存到Redis持久化
+            set_json("spot:collect:result", spot_result_data)
             broadcast_message({
                 "type": "spot_collect_result",
-                "data": {
-                    "success": success and (a_count > 0 or hk_count > 0),
-                    "time": time_str,
-                    "a_count": a_count,
-                    "hk_count": hk_count,
-                    "a_time": time_str,
-                    "hk_time": time_str,
-                    "source": data_source
-                }
+                "data": spot_result_data
             })
         except Exception as e:
             logger.debug(f"广播采集结果失败: {e}")
@@ -98,18 +102,22 @@ def collect_job():
         # 广播失败结果
         try:
             from market.service.sse import broadcast_message
-            time_str = datetime.now().strftime("%H:%M")
+            from common.redis import set_json
+            time_str = datetime.now().strftime("%m-%d %H:%M")
+            spot_result_data = {
+                "success": False,
+                "time": time_str,
+                "a_count": 0,
+                "hk_count": 0,
+                "a_time": time_str,
+                "hk_time": time_str,
+                "source": ""
+            }
+            # 保存到Redis持久化
+            set_json("spot:collect:result", spot_result_data)
             broadcast_message({
                 "type": "spot_collect_result",
-                "data": {
-                    "success": False,
-                    "time": time_str,
-                    "a_count": 0,
-                    "hk_count": 0,
-                    "a_time": time_str,
-                    "hk_time": time_str,
-                    "source": ""
-                }
+                "data": spot_result_data
             })
         except Exception as e2:
             logger.debug(f"广播采集失败结果失败: {e2}")

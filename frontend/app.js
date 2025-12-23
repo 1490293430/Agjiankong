@@ -1107,6 +1107,22 @@ function handleSpotCollectResult(data) {
     console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), 数据源=${source}`);
 }
 
+// 加载上次的采集结果（页面刷新后恢复显示）
+async function loadSpotCollectResult() {
+    try {
+        const res = await apiFetch(`${API_BASE}/api/spot/collect/result`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        if (data.code === 0 && data.data) {
+            console.log('[启动] 加载上次采集结果:', data.data);
+            handleSpotCollectResult(data.data);
+        }
+    } catch (error) {
+        console.debug('[启动] 加载采集结果失败:', error);
+    }
+}
+
 // 处理选股进度（SSE推送）
 function handleSelectionProgress(taskId, progressData) {
     console.log('[SSE] 选股进度:', taskId, progressData);
@@ -1366,6 +1382,9 @@ function startApp() {
         
         // 初始化SSE状态显示（初始状态为未连接）
         updateSSEStatus('disconnected');
+        
+        // 加载上次的采集结果（持久化显示）
+        loadSpotCollectResult();
         
         console.log('[启动] startApp函数执行完成');
     } catch (error) {
