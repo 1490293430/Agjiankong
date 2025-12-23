@@ -2841,6 +2841,7 @@ if frontend_path and os.path.exists(frontend_path):
     @app.get("/", include_in_schema=False)
     async def index():
         """前端首页"""
+        from fastapi.responses import HTMLResponse
         index_file = os.path.join(frontend_path, "index.html")
         logger.info(f"访问根路径，尝试加载首页: {index_file}")
         logger.info(f"文件存在: {os.path.exists(index_file)}")
@@ -2848,12 +2849,14 @@ if frontend_path and os.path.exists(frontend_path):
         
         if os.path.exists(index_file):
             logger.info(f"成功加载首页: {index_file}")
-            return FileResponse(
-                index_file,
-                media_type="text/html; charset=utf-8",
+            with open(index_file, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            return HTMLResponse(
+                content=html_content,
                 headers={
                     "Cache-Control": "no-cache",
                     "X-Content-Type-Options": "nosniff",
+                    "Content-Type": "text/html; charset=utf-8",
                 }
             )
         logger.error(f"前端文件未找到: {index_file}")
