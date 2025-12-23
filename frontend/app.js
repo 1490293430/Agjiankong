@@ -4779,12 +4779,12 @@ async function runSelection() {
     }
     
     try {
-        // 优化超时控制（根据优化后的性能调整为15秒）
+        // 选股可能需要较长时间，设置60秒超时
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             console.warn('选股请求超时，取消请求');
             controller.abort();
-        }, 15000); // 15秒超时，因为优化后选股很快
+        }, 60000); // 60秒超时
         
         console.log('发送选股请求:', `${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`);
         const startTime = Date.now();
@@ -4880,7 +4880,7 @@ async function runSelection() {
         
         if (error.name === 'AbortError') {
             errorMessage = '选股请求超时';
-            errorDetail = '请求超过15秒未完成，已自动取消';
+            errorDetail = '请求超过60秒未完成，已自动取消';
         } else if (error.message.includes('Failed to fetch')) {
             errorMessage = '网络连接失败';
             errorDetail = '请检查网络连接或服务器状态';
