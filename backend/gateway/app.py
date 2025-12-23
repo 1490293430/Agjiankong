@@ -76,6 +76,20 @@ app.add_middleware(
 )
 
 
+# 添加响应头中间件，确保移动端正确渲染
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class MobileCompatMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        # 添加 Vary 头，告诉浏览器根据 User-Agent 缓存不同版本
+        response.headers["Vary"] = "User-Agent, Accept-Encoding"
+        return response
+
+app.add_middleware(MobileCompatMiddleware)
+
+
 async def verify_api_token(
     x_api_token: Optional[str] = Header(default=None, alias="X-API-Token"),
 ) -> None:
