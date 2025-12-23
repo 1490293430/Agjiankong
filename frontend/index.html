@@ -185,6 +185,21 @@
                 <input type="text" id="search-input" placeholder="搜索股票代码或名称...">
                 <button id="refresh-btn">刷新</button>
             </div>
+            <!-- 排序和过滤栏 -->
+            <div class="market-sort-bar">
+                <div class="sort-tabs">
+                    <button class="sort-tab active" data-sort="default">默认</button>
+                    <button class="sort-tab" data-sort="pct_desc">涨幅↓</button>
+                    <button class="sort-tab" data-sort="pct_asc">涨幅↑</button>
+                    <button class="sort-tab" data-sort="volume_desc">成交量↓</button>
+                    <button class="sort-tab" data-sort="amount_desc">成交额↓</button>
+                    <button class="sort-tab" data-sort="turnover_desc">换手率↓</button>
+                </div>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-stock-only">
+                    <span>仅显示股票</span>
+                </label>
+            </div>
             <div class="stock-list-container">
                 <table class="stock-table">
                     <thead>

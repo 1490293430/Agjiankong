@@ -3890,3 +3890,109 @@ body.light-mode .load-more-btn {
 body.light-mode .load-more-info {
     color: #64748b;
 }
+
+
+/* ========== 行情排序栏样式 ========== */
+.market-sort-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #334155;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.sort-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.sort-tab {
+    padding: 6px 12px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sort-tab:hover {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+.sort-tab.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.filter-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.filter-checkbox span {
+    white-space: nowrap;
+}
+
+/* 亮色模式 */
+body.light-mode .market-sort-bar {
+    border-bottom-color: #e2e8f0;
+}
+
+body.light-mode .sort-tab {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+    color: #64748b;
+}
+
+body.light-mode .sort-tab:hover {
+    background: #e2e8f0;
+    color: #1f2937;
+}
+
+body.light-mode .sort-tab.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+body.light-mode .filter-checkbox {
+    color: #64748b;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .market-sort-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .sort-tabs {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 5px;
+    }
+    
+    .sort-tab {
+        padding: 5px 10px;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+}

@@ -1657,6 +1657,9 @@ const pageSize = 30;
 let isLoading = false;
 let hasMore = true;
 let currentMarket = 'a';
+let currentSort = 'default'; // 当前排序方式
+let filterStockOnly = false; // 是否仅显示股票
+let allMarketData = []; // 存储所有行情数据（用于前端排序和过滤）
 
 // 已移除marketRefreshInterval，改用SSE实时推送
 
@@ -1807,6 +1810,35 @@ async function initMarket() {
     refreshBtn.addEventListener('click', () => resetAndLoadMarket());
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
+    
+    // 初始化排序切换
+    document.querySelectorAll('.sort-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            // 更新active状态
+            document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // 更新排序方式并重新渲染
+            currentSort = tab.getAttribute('data-sort');
+            console.log('[行情] 切换排序:', currentSort);
+            applyFilterAndSort();
+        });
+    });
+    
+    // 初始化"仅显示股票"过滤
+    const filterStockOnlyCheckbox = document.getElementById('filter-stock-only');
+    if (filterStockOnlyCheckbox) {
+        // 从localStorage恢复状态
+        filterStockOnly = localStorage.getItem('filterStockOnly') === 'true';
+        filterStockOnlyCheckbox.checked = filterStockOnly;
+        
+        filterStockOnlyCheckbox.addEventListener('change', () => {
+            filterStockOnly = filterStockOnlyCheckbox.checked;
+            localStorage.setItem('filterStockOnly', filterStockOnly);
+            console.log('[行情] 切换过滤:', filterStockOnly ? '仅显示股票' : '显示全部');
+            applyFilterAndSort();
+        });
+    }
     
     // 立即设置一次
     setupMarketScrollListeners();
@@ -1990,10 +2022,20 @@ async function loadMarket() {
         if (result.code === 0) {
             if (currentPage === 1) {
                 tbody.innerHTML = '';
+                // 第一页时保存所有数据（用于前端排序和过滤）
+                allMarketData = result.data || [];
+            } else {
+                // 追加数据
+                allMarketData = allMarketData.concat(result.data || []);
             }
             
                 if (result.data && result.data.length > 0) {
-                appendStockList(result.data);
+                // 如果有排序或过滤，应用它们
+                if (currentSort !== 'default' || filterStockOnly) {
+                    applyFilterAndSort();
+                } else {
+                    appendStockList(result.data);
+                }
                 
                 // 如果是第一页且首次加载，连接SSE实时推送
                 if (currentPage === 1) {
@@ -2198,6 +2240,90 @@ function formatAmount(amount) {
     if (amount >= 100000000) return (amount / 100000000).toFixed(2) + '亿';
     if (amount >= 10000) return (amount / 10000).toFixed(2) + '万';
     return amount.toFixed(2);
+}
+
+// 应用过滤和排序（前端处理）
+function applyFilterAndSort() {
+    if (!allMarketData || allMarketData.length === 0) {
+        console.log('[行情] 无数据可排序');
+        return;
+    }
+    
+    let filteredData = [...allMarketData];
+    
+    // 应用"仅显示股票"过滤
+    if (filterStockOnly) {
+        filteredData = filteredData.filter(stock => {
+            const code = String(stock.code || '');
+            const name = String(stock.name || '');
+            
+            // A股：排除指数（代码以399、000开头且名称包含"指数"）、ETF、LOF等
+            if (currentMarket === 'a') {
+                // 排除指数
+                if (name.includes('指数') || name.includes('ETF') || name.includes('LOF')) {
+                    return false;
+                }
+                // 排除以399开头的（深证指数）
+                if (code.startsWith('399')) {
+                    return false;
+                }
+                // 排除以000开头且名称包含特殊字符的（可能是指数）
+                if (code.startsWith('000') && (name.includes('上证') || name.includes('深证') || name.includes('中证'))) {
+                    return false;
+                }
+                // 排除基金（5开头的ETF、1开头的LOF等）
+                if (code.startsWith('5') || code.startsWith('1')) {
+                    return false;
+                }
+            }
+            
+            // 港股：排除指数、ETF等
+            if (currentMarket === 'hk') {
+                if (name.includes('指数') || name.includes('ETF') || name.includes('基金')) {
+                    return false;
+                }
+            }
+            
+            return true;
+        });
+    }
+    
+    // 应用排序
+    if (currentSort !== 'default') {
+        filteredData.sort((a, b) => {
+            switch (currentSort) {
+                case 'pct_desc':
+                    return (b.pct || 0) - (a.pct || 0);
+                case 'pct_asc':
+                    return (a.pct || 0) - (b.pct || 0);
+                case 'volume_desc':
+                    return (b.volume || 0) - (a.volume || 0);
+                case 'amount_desc':
+                    return (b.amount || 0) - (a.amount || 0);
+                case 'turnover_desc':
+                    return (b.turnover || 0) - (a.turnover || 0);
+                default:
+                    return 0;
+            }
+        });
+    }
+    
+    // 重新渲染列表
+    const tbody = document.getElementById('stock-list');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    currentPage = 1;
+    hasMore = filteredData.length > pageSize;
+    
+    // 只显示第一页
+    const firstPage = filteredData.slice(0, pageSize);
+    appendStockList(firstPage);
+    
+    // 更新全局数据（用于分页）
+    window.filteredMarketData = filteredData;
+    
+    console.log(`[行情] 过滤排序完成: 原始${allMarketData.length}条, 过滤后${filteredData.length}条, 排序=${currentSort}`);
 }
 
 async function handleSearch() {
