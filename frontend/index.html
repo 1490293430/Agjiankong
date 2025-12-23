@@ -705,18 +705,12 @@
                             批量采集K线数据到数据库，用于选股分析。
                         </div>
                         
-                        <!-- 实时快照采集 -->
-                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                        <!-- 采集按钮横排 -->
+                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
                             <button id="collect-spot-btn" onclick="collectSpotData()" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📊 采集实时快照</button>
-                            <span style="font-size: 11px; color: #64748b;">采集A股和港股的实时行情数据</span>
-                        </div>
-                        <div id="spot-collect-status" style="margin-top: 4px; margin-bottom: 8px; font-size: 12px; color: #94a3b8; min-height: 16px;"></div>
-                        
-                        <!-- 单个批量采集 -->
-                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
                             <label style="display: flex; align-items: center; gap: 4px;">
                                 数量：
-                                <input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 60px;">
+                                <input type="number" id="single-batch-size-input" value="1" min="1" max="100" style="width: 50px;">
                             </label>
                             <label style="display: flex; align-items: center; gap: 4px;">
                                 市场：
@@ -734,20 +728,21 @@
                                 </select>
                             </label>
                             <button id="single-batch-collect-kline-btn" class="action-btn" style="padding: 6px 12px; font-size: 13px;">📥 单个采集</button>
-                        </div>
-                        
-                        <!-- 批量采集 -->
-                        <div class="config-item" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px;">
                             <label style="display: flex; align-items: center; gap: 4px;">
-                                采集数量：
-                                <input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 80px;">
+                                批量：
+                                <input type="number" id="collect-max-count-input" value="6000" min="1" max="10000" style="width: 70px;">
                             </label>
                             <button id="collect-kline-btn" class="success-btn" style="padding: 6px 12px; font-size: 13px;">📥 批量采集</button>
-                            <button id="stop-collect-kline-btn" class="danger-btn" style="padding: 6px 12px; font-size: 13px;">🛑 停止采集</button>
                         </div>
                         
-                        <!-- 采集状态 -->
-                        <div id="collect-kline-status" class="status-text" style="margin-top: 10px; min-height: 20px;"></div>
+                        <!-- 采集状态和停止按钮 -->
+                        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;">
+                            <div style="flex: 1;">
+                                <div id="spot-collect-status" style="font-size: 12px; color: #94a3b8; min-height: 16px;"></div>
+                                <div id="collect-kline-status" class="status-text" style="min-height: 20px;"></div>
+                            </div>
+                            <button id="stop-collect-kline-btn" class="danger-btn" style="padding: 6px 12px; font-size: 13px; margin-left: 12px;">🛑 停止采集</button>
+                        </div>
                     </div>
                 </div>
                 
