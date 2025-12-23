@@ -9,7 +9,6 @@ html {
     -webkit-text-size-adjust: 100%;
     -ms-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    height: 100%;
 }
 
 /* 强制移动端视口宽度 */
@@ -38,19 +37,12 @@ body {
     background: #0f172a;
     color: #cbd5f5;
     line-height: 1.6;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
 }
 
 .container {
     max-width: 1920px;
     margin: 0 auto;
     padding: 20px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
 }
 
 .header {
@@ -376,47 +368,10 @@ body.light-mode .market-status-value.loading {
 
 .tab-content {
     display: none;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
 }
 
 .tab-content.active {
-    display: flex;
-}
-
-/* 自选页、选股页、资讯页内容区域可滚动 */
-#watchlist-tab {
-    display: none;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-#watchlist-tab.active {
-    display: flex;
-}
-
-#strategy-tab {
-    display: none;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-#strategy-tab.active {
-    display: flex;
-}
-
-#news-tab {
-    display: none;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-#news-tab.active {
-    display: flex;
+    display: block;
 }
 
 /* 行情表格 */
@@ -702,8 +657,6 @@ body.light-mode .config-select {
     border-radius: 8px;
     padding: 20px;
     min-height: 400px;
-    flex: 1;
-    overflow-y: auto;
 }
 
 .watchlist-placeholder {
@@ -1547,9 +1500,6 @@ body.light-mode .kline-controls select option {
     background: #1e293b;
     border-radius: 8px;
     padding: 20px;
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
 }
 
 .news-item {
@@ -2011,15 +1961,6 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     
     .tab-content.active {
         display: flex !important;
-    }
-    
-    /* 自选页、选股页、资讯页内容区域可滚动 */
-    #watchlist-tab .watchlist-container,
-    #strategy-tab .selected-stocks-container,
-    #news-tab .news-list {
-        flex: 1;
-        overflow-y: auto;
-        min-height: 0;
     }
     
     /* 行情页布局优化 */
@@ -2628,9 +2569,7 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     background: #1e293b;
     border-radius: 8px;
     border: 1px solid #334155;
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
+    overflow: hidden;
 }
 
 .selected-stocks-table {
@@ -3912,4 +3851,42 @@ body.light-mode .selection-config-header h3 {
 
 body.light-mode .selection-config-actions {
     border-top-color: #e2e8f0;
+}
+
+
+/* ========== 加载更多按钮样式 ========== */
+.load-more-container {
+    text-align: center;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.load-more-btn {
+    padding: 12px 32px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.load-more-btn:hover {
+    background: #2563eb;
+}
+
+.load-more-info {
+    display: block;
+    margin-top: 8px;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+body.light-mode .load-more-btn {
+    background: #3b82f6;
+}
+
+body.light-mode .load-more-info {
+    color: #64748b;
 }
