@@ -630,6 +630,8 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         
         # 找出缺失指标的股票，预先批量计算
         missing_codes = [code for code in all_codes if code not in cached_indicators]
+        failed_codes = []  # 记录计算失败的股票
+        
         if missing_codes:
             logger.info(f"缺失指标的股票：{len(missing_codes)}只，开始预计算...")
             _broadcast_selection_progress(task_id, {
@@ -650,21 +652,29 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 """计算并保存单只股票的指标"""
                 try:
                     kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
-                    if kline_data and len(kline_data) >= 20:
-                        df = pd.DataFrame(kline_data)
-                        indicators = calculate_all_indicators(df)
-                        if indicators:
-                            # 保存到缓存
-                            latest_date = kline_data[-1].get("date", "") if kline_data else ""
-                            if latest_date:
-                                try:
-                                    save_indicator(code, market.upper(), latest_date, indicators)
-                                except Exception as e:
-                                    logger.debug(f"保存指标失败 {code}: {e}")
-                            return (code, indicators)
+                    if not kline_data:
+                        logger.debug(f"股票 {code} 无K线数据")
+                        return (code, None, "无K线数据")
+                    if len(kline_data) < 20:
+                        logger.debug(f"股票 {code} K线数据不足: {len(kline_data)}条")
+                        return (code, None, f"K线不足({len(kline_data)}条)")
+                    
+                    df = pd.DataFrame(kline_data)
+                    indicators = calculate_all_indicators(df)
+                    if not indicators:
+                        return (code, None, "指标计算失败")
+                    
+                    # 保存到缓存
+                    latest_date = kline_data[-1].get("date", "") if kline_data else ""
+                    if latest_date:
+                        try:
+                            save_indicator(code, market.upper(), latest_date, indicators)
+                        except Exception as e:
+                            logger.debug(f"保存指标失败 {code}: {e}")
+                    return (code, indicators, None)
                 except Exception as e:
                     logger.debug(f"计算指标失败 {code}: {e}")
-                return (code, None)
+                    return (code, None, str(e)[:50])
             
             # 并发计算（限制并发数避免过载）
             max_workers = min(30, len(missing_codes))
@@ -673,27 +683,40 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 
                 for future in concurrent.futures.as_completed(futures):
                     try:
-                        code, indicators = future.result(timeout=30)
+                        code, indicators, error = future.result(timeout=30)
                         if indicators:
                             cached_indicators[code] = indicators
                             computed_count += 1
                             saved_count += 1
+                        else:
+                            failed_codes.append((code, error))
+                    except concurrent.futures.TimeoutError:
+                        code = futures[future]
+                        failed_codes.append((code, "超时"))
+                        logger.debug(f"计算指标超时: {code}")
                     except Exception as e:
-                        logger.debug(f"计算指标超时或失败: {e}")
+                        code = futures[future]
+                        failed_codes.append((code, str(e)[:30]))
+                        logger.debug(f"计算指标失败: {code}, {e}")
                     
                     # 每计算50只更新一次进度
-                    if (computed_count + 1) % 50 == 0:
+                    processed = computed_count + len(failed_codes)
+                    if processed % 50 == 0:
                         _broadcast_selection_progress(task_id, {
                             "status": "running",
                             "stage": "computing",
-                            "message": f"预计算指标中... 已完成{computed_count}/{len(missing_codes)}",
-                            "progress": 3 + int((computed_count / len(missing_codes)) * 2),
+                            "message": f"预计算指标中... 成功{computed_count}，失败{len(failed_codes)}，共{len(missing_codes)}",
+                            "progress": 3 + int((processed / len(missing_codes)) * 2),
                             "total": total_stocks,
                             "computed": computed_count,
+                            "failed": len(failed_codes),
                             "missing_count": len(missing_codes)
                         })
             
-            logger.info(f"预计算完成：计算了{computed_count}只，保存了{saved_count}只")
+            logger.info(f"预计算完成：成功{computed_count}只，失败{len(failed_codes)}只")
+            if failed_codes and len(failed_codes) <= 20:
+                # 只显示前20个失败的股票
+                logger.info(f"失败的股票: {failed_codes[:20]}")
         
         # 筛选结果
         passed_stocks = valid_stocks.copy()
@@ -786,6 +809,22 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         # 按成交额排序，取前N只
         passed_stocks = sorted(passed_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
         selected = passed_stocks[:max_count]
+        
+        # 将指标数据添加到选中的股票中（包括量比、RSI等）
+        for stock in selected:
+            code = str(stock.get("code", ""))
+            indicators = indicators_map.get(code, {})
+            if indicators:
+                stock["vol_ratio"] = indicators.get("vol_ratio")
+                stock["rsi"] = indicators.get("rsi")
+                stock["ma5"] = indicators.get("ma5")
+                stock["ma10"] = indicators.get("ma10")
+                stock["ma20"] = indicators.get("ma20")
+                stock["ma60"] = indicators.get("ma60")
+                stock["macd_dif"] = indicators.get("macd_dif")
+                stock["macd_dea"] = indicators.get("macd_dea")
+                stock["kdj_k"] = indicators.get("kdj_k")
+                stock["kdj_d"] = indicators.get("kdj_d")
         
         # 保存结果
         save_selected_stocks(selected, market.upper())
