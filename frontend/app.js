@@ -4,6 +4,32 @@ console.log('[全局] ========== app.js 开始加载 ==========');
 console.log('[全局] 当前时间:', new Date().toISOString());
 console.log('[全局] 页面URL:', window.location.href);
 
+// 筛选项折叠功能
+function toggleFilterItem(headerEl) {
+    const filterItem = headerEl.closest('.filter-item');
+    if (!filterItem || filterItem.classList.contains('filter-item-simple')) return;
+    
+    // 关闭其他已展开的筛选项
+    document.querySelectorAll('.filter-item.expanded').forEach(item => {
+        if (item !== filterItem) {
+            item.classList.remove('expanded');
+        }
+    });
+    
+    // 切换当前项
+    filterItem.classList.toggle('expanded');
+}
+window.toggleFilterItem = toggleFilterItem;
+
+// 点击外部关闭展开的筛选项
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.filter-item')) {
+        document.querySelectorAll('.filter-item.expanded').forEach(item => {
+            item.classList.remove('expanded');
+        });
+    }
+});
+
 // 筛选配置折叠功能 - 必须在文件开头定义，确保HTML onclick可以调用
 function toggleSelectionConfig() {
     const content = document.getElementById('selection-config-content');
