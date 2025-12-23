@@ -544,7 +544,7 @@ async def select_stocks_api(
                 "stage": "precompute",
                 "message": f"缓存不足，正在批量计算指标（已缓存{len(cached_indicators)}/{len(all_codes)}）...",
                 "progress": 5,
-                "total": len(stocks_to_process),
+                "total": len(sorted_stocks),
                 "processed": 0,
                 "passed": 0,
                 "elapsed_time": 0
