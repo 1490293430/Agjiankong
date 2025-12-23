@@ -368,9 +368,10 @@ async def select_stocks_api(
     market: str | None = Query(None, description="市场类型：A（A股）或HK（港股），留空则使用系统配置"),
     task_id: str | None = Query(None, description="任务ID，用于进度追踪"),
 ):
-    """自动选股（使用新的多维度筛选策略，支持异步计算）"""
+    """自动选股（异步执行，通过SSE推送进度）"""
     import uuid
     from market.service.ws import selection_progress
+    from market.service.sse import broadcast_message
     
     # 如果没有提供task_id，生成一个
     if not task_id:
@@ -386,6 +387,79 @@ async def select_stocks_api(
             logger.info(f"收到筛选配置: {filter_config}")
     except Exception as e:
         logger.warning(f"解析筛选配置失败: {e}")
+    
+    # 读取系统运行时配置
+    cfg = get_runtime_config()
+    if max_count is None:
+        max_count = cfg.selection_max_count
+    if market is None:
+        market = cfg.selection_market
+    
+    # 初始化进度
+    selection_progress[task_id] = {
+        "status": "running",
+        "stage": "init",
+        "message": "正在启动选股任务...",
+        "progress": 0,
+        "total": 0,
+        "processed": 0,
+        "passed": 0
+    }
+    
+    # 通过SSE推送初始进度
+    broadcast_message({
+        "type": "selection_progress",
+        "task_id": task_id,
+        "data": selection_progress[task_id]
+    })
+    
+    # 在后台线程中执行选股
+    def run_selection_sync():
+        return _run_selection_task(task_id, market, max_count, filter_config)
+    
+    try:
+        # 使用 asyncio.to_thread 在线程池中执行，避免阻塞事件循环
+        result = await asyncio.to_thread(run_selection_sync)
+        return result
+    except Exception as e:
+        logger.error(f"选股失败: {e}", exc_info=True)
+        selection_progress[task_id] = {
+            "status": "failed",
+            "stage": "error",
+            "message": f"选股失败: {str(e)[:100]}",
+            "progress": 0,
+            "elapsed_time": 0
+        }
+        broadcast_message({
+            "type": "selection_progress",
+            "task_id": task_id,
+            "data": selection_progress[task_id]
+        })
+        return {"code": 1, "data": [], "message": str(e), "task_id": task_id}
+
+
+def _broadcast_selection_progress(task_id: str, progress_data: dict):
+    """广播选股进度到SSE（同时更新 selection_progress 字典）"""
+    from market.service.ws import selection_progress
+    from market.service.sse import broadcast_message
+    
+    # 更新进度字典
+    selection_progress[task_id] = progress_data
+    
+    # 广播到所有SSE连接
+    try:
+        broadcast_message({
+            "type": "selection_progress",
+            "task_id": task_id,
+            "data": progress_data
+        })
+    except Exception as e:
+        logger.warning(f"广播选股进度失败: {e}")
+
+
+def _run_selection_task(task_id: str, market: str, max_count: int, filter_config: dict):
+    """执行选股任务（同步函数，在线程池中运行）"""
+    from market.service.ws import selection_progress
     
     try:
         from strategy.selector import (
@@ -433,7 +507,7 @@ async def select_stocks_api(
         
         # 1. 检查市场环境（上涨家数比率 > 50%）
         logger.info(f"开始选股：市场={market}，总股票数={len(all_stocks)}")
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "market_check",
             "message": "检查市场环境...",
@@ -441,19 +515,19 @@ async def select_stocks_api(
             "total": len(all_stocks),
             "processed": 0,
             "passed": 0
-        }
+        })
         market_ok = check_market_environment(all_stocks)
         if not market_ok:
             logger.warning(f"市场环境不佳，上涨家数比率 <= 50%，暂停选股")
-            selection_progress[task_id] = {
+            _broadcast_selection_progress(task_id, {
                 "status": "failed",
                 "stage": "market_check",
                 "message": "市场环境不佳，上涨家数比率 <= 50%，暂停选股",
                 "progress": 0
-            }
+            })
             return {"code": 0, "data": [], "message": "市场环境不佳，暂停选股", "task_id": task_id}
         logger.info(f"市场环境检查通过，继续选股")
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "layer1",
             "message": "市场环境检查通过，开始第一层筛选...",
@@ -461,7 +535,7 @@ async def select_stocks_api(
             "total": len(all_stocks),
             "processed": 0,
             "passed": 0
-        }
+        })
         
         # 2. 分层计算，逐步淘汰（CPU优化）
         from common.db import batch_get_indicators, get_indicator, save_indicator
@@ -495,12 +569,12 @@ async def select_stocks_api(
         
         if not valid_stocks:
             logger.warning(f"没有有效的股票数据（所有股票的price都是NaN或无效）")
-            selection_progress[task_id] = {
+            _broadcast_selection_progress(task_id, {
                 "status": "failed",
                 "stage": "data_check",
                 "message": "没有有效的股票数据，请检查数据采集是否正常",
                 "progress": 0
-            }
+            })
             return {"code": 0, "data": [], "message": "没有有效的股票数据，请检查数据采集是否正常", "task_id": task_id}
         
         logger.info(f"过滤后有效股票数：{len(valid_stocks)}/{len(all_stocks)}")
@@ -518,6 +592,7 @@ async def select_stocks_api(
         skip_ma60_count = 0  # 跳过MA60检查的股票数
         
         # 先批量读取缓存（如果有很多股票，可以分批读取）
+        # 使用 None 获取最新缓存，不限制日期
         all_codes = [str(s.get("code", "")) for s in sorted_stocks]
         logger.info(f"准备批量读取缓存，股票数量={len(all_codes)}")
         cached_indicators = {}
@@ -525,7 +600,8 @@ async def select_stocks_api(
         
         if clickhouse_available:
             try:
-                cached_indicators = batch_get_indicators(all_codes, market.upper(), today)
+                # 传入 None 获取最新缓存，不限制日期
+                cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
                 cache_coverage = len(cached_indicators) / len(all_codes) if all_codes else 0
                 logger.info(f"批量读取缓存完成，缓存命中={len(cached_indicators)}只股票，覆盖率={cache_coverage:.1%}")
             except Exception as e:
@@ -539,7 +615,7 @@ async def select_stocks_api(
         # 只有在缓存覆盖率低于30%时才批量计算指标（首次运行或缓存不足）
         if cache_coverage < 0.3 and len(all_codes) > 0:
             logger.warning(f"缓存覆盖率过低（{cache_coverage:.1%}），开始批量计算指标...")
-            selection_progress[task_id] = {
+            _broadcast_selection_progress(task_id, {
                 "status": "running",
                 "stage": "precompute",
                 "message": f"缓存不足，正在批量计算指标（已缓存{len(cached_indicators)}/{len(all_codes)}）...",
@@ -548,7 +624,7 @@ async def select_stocks_api(
                 "processed": 0,
                 "passed": 0,
                 "elapsed_time": 0
-            }
+            })
             
             # 批量计算指标（全量计算模式，计算前2000只活跃股票）
             from strategy.indicator_batch import batch_compute_indicators
@@ -558,7 +634,8 @@ async def select_stocks_api(
             # 重新读取缓存（如果ClickHouse可用）
             if clickhouse_available:
                 try:
-                    cached_indicators = batch_get_indicators(all_codes, market.upper(), today)
+                    # 传入 None 获取最新缓存
+                    cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
                     cache_coverage = len(cached_indicators) / len(all_codes) if all_codes else 0
                     logger.info(f"重新读取缓存完成，缓存命中={len(cached_indicators)}只股票，覆盖率={cache_coverage:.1%}")
                 except Exception as e:
@@ -733,7 +810,7 @@ async def select_stocks_api(
                         # 更新进度（每批次更新一次）
                         elapsed_time = time.time() - start_time
                         progress_pct = min(70, 10 + int((processed_count / len(stocks_to_process)) * 60))
-                        selection_progress[task_id] = {
+                        _broadcast_selection_progress(task_id, {
                             "status": "running",
                             "stage": "layer1",
                             "message": f"第一层筛选中：已处理 {processed_count}/{len(stocks_to_process)} 只，通过 {len(layer1_passed)} 只",
@@ -742,7 +819,7 @@ async def select_stocks_api(
                             "processed": processed_count,
                             "passed": len(layer1_passed),
                             "elapsed_time": round(elapsed_time, 1)
-                        }
+                        })
                         
                         # 每处理几个批次记录一次日志
                         if i % 3 == 0:
@@ -778,7 +855,7 @@ async def select_stocks_api(
                 sample_price = sample_stock.get("price", 0)
                 logger.debug(f"样本股票 {sample_stock.get('code')}：价格={sample_price}, 涨幅={sample_pct}, 涨幅类型={type(sample_pct)}")
         
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "layer1_complete",
             "message": f"第一层筛选完成：通过 {len(layer1_passed)} 只股票",
@@ -787,11 +864,11 @@ async def select_stocks_api(
             "processed": processed_count,
             "passed": len(layer1_passed),
             "elapsed_time": round(elapsed_time, 1)
-        }
+        })
         
         if not layer1_passed:
             logger.warning(f"第一层筛选未通过任何股票，可能原因：1) 市场环境不佳；2) 筛选条件过严；3) 处理时间不足（只处理了部分股票）")
-            selection_progress[task_id] = {
+            _broadcast_selection_progress(task_id, {
                 "status": "failed",
                 "stage": "layer1_complete",
                 "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）",
@@ -800,11 +877,11 @@ async def select_stocks_api(
                 "processed": processed_count,
                 "passed": 0,
                 "elapsed_time": round(elapsed_time, 1)
-            }
+            })
             return {"code": 0, "data": [], "message": f"未找到符合条件的股票（已检查{processed_count}只，耗时{elapsed_time:.1f}秒）", "task_id": task_id}
         
         # 第二层：对通过第一层的股票，获取完整指标（优先从缓存读取，缺失的再计算）
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "layer2",
             "message": f"开始第二层筛选：获取 {len(layer1_passed)} 只股票的完整指标...",
@@ -813,7 +890,7 @@ async def select_stocks_api(
             "processed": processed_count,
             "passed": len(layer1_passed),
             "elapsed_time": round(time.time() - start_time, 1)
-        }
+        })
         
         indicators_map = {}
         from_cache_count = 0
@@ -823,7 +900,8 @@ async def select_stocks_api(
         full_cached = {}
         if clickhouse_available:
             try:
-                full_cached = batch_get_indicators(layer1_codes, market.upper(), today)
+                # 传入 None 获取最新缓存
+                full_cached = batch_get_indicators(layer1_codes, market.upper(), None)
             except Exception as e:
                 logger.warning(f"批量读取完整指标缓存失败，将跳过缓存: {e}")
                 full_cached = {}
@@ -833,7 +911,7 @@ async def select_stocks_api(
             if idx2 > 0 and idx2 % 10 == 0:
                 elapsed_time = time.time() - start_time
                 progress_pct = min(90, 75 + int((idx2 / len(layer1_passed)) * 15))  # 75-90%进度
-                selection_progress[task_id] = {
+                _broadcast_selection_progress(task_id, {
                     "status": "running",
                     "stage": "layer2",
                     "message": f"第二层筛选中：已处理 {idx2}/{len(layer1_passed)} 只，获取指标 {len(indicators_map)} 个",
@@ -924,7 +1002,7 @@ async def select_stocks_api(
         }
         
         # 5. 执行筛选（使用通过第一层的股票和完整指标）
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "running",
             "stage": "filtering",
             "message": f"执行筛选条件：通过第一层 {len(layer1_passed)} 只，有指标数据 {len(indicators_map)} 只",
@@ -934,7 +1012,7 @@ async def select_stocks_api(
             "passed": len(layer1_passed),
             "indicators_count": len(indicators_map),
             "elapsed_time": round(time.time() - start_time, 1)
-        }
+        })
         
         logger.info(f"开始第二层筛选：通过第一层={len(layer1_passed)}只，有指标数据={len(indicators_map)}只")
         filtered = filter_stocks_by_criteria(layer1_passed, indicators_map, filter_config)
@@ -942,7 +1020,7 @@ async def select_stocks_api(
         
         if not filtered:
             logger.warning(f"第二层筛选未通过任何股票")
-            selection_progress[task_id] = {
+            _broadcast_selection_progress(task_id, {
                 "status": "failed",
                 "stage": "filtering",
                 "message": f"未找到符合条件的股票（第二层筛选未通过任何股票）",
@@ -952,7 +1030,7 @@ async def select_stocks_api(
                 "passed": len(layer1_passed),
                 "selected": 0,
                 "elapsed_time": round(time.time() - start_time, 1)
-            }
+            })
             return {"code": 0, "data": [], "message": "未找到符合条件的股票（第二层筛选未通过任何股票）", "task_id": task_id}
         
         # 6. 限制数量
@@ -965,7 +1043,7 @@ async def select_stocks_api(
         logger.info(f"选股完成：{market}股市场，从{len(all_stocks)}只中筛选出{len(selected)}只，总耗时{total_time:.1f}秒")
         
         # 更新最终进度
-        selection_progress[task_id] = {
+        _broadcast_selection_progress(task_id, {
             "status": "completed",
             "stage": "completed",
             "message": f"选股完成：筛选出 {len(selected)} 只股票",
@@ -975,21 +1053,19 @@ async def select_stocks_api(
             "passed": len(layer1_passed),
             "selected": len(selected),
             "elapsed_time": round(total_time, 1)
-        }
+        })
         
         return {"code": 0, "data": selected, "message": "success", "task_id": task_id}
     except Exception as e:
         logger.error(f"选股失败: {e}", exc_info=True)
         # 更新失败进度
-        if task_id:
-            from market.service.ws import selection_progress
-            selection_progress[task_id] = {
-                "status": "failed",
-                "stage": "error",
-                "message": f"选股失败: {str(e)[:100]}",
-                "progress": 0,
-                "elapsed_time": 0
-            }
+        _broadcast_selection_progress(task_id, {
+            "status": "failed",
+            "stage": "error",
+            "message": f"选股失败: {str(e)[:100]}",
+            "progress": 0,
+            "elapsed_time": 0
+        })
         return {"code": 1, "data": [], "message": str(e), "task_id": task_id}
 
 

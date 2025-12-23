@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>行情监控</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-    <link rel="stylesheet" href="style.css?v=20251222_16">
+    <link rel="stylesheet" href="style.css?v=20251223_01">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -467,6 +467,16 @@
                     <button id="select-btn" class="primary-btn">🎯 开始选股</button>
                 </div>
                 <div id="collect-kline-status" class="status-text"></div>
+                <!-- 选股进度显示 -->
+                <div id="selection-progress-container" class="selection-progress-container" style="display: none;">
+                    <div class="selection-progress-bar-wrapper">
+                        <div id="selection-progress-bar" class="selection-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="selection-progress-info">
+                        <span id="selection-status" class="selection-status">准备中...</span>
+                        <span id="selection-progress-text" class="selection-progress-text">0%</span>
+                    </div>
+                </div>
             </div>
 
             <!-- 选股结果显示区域 -->
@@ -782,7 +792,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20251222_17"></script>
+    <script src="app.js?v=20251223_01"></script>
 </body>
 </html>
 

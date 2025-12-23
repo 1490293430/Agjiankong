@@ -3324,3 +3324,63 @@ body.light-mode .status-text {
 .ai-source-label:hover {
     color: #60a5fa;
 }
+
+
+/* 选股进度条样式 */
+.selection-progress-container {
+    margin-top: 12px;
+    padding: 12px;
+    background: #1e293b;
+    border-radius: 8px;
+}
+
+.selection-progress-bar-wrapper {
+    height: 8px;
+    background: #334155;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.selection-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.selection-progress-fill.success {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.selection-progress-fill.error {
+    background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.selection-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.selection-status {
+    color: #94a3b8;
+}
+
+.selection-status.running {
+    color: #60a5fa;
+}
+
+.selection-status.success {
+    color: #10b981;
+}
+
+.selection-status.error {
+    color: #ef4444;
+}
+
+.selection-progress-text {
+    color: #60a5fa;
+    font-weight: 500;
+}

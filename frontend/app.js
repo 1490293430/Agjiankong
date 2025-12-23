@@ -331,8 +331,8 @@ function handleSSEMessage(message) {
             break;
         case 'selection_progress':
             // 选股进度（始终处理）
-            console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, progress=${message.progress}`);
-            handleSelectionProgress(message.task_id, message.progress);
+            console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, data=`, message.data);
+            handleSelectionProgress(message.task_id, message.data);
             break;
         default:
             console.warn(`[SSE处理] 未知消息类型: ${messageType}`, message);
@@ -667,10 +667,95 @@ function handleKlineCollectProgress(taskId, progress) {
 }
 
 // 处理选股进度（SSE推送）
-function handleSelectionProgress(taskId, progress) {
-    // 这里需要根据实际的进度显示逻辑来处理
-    // 暂时保留，后续需要时再实现
-    console.log('[SSE] 选股进度:', taskId, progress);
+function handleSelectionProgress(taskId, progressData) {
+    console.log('[SSE] 选股进度:', taskId, progressData);
+    
+    // 检查是否是当前任务的进度（如果有任务ID过滤）
+    if (window.currentSelectionTaskId && taskId && taskId !== window.currentSelectionTaskId) {
+        console.log('[SSE] 跳过非当前任务的进度:', taskId, '当前任务:', window.currentSelectionTaskId);
+        return;
+    }
+    
+    // 显示进度容器
+    const progressContainer = document.getElementById('selection-progress-container');
+    if (progressContainer && progressContainer.style.display === 'none') {
+        progressContainer.style.display = 'block';
+    }
+    
+    // 更新进度显示
+    const statusEl = document.getElementById('selection-status');
+    const progressBar = document.getElementById('selection-progress-bar');
+    const progressText = document.getElementById('selection-progress-text');
+    
+    if (!progressData) return;
+    
+    const { status, stage, message, progress, total, processed, passed, selected, elapsed_time } = progressData;
+    
+    // 更新状态文本（添加阶段图标）
+    if (statusEl) {
+        let displayMessage = message || '选股中...';
+        // 添加阶段图标
+        if (displayMessage.includes('市场环境')) {
+            displayMessage = '🌍 ' + displayMessage;
+        } else if (displayMessage.includes('第一层')) {
+            displayMessage = '🔍 ' + displayMessage;
+        } else if (displayMessage.includes('第二层')) {
+            displayMessage = '📊 ' + displayMessage;
+        } else if (displayMessage.includes('筛选')) {
+            displayMessage = '⚡ ' + displayMessage;
+        } else if (status === 'completed') {
+            displayMessage = '✅ ' + displayMessage;
+        } else if (status === 'failed') {
+            displayMessage = '❌ ' + displayMessage;
+        }
+        statusEl.innerHTML = displayMessage;
+        statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' ? 'error' : 'running'));
+    }
+    
+    // 更新进度条（添加颜色变化）
+    if (progressBar) {
+        const targetWidth = progress || 0;
+        progressBar.style.width = `${targetWidth}%`;
+        
+        // 根据进度添加颜色变化
+        if (status === 'completed') {
+            progressBar.className = 'selection-progress-fill success';
+        } else if (status === 'failed') {
+            progressBar.className = 'selection-progress-fill error';
+        } else {
+            progressBar.className = 'selection-progress-fill';
+            // 动态颜色
+            if (targetWidth < 30) {
+                progressBar.style.background = 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)';
+            } else if (targetWidth < 70) {
+                progressBar.style.background = 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+            }
+        }
+    }
+    
+    // 更新进度文本
+    if (progressText) {
+        let text = `${progress || 0}%`;
+        if (processed !== undefined && total) {
+            text += ` (${processed}/${total})`;
+        }
+        if (passed !== undefined) {
+            text += ` 通过: ${passed}`;
+        }
+        if (elapsed_time !== undefined) {
+            text += ` - ${typeof elapsed_time === 'number' ? elapsed_time.toFixed(1) : elapsed_time}秒`;
+        }
+        progressText.textContent = text;
+    }
+    
+    // 如果选股完成或失败，记录日志
+    if (status === 'completed') {
+        console.log('[SSE] 选股完成，选中:', selected || 0, '只股票');
+    } else if (status === 'failed') {
+        console.log('[SSE] 选股失败:', message);
+    }
 }
 
 // 页面卸载时关闭SSE连接
@@ -4194,32 +4279,40 @@ function initSelectionConfig() {
     };
     
     // 尝试从localStorage加载保存的配置
-    let config = {...defaults};
+    let savedConfig = null;
     try {
-        const savedConfig = localStorage.getItem('selectionConfig');
-        if (savedConfig) {
-            const parsed = JSON.parse(savedConfig);
-            // 合并保存的配置和默认值
-            Object.keys(defaults).forEach(key => {
-                const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase()).replace('filter', '').replace(/^([A-Z])/, (g) => g.toLowerCase());
-                if (parsed[camelKey] !== undefined) {
-                    config[key] = parsed[camelKey];
-                }
-            });
+        const savedConfigStr = localStorage.getItem('selectionConfig');
+        if (savedConfigStr) {
+            savedConfig = JSON.parse(savedConfigStr);
+            console.log('[选股配置] 从localStorage加载配置:', savedConfig);
         }
     } catch (e) {
         console.warn('加载筛选配置失败，使用默认值:', e);
     }
     
-    // 应用配置值
-    Object.entries(config).forEach(([id, value]) => {
+    // 应用配置值（优先使用保存的配置，否则使用默认值）
+    Object.entries(defaults).forEach(([id, defaultValue]) => {
         const element = document.getElementById(id);
-        if (element) {
-            if (element.type === 'checkbox') {
-                element.checked = value;
-            } else {
-                element.value = value;
-            }
+        if (!element) return;
+        
+        // 将id转换为camelCase格式（与保存的配置键匹配）
+        // 例如: 'filter-volume-ratio-enable' -> 'volumeRatioEnable'
+        const camelKey = id
+            .replace('filter-', '')
+            .replace('selection-', '')
+            .replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+        
+        // 获取值：优先使用保存的配置，否则使用默认值
+        let value = defaultValue;
+        if (savedConfig && savedConfig[camelKey] !== undefined) {
+            value = savedConfig[camelKey];
+        }
+        
+        // 应用值
+        if (element.type === 'checkbox') {
+            element.checked = value === true || value === 'true';
+        } else {
+            element.value = value;
         }
     });
     
@@ -4292,7 +4385,10 @@ function initStrategy() {
     if (resetConfigBtn) {
         resetConfigBtn.addEventListener('click', () => {
             if (confirm('确认重置所有筛选配置为默认值吗？')) {
-                initSelectionConfig(); // 重新应用默认值
+                // 清除localStorage中的配置
+                localStorage.removeItem('selectionConfig');
+                // 重新应用默认值
+                initSelectionConfig();
                 showToast('筛选配置已重置', 'success');
             }
         });
@@ -4300,18 +4396,49 @@ function initStrategy() {
     
     if (saveConfigBtn) {
         saveConfigBtn.addEventListener('click', () => {
-            // 这里可以添加保存到localStorage的逻辑
+            // 保存所有筛选配置到localStorage
             const config = {
+                // 量比
                 volumeRatioEnable: document.getElementById('filter-volume-ratio-enable')?.checked,
                 volumeRatioMin: document.getElementById('filter-volume-ratio-min')?.value,
                 volumeRatioMax: document.getElementById('filter-volume-ratio-max')?.value,
+                // RSI
                 rsiEnable: document.getElementById('filter-rsi-enable')?.checked,
                 rsiMin: document.getElementById('filter-rsi-min')?.value,
                 rsiMax: document.getElementById('filter-rsi-max')?.value,
+                // MA
+                maEnable: document.getElementById('filter-ma-enable')?.checked,
+                maPeriod: document.getElementById('filter-ma-period')?.value,
+                maCondition: document.getElementById('filter-ma-condition')?.value,
+                // EMA
+                emaEnable: document.getElementById('filter-ema-enable')?.checked,
+                emaPeriod: document.getElementById('filter-ema-period')?.value,
+                emaCondition: document.getElementById('filter-ema-condition')?.value,
+                // MACD
+                macdEnable: document.getElementById('filter-macd-enable')?.checked,
+                macdCondition: document.getElementById('filter-macd-condition')?.value,
+                // KDJ
+                kdjEnable: document.getElementById('filter-kdj-enable')?.checked,
+                kdjCondition: document.getElementById('filter-kdj-condition')?.value,
+                // BIAS
+                biasEnable: document.getElementById('filter-bias-enable')?.checked,
+                biasMin: document.getElementById('filter-bias-min')?.value,
+                biasMax: document.getElementById('filter-bias-max')?.value,
+                // 威廉指标
                 williamsREnable: document.getElementById('filter-williams-r-enable')?.checked,
+                // 突破高点
                 breakHighEnable: document.getElementById('filter-break-high-enable')?.checked,
+                // 布林带
                 bollEnable: document.getElementById('filter-boll-enable')?.checked,
-                maxCount: document.getElementById('selection-max-count')?.value
+                bollCondition: document.getElementById('filter-boll-condition')?.value,
+                // ADX
+                adxEnable: document.getElementById('filter-adx-enable')?.checked,
+                adxMin: document.getElementById('filter-adx-min')?.value,
+                // 一目均衡表
+                ichimokuEnable: document.getElementById('filter-ichimoku-enable')?.checked,
+                ichimokuCondition: document.getElementById('filter-ichimoku-condition')?.value,
+                // 选股数量
+                selectionMaxCount: document.getElementById('selection-max-count')?.value
             };
             
             localStorage.setItem('selectionConfig', JSON.stringify(config));
@@ -4583,200 +4710,55 @@ async function runSelection() {
         }
     };
     
-    // 显示进度界面
+    // 显示进度容器
+    const progressContainer = document.getElementById('selection-progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        // 重置进度
+        const progressBar = document.getElementById('selection-progress-bar');
+        const statusEl = document.getElementById('selection-status');
+        const progressText = document.getElementById('selection-progress-text');
+        if (progressBar) progressBar.style.width = '0%';
+        if (statusEl) {
+            statusEl.textContent = '正在初始化选股引擎...';
+            statusEl.className = 'selection-status running';
+        }
+        if (progressText) progressText.textContent = '0%';
+    }
+    
+    // 显示加载状态
     container.innerHTML = `
-        <div id="selection-progress-container">
-            <div class="progress-title">🎯 智能选股进行中</div>
-            <div id="selection-progress-message">正在初始化选股引擎...</div>
-            <div class="progress-bar-container">
-                <div id="selection-progress-bar"></div>
-            </div>
-            <div id="selection-progress-details">
-                <div>进度: <span id="selection-progress-percent">0</span>%</div>
-                <div>已处理: <span id="selection-processed">0</span> / <span id="selection-total">0</span></div>
-                <div>通过筛选: <span id="selection-passed">0</span></div>
-                <div>耗时: <span id="selection-elapsed">0</span>秒</div>
-            </div>
-            <div style="text-align: center; margin-top: 16px; font-size: 12px; color: #64748b;">
-                ⚡ 已优化：预计耗时 2-5 秒
-            </div>
+        <div class="selection-loading">
+            <div class="ai-loading-spinner"></div>
+            <div style="margin-top: 16px; color: #94a3b8;">正在选股中，请稍候...</div>
+            <div style="margin-top: 8px; color: #64748b; font-size: 12px;">进度将通过SSE实时推送</div>
         </div>
     `;
     
-    // 连接WebSocket获取进度
-    // 如果已有连接，先关闭旧连接
-    if (wsConnections.selection) {
-        try {
-            wsConnections.selection.close();
-        } catch (e) {
-            console.warn('关闭旧选股WebSocket失败:', e);
-        }
-        wsConnections.selection = null;
+    // 确保SSE连接已建立（进度通过SSE推送，不再使用WebSocket）
+    if (!sseConnection || sseConnection.readyState !== EventSource.OPEN) {
+        console.log('[选股] SSE未连接，尝试连接...');
+        connectSSE();
     }
     
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/selection/progress`;
-    let ws = null;
-    let wsConnected = false;
-    let wsTimeout = null;
+    // 保存当前任务ID到全局变量，用于SSE消息过滤
+    window.currentSelectionTaskId = taskId;
+    console.log('[选股] 任务ID:', taskId, '进度将通过SSE推送');
     
-    // WebSocket连接超时处理
-    const connectTimeout = setTimeout(() => {
-        if (!wsConnected && ws) {
-            console.warn('WebSocket连接超时，关闭连接');
-            ws.close();
-            ws = null;
-        }
-    }, 5000); // 5秒连接超时
+    // 隐藏进度容器的函数（选股完成后调用）
+    const hideProgressContainer = () => {
+        setTimeout(() => {
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+        }, 3000); // 3秒后隐藏
+    };
     
-    try {
-        console.log('正在连接选股进度WebSocket:', wsUrl);
-        ws = new WebSocket(wsUrl);
-        // 保存到全局管理器
-        wsConnections.selection = ws;
-        
-        ws.onopen = () => {
-            console.log('选股进度WebSocket连接成功');
-            wsConnected = true;
-            clearTimeout(connectTimeout);
-            
-            // 发送任务ID
-            try {
-                ws.send(JSON.stringify({ task_id: taskId }));
-                console.log('已发送任务ID:', taskId);
-            } catch (e) {
-                console.error('发送任务ID失败:', e);
-            }
-        };
-        
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('收到选股进度:', data);
-                if (data.type === 'selection_progress' && data.progress) {
-                    updateSelectionProgress(data.progress);
-                }
-            } catch (e) {
-                console.error('解析进度数据失败:', e, '原始数据:', event.data);
-            }
-        };
-        
-        ws.onerror = (error) => {
-            console.error('选股WebSocket错误:', error);
-            wsConnected = false;
-            clearTimeout(connectTimeout);
-            
-            // 更新进度显示为连接失败
-            const progressMessage = document.getElementById('selection-progress-message');
-            if (progressMessage) {
-                progressMessage.textContent = 'WebSocket连接失败，但选股仍在进行中...';
-            }
-        };
-        
-        ws.onclose = (event) => {
-            console.log('选股WebSocket连接关闭:', event.code, event.reason);
-            wsConnected = false;
-            clearTimeout(connectTimeout);
-            
-            // 清理全局连接
-            if (wsConnections.selection === ws) {
-                wsConnections.selection = null;
-            }
-            
-            // 如果不是正常关闭，显示提示
-            if (event.code !== 1000) {
-                const progressMessage = document.getElementById('selection-progress-message');
-                if (progressMessage && !progressMessage.textContent.includes('完成')) {
-                    progressMessage.textContent = 'WebSocket连接中断，但选股仍在进行中...';
-                }
-            }
-        };
-    } catch (e) {
-        console.error('WebSocket连接失败:', e);
-        clearTimeout(connectTimeout);
-        
-        // 显示连接失败提示
-        const progressMessage = document.getElementById('selection-progress-message');
-        if (progressMessage) {
-            progressMessage.textContent = 'WebSocket连接失败，但选股仍在进行中...';
-        }
-    }
+    // 注意：进度更新由 handleSelectionProgress 函数处理（在SSE消息处理中）
+    // 这里不再需要 updateSelectionProgress 函数，因为 handleSelectionProgress 已经处理了
     
-    // 更新进度显示的函数
-    function updateSelectionProgress(progress) {
-        const progressBar = document.getElementById('selection-progress-bar');
-        const progressMessage = document.getElementById('selection-progress-message');
-        const progressPercent = document.getElementById('selection-progress-percent');
-        const processed = document.getElementById('selection-processed');
-        const total = document.getElementById('selection-total');
-        const passed = document.getElementById('selection-passed');
-        const elapsed = document.getElementById('selection-elapsed');
-        
-        if (progressBar) {
-            const targetWidth = progress.progress || 0;
-            progressBar.style.width = `${targetWidth}%`;
-            
-            // 添加进度条颜色变化
-            if (targetWidth < 30) {
-                progressBar.style.background = 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)';
-            } else if (targetWidth < 70) {
-                progressBar.style.background = 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)';
-            } else {
-                progressBar.style.background = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
-            }
-        }
-        
-        if (progressMessage) {
-            const message = progress.message || '处理中...';
-            progressMessage.textContent = message;
-            
-            // 添加阶段图标
-            if (message.includes('市场环境')) {
-                progressMessage.innerHTML = '🌍 ' + message;
-            } else if (message.includes('第一层')) {
-                progressMessage.innerHTML = '🔍 ' + message;
-            } else if (message.includes('第二层')) {
-                progressMessage.innerHTML = '📊 ' + message;
-            } else if (message.includes('筛选')) {
-                progressMessage.innerHTML = '⚡ ' + message;
-            } else {
-                progressMessage.textContent = message;
-            }
-        }
-        
-        if (progressPercent) {
-            progressPercent.textContent = Math.round(progress.progress || 0);
-        }
-        if (processed) {
-            processed.textContent = progress.processed || 0;
-        }
-        if (total) {
-            total.textContent = progress.total || 0;
-        }
-        if (passed) {
-            passed.textContent = progress.passed || 0;
-        }
-        if (elapsed) {
-            elapsed.textContent = (progress.elapsed_time || 0).toFixed(1);
-        }
-        
-        // 如果完成或失败，关闭WebSocket并显示最终状态
-        if (progress.status === 'completed') {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.close();
-            }
-            if (progressMessage) {
-                progressMessage.innerHTML = '✅ 选股完成，正在加载结果...';
-            }
-        } else if (progress.status === 'failed') {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.close();
-            }
-            if (progressMessage) {
-                progressMessage.innerHTML = '❌ 选股失败: ' + (progress.message || '未知错误');
-            }
-        }
-    }
+    // 临时变量用于跟踪进度状态
+    let selectionCompleted = false;
     
     try {
         // 选股可能需要较长时间，设置60秒超时
@@ -4809,10 +4791,11 @@ async function runSelection() {
         const result = await response.json();
         console.log('选股结果:', result);
         
-        // 关闭WebSocket
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.close();
-        }
+        // 清除当前任务ID
+        window.currentSelectionTaskId = null;
+        
+        // 隐藏进度容器
+        hideProgressContainer();
         
         if (result.code === 0) {
             if (result.message && result.message.includes('市场环境不佳')) {
@@ -4870,10 +4853,11 @@ async function runSelection() {
     } catch (error) {
         console.error('选股请求失败:', error);
         
-        // 关闭WebSocket
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.close();
-        }
+        // 清除当前任务ID
+        window.currentSelectionTaskId = null;
+        
+        // 隐藏进度容器
+        hideProgressContainer();
         
         let errorMessage = '选股请求失败';
         let errorDetail = error.message || '未知错误';
