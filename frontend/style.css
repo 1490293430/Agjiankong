@@ -3408,3 +3408,137 @@ body.light-mode .status-text {
     color: #60a5fa;
     font-weight: 500;
 }
+
+
+/* ========== 筛选标签样式 ========== */
+.filter-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px;
+    background: #0f172a;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.filter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    font-size: 13px;
+    color: #cbd5f5;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.filter-tag:hover {
+    border-color: #475569;
+    background: #334155;
+}
+
+.filter-tag input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #3b82f6;
+}
+
+.filter-tag-name {
+    font-weight: 500;
+    color: #60a5fa;
+}
+
+.filter-tag-value {
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.filter-inline-input {
+    width: 40px;
+    padding: 2px 4px;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-size: 12px;
+    text-align: center;
+}
+
+.filter-inline-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.filter-inline-select {
+    padding: 2px 6px;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.filter-inline-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.filter-tag-count {
+    background: #334155;
+    border-color: #475569;
+}
+
+.filter-tag-count .filter-tag-name {
+    color: #f59e0b;
+}
+
+/* 亮色模式 - 筛选标签 */
+body.light-mode .filter-tags-container {
+    background: #f1f5f9;
+}
+
+body.light-mode .filter-tag {
+    background: #ffffff;
+    border-color: #e2e8f0;
+    color: #1f2937;
+}
+
+body.light-mode .filter-tag:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+body.light-mode .filter-tag-name {
+    color: #2563eb;
+}
+
+body.light-mode .filter-tag-value {
+    color: #64748b;
+}
+
+body.light-mode .filter-inline-input {
+    background: #f8fafc;
+    border-color: #d1d5db;
+    color: #1f2937;
+}
+
+body.light-mode .filter-inline-select {
+    background: #f8fafc;
+    border-color: #d1d5db;
+    color: #1f2937;
+}
+
+body.light-mode .filter-tag-count {
+    background: #fef3c7;
+    border-color: #fcd34d;
+}
+
+body.light-mode .filter-tag-count .filter-tag-name {
+    color: #d97706;
+}

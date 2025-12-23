@@ -826,13 +826,17 @@ function handleSpotCollectProgress(taskId, progress) {
     }
     
     const message = progress.message || '';
+    const dataSource = progress.data_source || '';
     const aCount = progress.a_count || 0;
     const hkCount = progress.hk_count || 0;
+    
+    // 数据源显示
+    const sourceHtml = dataSource ? `<span style="color: #60a5fa; margin-left: 8px;">[${dataSource}]</span>` : '';
     
     if (progress.status === 'running') {
         statusEl.innerHTML = `
             <div style="color: #10b981; font-weight: 500;">
-                ⏳ ${message}
+                ⏳ ${message}${sourceHtml}
             </div>
         `;
         if (btn) {
@@ -842,7 +846,7 @@ function handleSpotCollectProgress(taskId, progress) {
     } else if (progress.status === 'completed') {
         statusEl.innerHTML = `
             <div style="color: #10b981; font-weight: 500;">
-                ✅ ${message}
+                ✅ ${message}${sourceHtml}
             </div>
         `;
         if (btn) {

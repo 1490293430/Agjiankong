@@ -1715,7 +1715,9 @@ async def collect_spot_data_api(
         
         def run_collect_with_progress():
             try:
+                import concurrent.futures
                 start_time = datetime.now().isoformat()
+                data_source = "AKShare(东方财富)"  # 实时快照使用的数据源
                 
                 # 广播开始状态
                 broadcast_message({
@@ -1725,19 +1727,27 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "a_stock",
                         "message": "正在采集A股实时行情...",
+                        "data_source": data_source,
                         "start_time": start_time
                     }
                 })
                 
-                # 采集A股
+                # 采集A股（使用线程池+超时控制）
                 a_result = []
+                a_count = 0
                 try:
-                    a_result = fetch_a_stock_spot()
-                    a_count = len(a_result) if a_result else 0
-                    logger.info(f"A股实时行情采集完成: {a_count}只")
+                    logger.info("[实时快照] 开始采集A股...")
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(fetch_a_stock_spot)
+                        try:
+                            a_result = future.result(timeout=180)  # 3分钟超时
+                            a_count = len(a_result) if a_result else 0
+                            logger.info(f"[实时快照] A股采集完成: {a_count}只")
+                        except concurrent.futures.TimeoutError:
+                            logger.error("[实时快照] A股采集超时（3分钟）")
+                            future.cancel()
                 except Exception as e:
-                    logger.error(f"A股实时行情采集失败: {e}")
-                    a_count = 0
+                    logger.error(f"[实时快照] A股采集失败: {e}", exc_info=True)
                 
                 # 广播A股完成，开始港股
                 broadcast_message({
@@ -1747,20 +1757,28 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "hk_stock",
                         "message": f"A股采集完成({a_count}只)，正在采集港股实时行情...",
+                        "data_source": data_source,
                         "a_count": a_count,
                         "start_time": start_time
                     }
                 })
                 
-                # 采集港股
+                # 采集港股（使用线程池+超时控制）
                 hk_result = []
+                hk_count = 0
                 try:
-                    hk_result = fetch_hk_stock_spot()
-                    hk_count = len(hk_result) if hk_result else 0
-                    logger.info(f"港股实时行情采集完成: {hk_count}只")
+                    logger.info("[实时快照] 开始采集港股...")
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(fetch_hk_stock_spot)
+                        try:
+                            hk_result = future.result(timeout=180)  # 3分钟超时
+                            hk_count = len(hk_result) if hk_result else 0
+                            logger.info(f"[实时快照] 港股采集完成: {hk_count}只")
+                        except concurrent.futures.TimeoutError:
+                            logger.error("[实时快照] 港股采集超时（3分钟）")
+                            future.cancel()
                 except Exception as e:
-                    logger.error(f"港股实时行情采集失败: {e}")
-                    hk_count = 0
+                    logger.error(f"[实时快照] 港股采集失败: {e}", exc_info=True)
                 
                 end_time = datetime.now().isoformat()
                 
@@ -1772,6 +1790,7 @@ async def collect_spot_data_api(
                         "status": "completed",
                         "step": "done",
                         "message": f"采集完成！A股 {a_count} 只，港股 {hk_count} 只",
+                        "data_source": data_source,
                         "a_count": a_count,
                         "hk_count": hk_count,
                         "start_time": start_time,

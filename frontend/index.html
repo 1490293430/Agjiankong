@@ -274,179 +274,126 @@
                     <span class="config-arrow collapsed" id="selection-config-arrow">▶</span>
                 </div>
                 <div class="config-content hidden" id="selection-config-content">
-                    <div class="config-grid-compact">
-                        <!-- 量比筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-volume-ratio-enable" checked>
-                                <span class="config-label-text">量比筛选</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <input type="number" id="filter-volume-ratio-min" step="0.1" min="0.1" max="10" placeholder="0.8" class="range-input">
-                                <span class="range-separator">-</span>
-                                <input type="number" id="filter-volume-ratio-max" step="0.1" min="1" max="20" placeholder="8.0" class="range-input">
-                            </div>
+                    <!-- 标签式筛选器 -->
+                    <div class="filter-tags-container">
+                        <!-- RSI -->
+                        <div class="filter-tag" data-filter="rsi">
+                            <input type="checkbox" id="filter-rsi-enable" checked>
+                            <span class="filter-tag-name">RSI</span>
+                            <span class="filter-tag-value">(<input type="number" id="filter-rsi-min" min="0" max="100" value="30" class="filter-inline-input"> - <input type="number" id="filter-rsi-max" min="0" max="100" value="75" class="filter-inline-input">)</span>
                         </div>
                         
-                        <!-- RSI筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-rsi-enable" checked>
-                                <span class="config-label-text">RSI</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <input type="number" id="filter-rsi-min" min="0" max="100" placeholder="30" class="range-input">
-                                <span class="range-separator">-</span>
-                                <input type="number" id="filter-rsi-max" min="0" max="100" placeholder="75" class="range-input">
-                            </div>
+                        <!-- 量比 -->
+                        <div class="filter-tag" data-filter="volume-ratio">
+                            <input type="checkbox" id="filter-volume-ratio-enable" checked>
+                            <span class="filter-tag-name">量比</span>
+                            <span class="filter-tag-value">(<input type="number" id="filter-volume-ratio-min" step="0.1" min="0.1" max="10" value="0.8" class="filter-inline-input"> - <input type="number" id="filter-volume-ratio-max" step="0.1" min="1" max="20" value="8" class="filter-inline-input">)</span>
                         </div>
                         
-                        <!-- MA筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-ma-enable">
-                                <span class="config-label-text">MA均线</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-ma-period" class="range-input" style="width: 70px;">
-                                    <option value="5">MA5</option>
-                                    <option value="10">MA10</option>
-                                    <option value="20" selected>MA20</option>
-                                    <option value="60">MA60</option>
-                                </select>
-                                <select id="filter-ma-condition" class="range-input" style="width: 70px;">
-                                    <option value="above">价上穿</option>
-                                    <option value="below">价下穿</option>
-                                    <option value="up">向上</option>
-                                </select>
-                            </div>
+                        <!-- MACD -->
+                        <div class="filter-tag" data-filter="macd">
+                            <input type="checkbox" id="filter-macd-enable">
+                            <span class="filter-tag-name">MACD</span>
+                            <select id="filter-macd-condition" class="filter-inline-select">
+                                <option value="golden">金叉</option>
+                                <option value="dead">死叉</option>
+                                <option value="above_zero">零上</option>
+                            </select>
                         </div>
                         
-                        <!-- EMA筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-ema-enable">
-                                <span class="config-label-text">EMA均线</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-ema-period" class="range-input" style="width: 70px;">
-                                    <option value="12" selected>EMA12</option>
-                                    <option value="26">EMA26</option>
-                                </select>
-                                <select id="filter-ema-condition" class="range-input" style="width: 70px;">
-                                    <option value="above">价上穿</option>
-                                    <option value="golden">金叉</option>
-                                </select>
-                            </div>
+                        <!-- KDJ -->
+                        <div class="filter-tag" data-filter="kdj">
+                            <input type="checkbox" id="filter-kdj-enable">
+                            <span class="filter-tag-name">KDJ</span>
+                            <select id="filter-kdj-condition" class="filter-inline-select">
+                                <option value="golden">金叉</option>
+                                <option value="dead">死叉</option>
+                                <option value="oversold">超卖</option>
+                            </select>
                         </div>
                         
-                        <!-- MACD筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-macd-enable">
-                                <span class="config-label-text">MACD</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-macd-condition" class="range-input" style="width: 140px;">
-                                    <option value="golden">金叉</option>
-                                    <option value="dead">死叉</option>
-                                    <option value="above_zero">零轴上方</option>
-                                    <option value="below_zero">零轴下方</option>
-                                </select>
-                            </div>
+                        <!-- MA -->
+                        <div class="filter-tag" data-filter="ma">
+                            <input type="checkbox" id="filter-ma-enable">
+                            <span class="filter-tag-name">MA</span>
+                            <select id="filter-ma-period" class="filter-inline-select">
+                                <option value="5">5</option>
+                                <option value="10">10</option>
+                                <option value="20" selected>20</option>
+                                <option value="60">60</option>
+                            </select>
+                            <select id="filter-ma-condition" class="filter-inline-select">
+                                <option value="above">上穿</option>
+                                <option value="below">下穿</option>
+                            </select>
                         </div>
                         
-                        <!-- KDJ筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-kdj-enable">
-                                <span class="config-label-text">KDJ</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-kdj-condition" class="range-input" style="width: 140px;">
-                                    <option value="golden">金叉</option>
-                                    <option value="dead">死叉</option>
-                                    <option value="oversold">超卖区</option>
-                                    <option value="overbought">超买区</option>
-                                </select>
-                            </div>
+                        <!-- EMA -->
+                        <div class="filter-tag" data-filter="ema">
+                            <input type="checkbox" id="filter-ema-enable">
+                            <span class="filter-tag-name">EMA</span>
+                            <select id="filter-ema-period" class="filter-inline-select">
+                                <option value="12" selected>12</option>
+                                <option value="26">26</option>
+                            </select>
+                            <select id="filter-ema-condition" class="filter-inline-select">
+                                <option value="above">上穿</option>
+                                <option value="golden">金叉</option>
+                            </select>
                         </div>
                         
-                        <!-- BIAS筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-bias-enable">
-                                <span class="config-label-text">BIAS乖离率</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <input type="number" id="filter-bias-min" step="0.1" min="-20" max="20" placeholder="-6" class="range-input">
-                                <span class="range-separator">-</span>
-                                <input type="number" id="filter-bias-max" step="0.1" min="-20" max="20" placeholder="6" class="range-input">
-                            </div>
+                        <!-- 布林带 -->
+                        <div class="filter-tag" data-filter="boll">
+                            <input type="checkbox" id="filter-boll-enable">
+                            <span class="filter-tag-name">BOLL</span>
+                            <select id="filter-boll-condition" class="filter-inline-select">
+                                <option value="expanding">扩张</option>
+                                <option value="above_mid">上穿中轨</option>
+                                <option value="near_lower">近下轨</option>
+                            </select>
                         </div>
                         
-                        <!-- 威廉指标筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-williams-r-enable">
-                                <span class="config-label-text">威廉%R</span>
-                            </label>
+                        <!-- 威廉%R -->
+                        <div class="filter-tag" data-filter="williams">
+                            <input type="checkbox" id="filter-williams-r-enable">
+                            <span class="filter-tag-name">威廉%R</span>
                         </div>
                         
-                        <!-- 突破高点筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-break-high-enable">
-                                <span class="config-label-text">突破高点</span>
-                            </label>
+                        <!-- 突破高点 -->
+                        <div class="filter-tag" data-filter="break-high">
+                            <input type="checkbox" id="filter-break-high-enable">
+                            <span class="filter-tag-name">突破高点</span>
                         </div>
                         
-                        <!-- 布林带筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-boll-enable">
-                                <span class="config-label-text">布林带</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-boll-condition" class="range-input" style="width: 140px;">
-                                    <option value="expanding">开口扩张</option>
-                                    <option value="above_mid">上穿中轨</option>
-                                    <option value="near_lower">接近下轨</option>
-                                </select>
-                            </div>
+                        <!-- BIAS -->
+                        <div class="filter-tag" data-filter="bias">
+                            <input type="checkbox" id="filter-bias-enable">
+                            <span class="filter-tag-name">BIAS</span>
+                            <span class="filter-tag-value">(<input type="number" id="filter-bias-min" step="0.1" min="-20" max="20" value="-6" class="filter-inline-input"> - <input type="number" id="filter-bias-max" step="0.1" min="-20" max="20" value="6" class="filter-inline-input">)</span>
                         </div>
                         
-                        <!-- ADX筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-adx-enable">
-                                <span class="config-label-text">ADX趋势</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <input type="number" id="filter-adx-min" min="0" max="100" placeholder="25" class="range-input">
-                                <span class="range-separator">></span>
-                            </div>
+                        <!-- ADX -->
+                        <div class="filter-tag" data-filter="adx">
+                            <input type="checkbox" id="filter-adx-enable">
+                            <span class="filter-tag-name">ADX</span>
+                            <span class="filter-tag-value">> <input type="number" id="filter-adx-min" min="0" max="100" value="25" class="filter-inline-input"></span>
                         </div>
                         
-                        <!-- 一目均衡表筛选 -->
-                        <div class="config-item-compact">
-                            <label class="config-checkbox-label">
-                                <input type="checkbox" id="filter-ichimoku-enable">
-                                <span class="config-label-text">一目均衡表</span>
-                            </label>
-                            <div class="config-range-inputs">
-                                <select id="filter-ichimoku-condition" class="range-input" style="width: 140px;">
-                                    <option value="above_cloud">价格在云上</option>
-                                    <option value="below_cloud">价格在云下</option>
-                                    <option value="tk_cross">转换线上穿</option>
-                                </select>
-                            </div>
+                        <!-- 一目均衡表 -->
+                        <div class="filter-tag" data-filter="ichimoku">
+                            <input type="checkbox" id="filter-ichimoku-enable">
+                            <span class="filter-tag-name">一目均衡</span>
+                            <select id="filter-ichimoku-condition" class="filter-inline-select">
+                                <option value="above_cloud">云上</option>
+                                <option value="below_cloud">云下</option>
+                                <option value="tk_cross">转换上穿</option>
+                            </select>
                         </div>
                         
-                        <!-- 最大选股数量 -->
-                        <div class="config-item-compact">
-                            <label class="config-label-text">选股数量</label>
-                            <input type="number" id="selection-max-count" min="5" max="200" placeholder="30" class="single-input">
+                        <!-- 选股数量 -->
+                        <div class="filter-tag filter-tag-count">
+                            <span class="filter-tag-name">数量</span>
+                            <input type="number" id="selection-max-count" min="5" max="200" value="30" class="filter-inline-input" style="width: 45px;">
                         </div>
                     </div>
                     <div class="config-actions">
