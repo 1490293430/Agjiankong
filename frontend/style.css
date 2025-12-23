@@ -11,6 +11,16 @@ html {
     text-size-adjust: 100%;
 }
 
+/* 强制移动端视口宽度 */
+@viewport {
+    width: device-width;
+    zoom: 1.0;
+}
+
+@-ms-viewport {
+    width: device-width;
+}
+
 /* 确保K线图相关的所有元素都没有边距 */
 .kline-modal,
 .kline-modal-content,
