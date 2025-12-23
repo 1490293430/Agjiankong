@@ -5689,6 +5689,10 @@ function renderSelectedStocksBatch() {
 
 // 加载更多选股结果
 function loadMoreSelectedStocks() {
+    if (selectedRenderedCount >= selectedAllStocks.length) {
+        showToast('已加载全部数据', 'info');
+        return;
+    }
     renderSelectedStocksBatch();
 }
 window.loadMoreSelectedStocks = loadMoreSelectedStocks;
@@ -6973,6 +6977,10 @@ function renderNewsBatch() {
 
 // 加载更多资讯
 function loadMoreNews() {
+    if (newsRenderedCount >= newsAllItems.length) {
+        showToast('已加载全部资讯', 'info');
+        return;
+    }
     renderNewsBatch();
 }
 window.loadMoreNews = loadMoreNews;
