@@ -4777,13 +4777,7 @@ async function runSelection() {
     let selectionCompleted = false;
     
     try {
-        // 选股可能需要较长时间，设置60秒超时
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-            console.warn('选股请求超时，取消请求');
-            controller.abort();
-        }, 300000); // 5分钟超时
-        
+        // 选股不设置超时，由后端控制（可能需要很长时间处理全部股票）
         console.log('发送选股请求:', `${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`);
         const startTime = Date.now();
         
@@ -4792,11 +4786,9 @@ async function runSelection() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(filterConfig),
-            signal: controller.signal
+            body: JSON.stringify(filterConfig)
         });
         
-        clearTimeout(timeoutId);
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(`选股请求完成，耗时: ${elapsed}秒`);
         
