@@ -686,7 +686,8 @@ def fetch_a_stock_kline(
     end_date: str | None = None,
     force_full_refresh: bool = False,
     skip_db: bool = False,  # 新增参数：是否跳过数据库操作
-) -> List[Dict[str, Any]]:
+    return_source: bool = False,  # 新增参数：是否返回数据源名称
+) -> List[Dict[str, Any]] | tuple:
     """获取A股K线数据（增量获取策略）
     
     策略说明：
@@ -841,6 +842,7 @@ def fetch_a_stock_kline(
     
     # 依次尝试各个数据源获取增量数据
     new_kline_data = []
+    used_source = None  # 记录实际使用的数据源
     for source_name, fetch_func in data_sources:
         try:
             logger.debug(f"尝试使用{source_name}{fetch_mode}获取K线数据: {code}")
@@ -852,6 +854,7 @@ def fetch_a_stock_kline(
             
             if result and len(result) > 0:
                 new_kline_data = result
+                used_source = source_name  # 记录成功使用的数据源
                 logger.info(f"A股K线数据获取成功({source_name}, {fetch_mode}): {code}, 新增{len(result)}条")
                 break
             else:
@@ -877,10 +880,10 @@ def fetch_a_stock_kline(
     if skip_db:
         if new_kline_data:
             logger.info(f"K线数据获取完成（跳过数据库）: {code}, 共{len(new_kline_data)}条")
-            return new_kline_data
+            return (new_kline_data, used_source) if return_source else new_kline_data
         else:
             logger.warning(f"K线数据获取失败（跳过数据库）: {code}")
-            return []
+            return ([], None) if return_source else []
     
     query_start = start_date.replace("-", "") if start_date and "-" in start_date else (start_date or None)
     full_data = None
@@ -899,11 +902,11 @@ def fetch_a_stock_kline(
     
     if full_data and len(full_data) > 0:
         logger.info(f"K线数据查询完成: {code}, 共{len(full_data)}条（含历史数据）")
-        return full_data
+        return (full_data, used_source) if return_source else full_data
     elif new_kline_data:
         # 如果数据库查询失败但新数据存在，返回新数据
         logger.warning(f"从数据库查询失败，返回新获取的数据: {code}")
-        return new_kline_data
+        return (new_kline_data, used_source) if return_source else new_kline_data
     else:
         # 所有数据源都失败，尝试从数据库返回已有数据（即使不完整）
         if not force_full_refresh:
@@ -911,7 +914,7 @@ def fetch_a_stock_kline(
                 existing_data = get_kline_from_db(code, query_start, default_end, period)
                 if existing_data and len(existing_data) > 0:
                     logger.info(f"数据源获取失败，返回数据库已有数据（可能不完整）: {code}, {len(existing_data)}条（{period}）")
-                    return existing_data
+                    return (existing_data, "数据库缓存") if return_source else existing_data
             except Exception as e:
                 logger.debug(f"从数据库获取已有数据失败 {code}: {e}")
         
@@ -920,5 +923,5 @@ def fetch_a_stock_kline(
             logger.error(f"获取小时K线数据失败 {code}: 所有数据源均失败且数据库无数据。可能原因：1) 该股票代码不支持小时数据；2) 数据源接口暂时不可用；3) 股票可能停牌或退市")
         else:
             logger.error(f"所有数据源均失败且数据库无数据: {code}（{period}）")
-        return []
+        return ([], None) if return_source else []
 

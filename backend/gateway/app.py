@@ -825,23 +825,37 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 stock["macd_dea"] = indicators.get("macd_dea")
                 stock["kdj_k"] = indicators.get("kdj_k")
                 stock["kdj_d"] = indicators.get("kdj_d")
+                stock["bias"] = indicators.get("bias")
+                stock["williams_r"] = indicators.get("williams_r")
+                stock["boll_upper"] = indicators.get("boll_upper")
+                stock["boll_middle"] = indicators.get("boll_middle")
+                stock["boll_lower"] = indicators.get("boll_lower")
+                stock["ema12"] = indicators.get("ema12")
+                stock["ema26"] = indicators.get("ema26")
         
         # 保存结果
         save_selected_stocks(selected, market.upper())
         
         total_time = time.time() - start_time
-        logger.info(f"选股完成：从{total_stocks}只中筛选出{len(selected)}只，耗时{total_time:.1f}秒")
+        failed_count = len(failed_codes) if failed_codes else 0
+        logger.info(f"选股完成：从{total_stocks}只中筛选出{len(selected)}只，耗时{total_time:.1f}秒，数据缺失{failed_count}只")
+        
+        # 构建完成消息，包含数据缺失信息
+        complete_message = f"选股完成：筛选出{len(selected)}只股票"
+        if failed_count > 0:
+            complete_message += f"（{failed_count}只股票因K线数据不足被跳过）"
         
         _broadcast_selection_progress(task_id, {
             "status": "completed",
             "stage": "completed",
-            "message": f"选股完成：筛选出{len(selected)}只股票",
+            "message": complete_message,
             "progress": 100,
             "total": total_stocks,
             "selected": len(selected),
             "filters_total": total_filters,
             "filters_done": total_filters,
-            "elapsed_time": round(total_time, 1)
+            "elapsed_time": round(total_time, 1),
+            "data_missing": failed_count
         })
         
         return {"code": 0, "data": selected, "message": "success", "task_id": task_id}
@@ -1759,11 +1773,14 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     success_count = 0
     failed_count = 0
     
-    # 获取数据源信息
+    # 获取数据源信息（初始显示，后续会更新为具体使用的数据源）
     if market.upper() == "A":
-        data_source = "AKShare(主) + Tushare(备用)"
+        data_source = "准备中..."
     else:
         data_source = "AKShare"
+    
+    # 用于记录最近使用的数据源
+    last_used_source = None
     
     # 初始化进度
     kline_collect_progress[task_id] = {
@@ -1780,7 +1797,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     }
     
     def collect_kline_for_stock(stock):
-        nonlocal success_count, failed_count
+        nonlocal success_count, failed_count, last_used_source
         from market.service.ws import kline_collect_stop_flags
         import threading
         
@@ -1793,7 +1810,15 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
             return
         
         try:
-            kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+            # 使用 return_source=True 获取实际使用的数据源
+            result = fetch_kline_func(code, "daily", "", None, None, False, False, True)
+            if isinstance(result, tuple):
+                kline_data, source_name = result
+                if source_name:
+                    last_used_source = source_name
+            else:
+                kline_data = result
+            
             if kline_data and len(kline_data) > 0:
                 success_count += 1
             else:
@@ -1842,13 +1867,16 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 current = success_count + failed_count
                 if (current_time - last_update_time >= update_interval) or (current % 10 == 0):
                     progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
+                    # 使用最近成功的数据源名称
+                    current_source = last_used_source or "准备中..."
                     if task_id in kline_collect_progress:
                         kline_collect_progress[task_id].update({
                             "success": success_count,
                             "failed": failed_count,
                             "current": current,
                             "progress": progress_pct,
-                            "message": f"[{market}]采集中({data_source})... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
+                            "data_source": current_source,
+                            "message": f"[{market}]采集中({current_source})... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
                         })
                     last_update_time = current_time
                     
@@ -1857,18 +1885,19 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                         logger.info(f"[{market}]K线数据采集进度：成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}")
         except Exception as e:
             end_time = datetime.now().isoformat()
+            final_source = last_used_source or "未知"
             kline_collect_progress[task_id] = {
                 "status": "failed",
                 "total": len(target_stocks),
                 "success": success_count,
                 "failed": failed_count,
                 "current": success_count + failed_count,
-                "message": f"[{market}]采集异常终止({data_source}): {e}",
+                "message": f"[{market}]采集异常终止({final_source}): {e}",
                 "start_time": start_time,
                 "end_time": end_time,
                 "progress": int(((success_count + failed_count) / len(target_stocks)) * 100) if target_stocks else 0,
                 "market": market,
-                "data_source": data_source
+                "data_source": final_source
             }
             logger.error(f"[{market}]K线采集异常终止: {e}", exc_info=True)
             raise
@@ -1880,6 +1909,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         end_time = datetime.now().isoformat()
         is_cancelled = kline_collect_stop_flags.get(task_id, False)
         current_processed = success_count + failed_count
+        final_source = last_used_source or "未知"
         
         if is_cancelled:
             kline_collect_progress[task_id] = {
@@ -1888,12 +1918,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 "success": success_count,
                 "failed": failed_count,
                 "current": current_processed,
-                "message": f"[{market}]K线数据采集已停止({data_source})：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
+                "message": f"[{market}]K线数据采集已停止({final_source})：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
                 "start_time": start_time,
                 "end_time": end_time,
                 "progress": int((current_processed / len(target_stocks)) * 100) if target_stocks else 0,
                 "market": market,
-                "data_source": data_source
+                "data_source": final_source
             }
             logger.info(f"[{market}]K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}")
             # 清理停止标志
@@ -1905,12 +1935,12 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 "success": success_count,
                 "failed": failed_count,
                 "current": len(target_stocks),
-                "message": f"[{market}]K线数据采集完成({data_source})：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
+                "message": f"[{market}]K线数据采集完成({final_source})：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
                 "start_time": start_time,
                 "end_time": end_time,
                 "progress": 100,
                 "market": market,
-                "data_source": data_source
+                "data_source": final_source
             }
             logger.info(f"[{market}]K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
     
@@ -2052,15 +2082,9 @@ async def collect_batch_single_stock_kline_api(
                 }
                 return
             
-            # 确定数据源信息
-            data_source_a = "AKShare(主) + Tushare(备用)"
-            data_source_hk = "AKShare"
-            if market.upper() == "A":
-                data_source = data_source_a
-            elif market.upper() == "HK":
-                data_source = data_source_hk
-            else:
-                data_source = f"A股:{data_source_a}, 港股:{data_source_hk}"
+            # 确定数据源信息（初始显示，后续会更新为具体使用的数据源）
+            last_used_source_a = None
+            last_used_source_hk = None
             
             # 初始化进度
             kline_collect_progress[task_id] = {
@@ -2069,10 +2093,10 @@ async def collect_batch_single_stock_kline_api(
                 "success": 0,
                 "failed": 0,
                 "current": 0,
-                "message": f"开始采集({data_source})，A股{len(a_codes)}只，港股{len(hk_codes)}只",
+                "message": f"开始采集，A股{len(a_codes)}只，港股{len(hk_codes)}只",
                 "start_time": start_time,
                 "progress": 0,
-                "data_source": data_source
+                "data_source": "准备中..."
             }
             
             # 采集A股（使用线程池并发处理，避免单只股票阻塞）
@@ -2086,16 +2110,24 @@ async def collect_batch_single_stock_kline_api(
                 
                 def collect_a_stock(code):
                     """采集单只A股（带超时控制）"""
-                    nonlocal total_success, total_failed, total_processed
+                    nonlocal total_success, total_failed, total_processed, last_used_source_a
                     try:
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
                             future = single_executor.submit(
-                                fetch_a_stock_kline, code, period, "", None, None, False, False
+                                fetch_a_stock_kline, code, period, "", None, None, False, False, True
                             )
                             try:
                                 result = future.result(timeout=120)  # 120秒超时
-                                if result and len(result) > 0:
+                                # 解析返回值（可能是元组）
+                                if isinstance(result, tuple):
+                                    kline_data, source_name = result
+                                    if source_name:
+                                        last_used_source_a = source_name
+                                else:
+                                    kline_data = result
+                                
+                                if kline_data and len(kline_data) > 0:
                                     total_success += 1
                                 else:
                                     total_failed += 1
@@ -2141,12 +2173,14 @@ async def collect_batch_single_stock_kline_api(
                             
                             # 更新进度（每完成一只股票更新一次）
                             progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
+                            current_source = last_used_source_a or "准备中..."
                             kline_collect_progress[task_id].update({
                                 "success": total_success,
                                 "failed": total_failed,
                                 "current": total_processed,
                                 "progress": progress_pct,
-                                "message": f"A股采集中({data_source_a})... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                                "data_source": current_source,
+                                "message": f"A股采集中({current_source})... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
                             })
                         
                         # 批次间延迟，避免请求过快
@@ -2166,7 +2200,7 @@ async def collect_batch_single_stock_kline_api(
                 
                 def collect_hk_stock(code):
                     """采集单只港股（带超时控制）"""
-                    nonlocal total_success, total_failed, total_processed
+                    nonlocal total_success, total_failed, total_processed, last_used_source_hk
                     try:
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
@@ -2177,6 +2211,7 @@ async def collect_batch_single_stock_kline_api(
                                 result = future.result(timeout=120)  # 120秒超时
                                 if result and len(result) > 0:
                                     total_success += 1
+                                    last_used_source_hk = "AKShare"  # 港股目前只使用AKShare
                                 else:
                                     total_failed += 1
                             except concurrent.futures.TimeoutError:
@@ -2221,12 +2256,14 @@ async def collect_batch_single_stock_kline_api(
                             
                             # 更新进度（每完成一只股票更新一次）
                             progress_pct = int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0
+                            current_source = last_used_source_hk or "AKShare"
                             kline_collect_progress[task_id].update({
                                 "success": total_success,
                                 "failed": total_failed,
                                 "current": total_processed,
                                 "progress": progress_pct,
-                                "message": f"港股采集中({data_source_hk})... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
+                                "data_source": current_source,
+                                "message": f"港股采集中({current_source})... 已处理{total_processed}/{total_stocks}，成功{total_success}，失败{total_failed}"
                             })
                         
                         # 批次间延迟
@@ -2240,33 +2277,39 @@ async def collect_batch_single_stock_kline_api(
             is_cancelled = kline_collect_stop_flags.get(task_id, False)
             
             if is_cancelled:
+                # 确定最终使用的数据源
+                final_source = last_used_source_a or last_used_source_hk or "未知"
+                
                 kline_collect_progress[task_id] = {
                     "status": "cancelled",
                     "total": total_stocks,
                     "success": total_success,
                     "failed": total_failed,
                     "current": total_processed,
-                    "message": f"采集已停止({data_source})！成功{total_success}，失败{total_failed}，已处理{total_processed}/{total_stocks}",
+                    "message": f"采集已停止({final_source})！成功{total_success}，失败{total_failed}，已处理{total_processed}/{total_stocks}",
                     "start_time": start_time,
                     "end_time": end_time,
                     "progress": int((total_processed / total_stocks) * 100) if total_stocks > 0 else 0,
-                    "data_source": data_source
+                    "data_source": final_source
                 }
                 logger.info(f"单个批量采集已停止：成功{total_success}，失败{total_failed}，已处理{total_processed}/{total_stocks}")
                 # 清理停止标志
                 kline_collect_stop_flags.pop(task_id, None)
             else:
+                # 确定最终使用的数据源
+                final_source = last_used_source_a or last_used_source_hk or "未知"
+                
                 kline_collect_progress[task_id] = {
                     "status": "completed",
                     "total": total_stocks,
                     "success": total_success,
                     "failed": total_failed,
                     "current": total_processed,
-                    "message": f"采集完成({data_source})！成功{total_success}，失败{total_failed}，总计{total_processed}",
+                    "message": f"采集完成({final_source})！成功{total_success}，失败{total_failed}，总计{total_processed}",
                     "start_time": start_time,
                     "end_time": end_time,
                     "progress": 100,
-                    "data_source": data_source
+                    "data_source": final_source
                 }
                 logger.info(f"单个批量采集完成：成功{total_success}，失败{total_failed}，总计{total_processed}")
         

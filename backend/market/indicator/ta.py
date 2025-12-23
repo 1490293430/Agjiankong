@@ -352,6 +352,20 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["boll_expanding"] = bool(current_width > prev_width)  # 开口，转换为Python bool
         result["boll_contracting"] = bool(current_width < prev_width)  # 收口，转换为Python bool
     
+    # EMA指数移动平均线
+    if len(df) >= 12:
+        ema12_series = ema(df, 12)
+        result["ema12"] = float(ema12_series.iloc[-1])
+    if len(df) >= 26:
+        ema26_series = ema(df, 26)
+        result["ema26"] = float(ema26_series.iloc[-1])
+    
+    # BIAS乖离率（收盘价与MA20的偏离程度）
+    if len(df) >= 20 and result.get("ma20"):
+        current_close = float(latest["close"])
+        ma20_value = result["ma20"]
+        result["bias"] = float((current_close - ma20_value) / ma20_value * 100)
+    
     # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
     def convert_numpy_types(value):
         if isinstance(value, np.integer):

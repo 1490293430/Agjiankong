@@ -5519,7 +5519,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'volume-ratio',
             label: '量比',
-            getValue: (stock) => stock.indicators?.vol_ratio?.toFixed(2) || stock.volume_ratio?.toFixed(2) || '-'
+            getValue: (stock) => stock.vol_ratio?.toFixed(2) || stock.indicators?.vol_ratio?.toFixed(2) || stock.volume_ratio?.toFixed(2) || '-'
         });
     }
     
@@ -5528,7 +5528,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'rsi',
             label: 'RSI',
-            getValue: (stock) => stock.indicators?.rsi?.toFixed(1) || '-'
+            getValue: (stock) => stock.rsi?.toFixed(1) || stock.indicators?.rsi?.toFixed(1) || '-'
         });
     }
     
@@ -5538,7 +5538,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'ma',
             label: `MA${period}`,
-            getValue: (stock) => stock.indicators?.[`ma${period}`]?.toFixed(2) || '-'
+            getValue: (stock) => stock[`ma${period}`]?.toFixed(2) || stock.indicators?.[`ma${period}`]?.toFixed(2) || '-'
         });
     }
     
@@ -5548,7 +5548,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'ema',
             label: `EMA${period}`,
-            getValue: (stock) => stock.indicators?.[`ema${period}`]?.toFixed(2) || '-'
+            getValue: (stock) => stock[`ema${period}`]?.toFixed(2) || stock.indicators?.[`ema${period}`]?.toFixed(2) || '-'
         });
     }
     
@@ -5558,7 +5558,7 @@ function getEnabledFilters() {
             id: 'macd',
             label: 'MACD',
             getValue: (stock) => {
-                const dif = stock.indicators?.macd_dif;
+                const dif = stock.macd_dif ?? stock.indicators?.macd_dif;
                 if (dif === undefined || dif === null) return '-';
                 return dif > 0 ? '多' : '空';
             }
@@ -5571,8 +5571,8 @@ function getEnabledFilters() {
             id: 'kdj',
             label: 'KDJ',
             getValue: (stock) => {
-                const k = stock.indicators?.kdj_k;
-                const d = stock.indicators?.kdj_d;
+                const k = stock.kdj_k ?? stock.indicators?.kdj_k;
+                const d = stock.kdj_d ?? stock.indicators?.kdj_d;
                 if (k === undefined || d === undefined) return '-';
                 if (k > d) return '金叉';
                 return '死叉';
@@ -5585,7 +5585,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'bias',
             label: 'BIAS',
-            getValue: (stock) => stock.indicators?.bias?.toFixed(2) || '-'
+            getValue: (stock) => stock.bias?.toFixed(2) || stock.indicators?.bias?.toFixed(2) || '-'
         });
     }
     
@@ -5594,7 +5594,7 @@ function getEnabledFilters() {
         filters.push({
             id: 'williams-r',
             label: '威廉%R',
-            getValue: (stock) => stock.indicators?.williams_r?.toFixed(1) || '-'
+            getValue: (stock) => stock.williams_r?.toFixed(1) || stock.indicators?.williams_r?.toFixed(1) || '-'
         });
     }
     
