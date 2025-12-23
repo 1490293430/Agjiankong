@@ -406,9 +406,8 @@ body.light-mode .market-status-value.loading {
     overflow-y: auto;
     overflow-x: hidden;
     /* 使用固定高度，确保容器可以滚动 */
-    height: calc(100vh - 320px); /* 固定高度，确保可以滚动（减去header、controls、提示文字等） */
-    min-height: 400px; /* 设置最小高度，确保有足够空间显示内容 */
-    max-height: calc(100vh - 250px); /* 最大高度限制 */
+    height: 500px; /* 固定高度，确保可以滚动 */
+    max-height: calc(100vh - 300px); /* 最大高度限制 */
     -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
     position: relative; /* 确保滚动定位正确 */
 }
@@ -1991,9 +1990,9 @@ body.light-mode .ai-analysis-table tbody tr:hover {
     /* 股票列表容器占满剩余高度 */
     .stock-list-container {
         flex: 1;
-        min-height: 0;
-        max-height: none !important; /* 覆盖内联样式 */
-        height: 100%;
+        min-height: 300px;
+        max-height: calc(100vh - 280px) !important; /* 固定最大高度，确保可以滚动 */
+        height: auto;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
     }

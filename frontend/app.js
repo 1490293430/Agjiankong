@@ -1747,8 +1747,11 @@ function handleMarketScroll() {
             });
         }
         
-        if (distanceToBottom <= 100 && !isLoading && hasMore) {
-            console.log('[行情] ✅ 触发无限滚动，加载下一页，当前页:', currentPage);
+        // 当内容不足以产生滚动条时（scrollHeight <= clientHeight），也触发加载
+        const noScrollbar = scrollHeight <= clientHeight + 10;
+        
+        if ((distanceToBottom <= 100 || noScrollbar) && !isLoading && hasMore) {
+            console.log('[行情] ✅ 触发无限滚动，加载下一页，当前页:', currentPage, noScrollbar ? '(内容不足，自动加载)' : '');
             loadMarket();
         }
     }, 150); // 增加防抖时间到150ms，减少频繁触发
@@ -2003,6 +2006,17 @@ async function loadMarket() {
         }
         
         isLoading = false;
+        
+        // 检查是否需要继续加载（内容不足以产生滚动条时）
+        if (hasMore) {
+            setTimeout(() => {
+                const container = document.querySelector('.stock-list-container');
+                if (container && container.scrollHeight <= container.clientHeight + 10) {
+                    console.log('[行情] 本地数据加载后内容不足，继续加载更多');
+                    loadMarket();
+                }
+            }, 100);
+        }
         return;
     }
     
@@ -2202,6 +2216,17 @@ async function loadMarket() {
     } finally {
         isLoading = false;
         console.log('[行情] loadMarket完成, isLoading=false, currentPage=', currentPage, ', hasMore=', hasMore);
+        
+        // 检查是否需要继续加载（内容不足以产生滚动条时）
+        if (hasMore) {
+            setTimeout(() => {
+                const container = document.querySelector('.stock-list-container');
+                if (container && container.scrollHeight <= container.clientHeight + 10) {
+                    console.log('[行情] 内容不足以产生滚动条，继续加载更多');
+                    loadMarket();
+                }
+            }, 300);
+        }
     }
 }
 
@@ -2403,6 +2428,17 @@ async function applyFilterAndSort() {
     }
     
     console.log(`[行情] 过滤排序完成: 原始${allMarketData.length}条, 过滤后${filteredData.length}条, 排序=${currentSort}, hasMore=${hasMore}`);
+    
+    // 检查是否需要继续加载（内容不足以产生滚动条时）
+    if (hasMore) {
+        setTimeout(() => {
+            const container = document.querySelector('.stock-list-container');
+            if (container && container.scrollHeight <= container.clientHeight + 10) {
+                console.log('[行情] 过滤后内容不足以产生滚动条，继续加载更多');
+                loadMarket();
+            }
+        }, 300);
+    }
 }
 
 async function handleSearch() {
