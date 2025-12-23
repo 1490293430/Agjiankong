@@ -1683,47 +1683,29 @@ function handleMarketScroll() {
         let scrollTop, scrollHeight, clientHeight;
         let usingContainer = false;
         
-        // 优先使用容器滚动（移动端和桌面端都支持）
         const isMobile = window.innerWidth <= 768;
         
         if (currentContainer) {
             const containerScrollHeight = currentContainer.scrollHeight;
             const containerClientHeight = currentContainer.clientHeight;
             
-            // 移动端：始终优先使用容器滚动（因为移动端CSS设置了overflow-y: auto）
-            // 桌面端：只有当容器可以滚动时才使用容器滚动
-            if (isMobile) {
-                // 移动端：只要容器存在且有内容，就使用容器滚动
-                if (containerScrollHeight > 0 && containerClientHeight > 0) {
-                    scrollTop = currentContainer.scrollTop;
-                    scrollHeight = containerScrollHeight;
-                    clientHeight = containerClientHeight;
-                    usingContainer = true;
-                }
-            } else {
-                // 桌面端：只有当容器可以滚动时才使用容器滚动
-                const threshold = 5; // 桌面端5px容差
-                if (containerScrollHeight > containerClientHeight + threshold) {
-                    scrollTop = currentContainer.scrollTop;
-                    scrollHeight = containerScrollHeight;
-                    clientHeight = containerClientHeight;
-                    usingContainer = true;
-                }
+            // 检查容器是否可以滚动
+            const canContainerScroll = containerScrollHeight > containerClientHeight + 5;
+            
+            if (canContainerScroll) {
+                // 容器可以滚动，使用容器滚动
+                scrollTop = currentContainer.scrollTop;
+                scrollHeight = containerScrollHeight;
+                clientHeight = containerClientHeight;
+                usingContainer = true;
             }
         }
         
-        // 如果容器无法滚动，使用window滚动（仅桌面端fallback）
-        if (!usingContainer && !isMobile) {
+        // 如果容器无法滚动，使用window滚动
+        if (!usingContainer) {
             scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             scrollHeight = document.documentElement.scrollHeight;
             clientHeight = window.innerHeight;
-        } else if (!usingContainer && isMobile) {
-            // 移动端：如果容器滚动失败，也尝试window滚动作为备用
-            // 但这种情况应该很少发生
-            scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            scrollHeight = document.documentElement.scrollHeight;
-            clientHeight = window.innerHeight;
-            console.warn('[行情] 移动端：容器滚动检测失败，使用window滚动作为备用');
         }
         
         // 距离底部100px时加载下一页
@@ -1776,15 +1758,17 @@ function setupMarketScrollListeners() {
         containerScrollListenerSetup = true;
         
         const rowCount = document.getElementById('stock-list')?.children.length || 0;
-        const canScroll = currentContainer.scrollHeight > currentContainer.clientHeight + (isMobile ? 1 : 5);
+        const canScroll = currentContainer.scrollHeight > currentContainer.clientHeight + 5;
         console.log('[行情] ✅ 已设置容器滚动监听器', {
             clientHeight: currentContainer.clientHeight,
             scrollHeight: currentContainer.scrollHeight,
             scrollTop: currentContainer.scrollTop,
             canScroll: canScroll,
             rowCount: rowCount,
-            isMobile: isMobile,
-            containerStyle: window.getComputedStyle(currentContainer).overflowY
+            isMobile: window.innerWidth <= 768,
+            windowWidth: window.innerWidth,
+            containerStyle: window.getComputedStyle(currentContainer).overflowY,
+            containerHeight: window.getComputedStyle(currentContainer).height
         });
     } else {
         console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
@@ -2146,7 +2130,7 @@ async function loadMarket() {
                 // 检查是否还有更多数据
                 if (result.pagination) {
                     hasMore = currentPage < result.pagination.total_pages;
-                    console.log(`[行情] 分页信息: 当前页=${currentPage}, 总页数=${result.pagination.total_pages}, hasMore=${hasMore}`);
+                    console.log(`[行情] 分页信息: 当前页=${currentPage}, 总页数=${result.pagination.total_pages}, 总数据=${result.pagination.total}, hasMore=${hasMore}`);
                     if (hasMore) {
                         currentPage++;
                         console.log(`[行情] ✅ 还有更多数据，下一页=${currentPage}`);
