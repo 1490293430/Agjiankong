@@ -597,6 +597,13 @@ function _doMarketUpdate(data) {
         return cells.length > 1 && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
     });
     
+    // 如果正在加载中，跳过 SSE 更新（避免覆盖 API 加载的数据）
+    const isLoadingState = existingRows.length === 1 && existingRows[0].textContent?.includes('加载中');
+    if (isLoadingState) {
+        console.log('[SSE] 正在加载中，跳过市场行情更新');
+        return;
+    }
+    
     // 如果表格为空，直接渲染数据
     if (!hasValidData) {
         console.log('[SSE] 表格为空，直接渲染SSE推送的数据');
@@ -1957,7 +1964,7 @@ function resetAndLoadMarket() {
     hasMore = true;
     allMarketData = []; // 清除所有数据
     window.filteredMarketData = null; // 清除过滤数据
-    document.getElementById('stock-list').innerHTML = '';
+    document.getElementById('stock-list').innerHTML = '<tr><td colspan="6" class="loading">加载中...</td></tr>';
     loadMarket();
 }
 
