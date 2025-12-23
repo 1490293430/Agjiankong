@@ -667,7 +667,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 return (code, None)
             
             # 并发计算（限制并发数避免过载）
-            max_workers = min(50, len(missing_codes))
+            max_workers = min(30, len(missing_codes))
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(compute_and_save_indicator, code): code for code in missing_codes}
                 

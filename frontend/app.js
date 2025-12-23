@@ -4587,12 +4587,15 @@ function checkRunningCollectionTask() {
                     const success = progress.success || 0;
                     const failed = progress.failed || 0;
                     const progressPct = total > 0 ? Math.round((current / total) * 100) : 0;
+                    const dataSource = progress.data_source || '';
+                    const market = progress.market || '';
                     
                     statusEl.innerHTML = `
                         <div style="margin-top: 10px;">
                             <div style="color: #3b82f6; margin-bottom: 8px; font-weight: bold; font-size: 14px;">
                                 📥 正在采集K线数据...
                             </div>
+                            ${dataSource ? `<div style="color: #f59e0b; font-size: 11px; margin-bottom: 6px;">📡 数据源: ${dataSource}</div>` : ''}
                             <div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">
                                 进度: ${current} / ${total} (${progressPct}%)
                             </div>
@@ -4871,8 +4874,8 @@ async function runSelection() {
         let errorDetail = error.message || '未知错误';
         
         if (error.name === 'AbortError') {
-            errorMessage = '选股请求超时';
-            errorDetail = '请求超过5分钟未完成，已自动取消';
+            errorMessage = '选股请求被取消';
+            errorDetail = '请求已被取消，请重试';
         } else if (error.message.includes('Failed to fetch')) {
             errorMessage = '网络连接失败';
             errorDetail = '请检查网络连接或服务器状态';
@@ -5213,12 +5216,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     const failed = progress.failed || 0;
                     const total = progress.total || 0;
                     const current = progress.current || 0;
+                    const dataSource = progress.data_source || '';
                     
                     statusEl.innerHTML = `
                         <div style="margin-top: 10px;">
                             <div style="color: #10b981; margin-bottom: 5px; font-weight: 500;">
                                 ✅ 采集任务进行中
                             </div>
+                            ${dataSource ? `<div style="color: #f59e0b; font-size: 11px; margin-bottom: 5px;">📡 数据源: ${dataSource}</div>` : ''}
                             <div style="color: #60a5fa; margin-bottom: 8px; font-size: 14px; font-weight: 600;">
                                 📊 正在采集: 第 <strong style="color: #3b82f6; font-size: 16px;">${current}</strong> 只 / 总共 ${total} 只
                             </div>
@@ -5249,12 +5254,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     const success = progress.success || 0;
                     const failed = progress.failed || 0;
                     const total = progress.total || 0;
+                    const dataSource = progress.data_source || '';
                     
                     statusEl.innerHTML = `
                         <div style="margin-top: 10px;">
                             <div style="color: #10b981; margin-bottom: 5px; font-weight: bold;">
                                 ✅ 采集完成！
                             </div>
+                            ${dataSource ? `<div style="color: #f59e0b; font-size: 11px; margin-bottom: 5px;">📡 数据源: ${dataSource}</div>` : ''}
                             <div style="color: #10b981; font-size: 11px; margin-bottom: 2px;">
                                 ✅ 成功: ${success} 只股票
                             </div>
@@ -5276,12 +5283,14 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     const failed = progress.failed || 0;
                     const current = progress.current || 0;
                     const total = progress.total || 0;
+                    const dataSource = progress.data_source || '';
                     
                     statusEl.innerHTML = `
                         <div style="margin-top: 10px;">
                             <div style="color: #f59e0b; margin-bottom: 5px; font-weight: bold;">
                                 ⏹️ 采集已停止
                             </div>
+                            ${dataSource ? `<div style="color: #f59e0b; font-size: 11px; margin-bottom: 5px;">📡 数据源: ${dataSource}</div>` : ''}
                             <div style="color: #94a3b8; font-size: 11px; margin-bottom: 2px;">
                                 已处理: ${current}/${total} 只股票
                             </div>
@@ -5304,11 +5313,13 @@ function connectKlineCollectProgress(taskId, statusEl, btn) {
                     // 停止按钮始终可用，无需禁用
                     ws.close();
                 } else if (progress.status === 'failed') {
+                    const dataSource = progress.data_source || '';
                     statusEl.innerHTML = `
                         <div style="margin-top: 10px;">
                             <div style="color: #ef4444; margin-bottom: 5px;">
                                 ❌ 采集失败
                             </div>
+                            ${dataSource ? `<div style="color: #f59e0b; font-size: 11px; margin-bottom: 5px;">📡 数据源: ${dataSource}</div>` : ''}
                             <div style="color: #94a3b8; font-size: 11px;">
                                 ${progress.message || '采集过程中发生错误'}
                             </div>
