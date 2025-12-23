@@ -952,7 +952,7 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     
     Args:
         source: 数据源选择
-            - "auto": 自动切换，循环尝试 AKShare → 新浪 → Easyquotation，最多3轮
+            - "auto": 自动切换，按顺序尝试 Easyquotation → 新浪 → AKShare
             - "akshare": 仅使用AKShare
             - "sina": 仅使用新浪财经
             - "easyquotation": 仅使用Easyquotation
@@ -964,7 +964,8 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     sources_order = []
     
     if source == "auto":
-        sources_order = ["akshare", "sina", "easyquotation"]
+        # 优先级：Easyquotation > 新浪 > AKShare（按速度排序）
+        sources_order = ["easyquotation", "sina", "akshare"]
     elif source == "akshare":
         sources_order = ["akshare"]
     elif source == "sina":
@@ -972,55 +973,47 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     elif source == "easyquotation":
         sources_order = ["easyquotation"]
     else:
-        sources_order = ["akshare", "sina", "easyquotation"]
+        sources_order = ["easyquotation", "sina", "akshare"]
     
     last_error = None
-    max_rounds = 3 if source == "auto" else max_retries  # auto模式循环3轮，单源模式重试max_retries次
     
-    for round_num in range(max_rounds):
-        if source == "auto" and round_num > 0:
-            logger.info(f"[实时行情] 第{round_num + 1}轮尝试...")
-        
-        for src in sources_order:
-            try:
-                if src == "akshare":
-                    logger.info("[实时行情] 尝试使用 AKShare(东方财富) 数据源...")
-                    # auto模式下每个源只尝试1次，失败立即切换
-                    retries = 1 if source == "auto" else max_retries
-                    result = fetch_a_stock_spot(max_retries=retries)
-                    if result and len(result) > 0:
-                        logger.info(f"[实时行情] AKShare 获取成功: {len(result)}只股票")
-                        return result, "AKShare(东方财富)"
-                        
-                elif src == "sina":
-                    logger.info("[实时行情] 尝试使用 新浪财经 数据源...")
-                    from market_collector.sina_source import fetch_sina_stock_spot
-                    retries = 1 if source == "auto" else max_retries
-                    result = fetch_sina_stock_spot(max_retries=retries)
-                    if result and len(result) > 0:
-                        # 保存到Redis
-                        _save_spot_to_redis(result, "A")
-                        logger.info(f"[实时行情] 新浪财经 获取成功: {len(result)}只股票")
-                        return result, "新浪财经"
-                        
-                elif src == "easyquotation":
-                    logger.info("[实时行情] 尝试使用 Easyquotation 数据源...")
-                    from market_collector.easyquotation_source import fetch_easyquotation_stock_spot
-                    retries = 1 if source == "auto" else max_retries
-                    result = fetch_easyquotation_stock_spot(max_retries=retries)
-                    if result and len(result) > 0:
-                        # 保存到Redis
-                        _save_spot_to_redis(result, "A")
-                        logger.info(f"[实时行情] Easyquotation 获取成功: {len(result)}只股票")
-                        return result, "Easyquotation"
-                        
-            except Exception as e:
-                last_error = e
-                logger.warning(f"[实时行情] {src} 数据源失败: {e}")
-                continue
+    # auto模式不重试，失败直接切换下一个源
+    for src in sources_order:
+        try:
+            if src == "akshare":
+                logger.info("[实时行情] 尝试使用 AKShare(东方财富) 数据源...")
+                result = fetch_a_stock_spot(max_retries=1)
+                if result and len(result) > 0:
+                    logger.info(f"[实时行情] AKShare 获取成功: {len(result)}只股票")
+                    return result, "AKShare(东方财富)"
+                    
+            elif src == "sina":
+                logger.info("[实时行情] 尝试使用 新浪财经 数据源...")
+                from market_collector.sina_source import fetch_sina_stock_spot
+                result = fetch_sina_stock_spot(max_retries=1)
+                if result and len(result) > 0:
+                    # 保存到Redis
+                    _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] 新浪财经 获取成功: {len(result)}只股票")
+                    return result, "新浪财经"
+                    
+            elif src == "easyquotation":
+                logger.info("[实时行情] 尝试使用 Easyquotation 数据源...")
+                from market_collector.easyquotation_source import fetch_easyquotation_stock_spot
+                result = fetch_easyquotation_stock_spot(max_retries=1)
+                if result and len(result) > 0:
+                    # 保存到Redis
+                    _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] Easyquotation 获取成功: {len(result)}只股票")
+                    return result, "Easyquotation"
+                    
+        except Exception as e:
+            last_error = e
+            logger.warning(f"[实时行情] {src} 数据源失败: {e}")
+            continue
     
     # 所有数据源都失败
-    logger.error(f"[实时行情] 所有数据源均失败（已尝试{max_rounds}轮）: {last_error}")
+    logger.error(f"[实时行情] 所有数据源均失败: {last_error}")
     return [], None
 
 

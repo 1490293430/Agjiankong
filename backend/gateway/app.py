@@ -1848,7 +1848,7 @@ async def collect_spot_data_api(
                         "status": "running",
                         "step": "hk_stock",
                         "message": f"A股采集完成({a_count}只)，正在采集港股实时行情...",
-                        "data_source": data_source or "",
+                        "data_source": "AKShare(东方财富)",
                         "a_count": a_count,
                         "start_time": start_time
                     }
