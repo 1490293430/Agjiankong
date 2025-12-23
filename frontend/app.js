@@ -1812,14 +1812,26 @@ async function initMarket() {
     searchInput.addEventListener('input', handleSearch);
     
     // 初始化排序切换
+    // 从localStorage恢复排序状态
+    const savedSort = localStorage.getItem('marketSort') || 'default';
+    currentSort = savedSort;
+    
+    // 初始化排序切换
     document.querySelectorAll('.sort-tab').forEach(tab => {
+        // 恢复active状态
+        if (tab.getAttribute('data-sort') === savedSort) {
+            document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+        }
+        
         tab.addEventListener('click', () => {
             // 更新active状态
             document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             
-            // 更新排序方式并重新渲染
+            // 更新排序方式并保存到localStorage
             currentSort = tab.getAttribute('data-sort');
+            localStorage.setItem('marketSort', currentSort);
             console.log('[行情] 切换排序:', currentSort);
             applyFilterAndSort();
         });
@@ -1899,6 +1911,8 @@ async function initMarket() {
 function resetAndLoadMarket() {
     currentPage = 1;
     hasMore = true;
+    allMarketData = []; // 清除所有数据
+    window.filteredMarketData = null; // 清除过滤数据
     document.getElementById('stock-list').innerHTML = '';
     loadMarket();
 }
@@ -1956,6 +1970,39 @@ async function loadMarket() {
     const tbody = document.getElementById('stock-list');
     if (!tbody) {
         console.warn('行情页表格不存在，跳过加载');
+        return;
+    }
+    
+    // 如果有排序或过滤，从本地数据加载下一页（不请求API）
+    if ((currentSort !== 'default' || filterStockOnly) && window.filteredMarketData && currentPage > 1) {
+        console.log(`[行情] 排序/过滤模式，从本地数据加载第${currentPage}页`);
+        isLoading = true;
+        
+        const startIndex = (currentPage - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const nextPageData = window.filteredMarketData.slice(startIndex, endIndex);
+        
+        if (nextPageData.length > 0) {
+            appendStockList(nextPageData);
+            
+            // 检查是否还有更多数据
+            hasMore = endIndex < window.filteredMarketData.length;
+            if (hasMore) {
+                currentPage++;
+                console.log(`[行情] 本地数据加载完成，还有更多数据，下一页=${currentPage}`);
+            } else {
+                console.log(`[行情] 本地数据已全部加载，共${window.filteredMarketData.length}条`);
+                // 显示已加载全部数据提示
+                const endRow = document.createElement('tr');
+                endRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
+                tbody.appendChild(endRow);
+            }
+        } else {
+            hasMore = false;
+            console.log(`[行情] 本地数据无更多数据`);
+        }
+        
+        isLoading = false;
         return;
     }
     
@@ -2308,7 +2355,10 @@ function applyFilterAndSort() {
         });
     }
     
-    // 重新渲染列表
+    // 保存过滤后的数据（用于无限滚动）
+    window.filteredMarketData = filteredData;
+    
+    // 重新渲染列表（只显示第一页，保持无限滚动）
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
     
@@ -2320,10 +2370,12 @@ function applyFilterAndSort() {
     const firstPage = filteredData.slice(0, pageSize);
     appendStockList(firstPage);
     
-    // 更新全局数据（用于分页）
-    window.filteredMarketData = filteredData;
+    // 如果有更多数据，更新分页状态
+    if (hasMore) {
+        currentPage = 2; // 下一页从2开始
+    }
     
-    console.log(`[行情] 过滤排序完成: 原始${allMarketData.length}条, 过滤后${filteredData.length}条, 排序=${currentSort}`);
+    console.log(`[行情] 过滤排序完成: 原始${allMarketData.length}条, 过滤后${filteredData.length}条, 排序=${currentSort}, hasMore=${hasMore}`);
 }
 
 async function handleSearch() {
