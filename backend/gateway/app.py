@@ -2899,6 +2899,11 @@ async def collect_kline_data_api(
         success_count = 0
         failed_count = 0
         
+        # 用于记录实际使用的数据源
+        import threading
+        source_lock = threading.Lock()
+        last_used_source = [None]  # 使用列表以便在闭包中修改
+        
         def collect_kline_for_stock(stock):
             nonlocal success_count, failed_count
             from market.service.ws import kline_collect_stop_flags
@@ -2912,11 +2917,17 @@ async def collect_kline_data_api(
                 return
             
             try:
-                # 优化：直接调用fetch_kline_func，它内部会检查数据库并跳过已是最新的数据
-                # 减少重复的数据库查询
-                kline_data = fetch_kline_func(code, period, "", None, None, False, False)
+                # 使用 return_source=True 获取实际使用的数据源
+                result = fetch_kline_func(code, period, "", None, None, False, False, True)
+                if isinstance(result, tuple):
+                    kline_data, source_name = result
+                    if source_name:
+                        with source_lock:
+                            last_used_source[0] = source_name
+                else:
+                    kline_data = result
                 
-                # 如果获取到数据，说明采集成功（fetch_kline_func内部已处理增量逻辑）
+                # 如果获取到数据，说明采集成功
                 if kline_data and len(kline_data) > 0:
                     success_count += 1
                 else:
@@ -2939,25 +2950,19 @@ async def collect_kline_data_api(
         task_id = str(uuid.uuid4())
         start_time = datetime.now().isoformat()
         
-        # 确定数据源信息
-        if market.upper() == "HK":
-            data_source = "AKShare"
-        else:
-            data_source = "AKShare(主) + Tushare(备用)"
-        
         period_desc = "日线" if period == "daily" else "小时线"
         
-        # 初始化进度
+        # 初始化进度（数据源为空，等获取到具体数据源后再显示）
         kline_collect_progress[task_id] = {
             "status": "running",
             "total": len(target_stocks),
             "success": 0,
             "failed": 0,
             "current": 0,
-            "message": f"开始采集{period_desc}K线数据({data_source})...",
+            "message": f"开始采集{period_desc}K线数据...",
             "start_time": start_time,
             "progress": 0,
-            "data_source": data_source
+            "data_source": ""
         }
         
         async def batch_collect():
@@ -2999,6 +3004,8 @@ async def collect_kline_data_api(
                     current = success_count + failed_count
                     if (current_time - last_update_time >= update_interval) or (completed % 10 == 0):
                         progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
+                        # 使用最近成功的数据源名称
+                        current_source = last_used_source[0] or ""
                         if task_id in kline_collect_progress:
                             kline_collect_progress[task_id].update({
                                 "status": "running",
@@ -3006,7 +3013,8 @@ async def collect_kline_data_api(
                                 "failed": failed_count,
                                 "current": current,
                                 "progress": progress_pct,
-                                "message": f"采集中({data_source})... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
+                                "data_source": current_source,
+                                "message": f"采集中... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
                             })
                             # 通过SSE广播进度更新
                             try:
@@ -3021,17 +3029,18 @@ async def collect_kline_data_api(
                             logger.info(f"K线数据采集进度：成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}")
             except Exception as e:
                 end_time = datetime.now().isoformat()
+                final_source = last_used_source[0] or ""
                 kline_collect_progress[task_id] = {
                     "status": "failed",
                     "total": len(target_stocks),
                     "success": success_count,
                     "failed": failed_count,
                     "current": success_count + failed_count,
-                    "message": f"采集异常终止({data_source}): {e}",
+                    "message": f"采集异常终止: {e}",
                     "start_time": start_time,
                     "end_time": end_time,
                     "progress": int(((success_count + failed_count) / len(target_stocks)) * 100) if target_stocks else 0,
-                    "data_source": data_source
+                    "data_source": final_source
                 }
                 # 通过SSE广播失败进度
                 try:
@@ -3049,6 +3058,7 @@ async def collect_kline_data_api(
             is_cancelled = kline_collect_stop_flags.get(task_id, False)
             end_time = datetime.now().isoformat()
             current_processed = success_count + failed_count
+            final_source = last_used_source[0] or ""
             
             if is_cancelled:
                 # 被用户停止
@@ -3058,11 +3068,11 @@ async def collect_kline_data_api(
                     "success": success_count,
                     "failed": failed_count,
                     "current": current_processed,
-                    "message": f"K线数据采集已停止({data_source})：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
+                    "message": f"K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
                     "start_time": start_time,
                     "end_time": end_time,
                     "progress": int((current_processed / len(target_stocks)) * 100) if target_stocks else 0,
-                    "data_source": data_source
+                    "data_source": final_source
                 }
                 logger.info(f"K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}")
                 # 清理停止标志
@@ -3075,11 +3085,11 @@ async def collect_kline_data_api(
                     "success": success_count,
                     "failed": failed_count,
                     "current": len(target_stocks),
-                    "message": f"K线数据采集完成({data_source})：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
+                    "message": f"K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
                     "start_time": start_time,
                     "end_time": end_time,
                     "progress": 100,
-                    "data_source": data_source
+                    "data_source": final_source
                 }
                 logger.info(f"K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
             
