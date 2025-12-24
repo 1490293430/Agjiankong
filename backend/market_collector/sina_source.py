@@ -216,8 +216,17 @@ def _classify_security(code: str, name: str) -> str:
         if kw in name:
             return "index"
     
-    # 000 开头 + 数字开头的名称 = 指数（如"180金融"、"50等权"、"300工业"、"800金融"）
+    # 000 开头的特殊处理：更多行业指数关键词（只对000开头生效，避免误判普通股票）
     if code.startswith("000"):
+        index_000_keywords = [
+            "有色", "资源", "消费", "医药", "优势", "百发", "细分", "主题",
+            "HK", "CS", "农业", "精准", "金融", "材料", "能源", "信息",
+            "电信", "可选", "必需", "公用", "工业", "地产"
+        ]
+        for kw in index_000_keywords:
+            if kw in name:
+                return "index"
+        # 数字开头的名称 = 指数
         import re
         if re.match(r'^[\d]+', name):
             return "index"
