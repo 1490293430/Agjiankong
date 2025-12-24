@@ -53,6 +53,14 @@ class RuntimeConfig(BaseModel):
     collector_interval_seconds: int = Field(
         default=60, ge=5, le=3600, description="行情采集间隔（秒），最小5秒"
     )
+    
+    # 数据采集配置
+    collect_market: str = Field(
+        default="ALL", description="数据采集市场：ALL（全部）、A（A股）、HK（港股）"
+    )
+    collect_period: str = Field(
+        default="daily", description="数据采集周期：daily（日线）、1h（小时线）"
+    )
 
     # 通知相关
     notify_channels: List[str] = Field(
@@ -81,7 +89,7 @@ class RuntimeConfig(BaseModel):
     )
     kline_data_source: str = Field(
         default="auto",
-        description="K线数据源：auto（自动切换）、akshare（仅AKShare）、tushare（仅Tushare）"
+        description="K线数据源：auto（自动切换）、akshare（仅AKShare）、tushare（仅Tushare）、sina（仅新浪财经）、easyquotation（仅Easyquotation）"
     )
     
     # 实时行情数据源配置
@@ -170,9 +178,11 @@ class RuntimeConfigUpdate(BaseModel):
     filter_break_high_enable: Optional[bool] = None
     filter_boll_enable: Optional[bool] = None
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
+    collect_market: Optional[str] = Field(default=None, description="数据采集市场：ALL、A、HK")
+    collect_period: Optional[str] = Field(default=None, description="数据采集周期：daily、1h")
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
-    kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、akshare、tushare")
+    kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、akshare、tushare、sina、easyquotation")
     spot_data_source: Optional[str] = Field(default=None, description="实时行情数据源：auto、akshare、sina、easyquotation")
     
     # 通知渠道详细配置

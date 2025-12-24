@@ -181,3 +181,142 @@ def _classify_security(code: str, name: str) -> str:
             return "stock"
     
     return "stock"
+
+
+# ============ K线数据采集 ============
+
+def fetch_easyquotation_kline(
+    code: str,
+    period: str = "daily",
+    adjust: str = "",
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 1000
+) -> List[Dict[str, Any]]:
+    """
+    使用 easyquotation 获取A股K线数据
+    
+    注意：easyquotation 主要用于实时行情，K线数据功能有限
+    这里使用其底层的腾讯数据源获取K线
+    
+    Args:
+        code: 股票代码（如：600519）
+        period: 周期（daily, weekly, monthly, 1h）
+        adjust: 复权类型（暂不支持）
+        start_date: 开始日期（YYYYMMDD）
+        end_date: 结束日期（YYYYMMDD）
+        limit: 获取的K线数量
+    
+    Returns:
+        K线数据列表
+    """
+    import requests
+    
+    try:
+        # 转换周期参数
+        # 腾讯接口支持的周期：day, week, month, m1, m5, m15, m30, m60
+        period_map = {
+            "daily": "day",
+            "day": "day",
+            "weekly": "week",
+            "week": "week",
+            "monthly": "month",
+            "month": "month",
+            "1h": "m60",
+            "hourly": "m60",
+            "60": "m60",
+        }
+        qq_period = period_map.get(period, "day")
+        
+        # 转换代码格式：600519 -> sh600519, 000001 -> sz000001
+        code_str = str(code).zfill(6)
+        if code_str.startswith(('6', '9')):
+            qq_code = f"sh{code_str}"
+        elif code_str.startswith(('0', '3', '2')):
+            qq_code = f"sz{code_str}"
+        elif code_str.startswith(('4', '8')):
+            qq_code = f"bj{code_str}"  # 北交所
+        else:
+            qq_code = f"sh{code_str}"  # 默认沪市
+        
+        # 限制最大数量
+        limit = min(limit, 1000)
+        
+        # 腾讯K线接口
+        # 日线/周线/月线
+        if qq_period in ["day", "week", "month"]:
+            url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={qq_code},{qq_period},,,{limit},qfq"
+        else:
+            # 分钟级别
+            url = f"http://web.ifzq.gtimg.cn/appstock/app/minute/query?code={qq_code}"
+        
+        headers = {
+            "Referer": "http://web.ifzq.gtimg.cn",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        logger.info(f"[Easyquotation K线] 获取 {code} {period} K线数据...")
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.encoding = 'utf-8'
+        
+        import json
+        data = json.loads(response.text)
+        
+        if not data:
+            logger.warning(f"[Easyquotation K线] {code} 返回数据为空")
+            return []
+        
+        results = []
+        
+        # 解析日线/周线/月线数据
+        if qq_period in ["day", "week", "month"]:
+            # 数据格式: {"code":0,"msg":"","data":{"sh600519":{"day":[["2024-01-02","1800.00","1810.00","1795.00","1805.00","12345678"],...],...}}}
+            stock_data = data.get("data", {}).get(qq_code, {})
+            kline_data = stock_data.get(qq_period, []) or stock_data.get("qfq" + qq_period, [])
+            
+            for item in kline_data:
+                try:
+                    if len(item) < 6:
+                        continue
+                    
+                    result = {
+                        "date": item[0],
+                        "time": item[0],
+                        "open": _safe_float(item[1]),
+                        "close": _safe_float(item[2]),
+                        "high": _safe_float(item[3]),
+                        "low": _safe_float(item[4]),
+                        "volume": _safe_float(item[5]),
+                        "amount": 0,
+                        "code": code,
+                        "market": "A"
+                    }
+                    results.append(result)
+                except Exception as e:
+                    logger.debug(f"[Easyquotation K线] 解析数据失败: {e}")
+                    continue
+        else:
+            # 分钟级别数据（腾讯接口返回当日分钟数据）
+            # 对于小时K线，需要使用其他接口
+            # 这里尝试使用新浪接口作为备选
+            logger.info(f"[Easyquotation K线] 分钟级别数据，尝试使用新浪接口...")
+            try:
+                from market_collector.sina_source import fetch_sina_kline
+                return fetch_sina_kline(code, period, adjust, start_date, end_date, limit)
+            except Exception as e:
+                logger.warning(f"[Easyquotation K线] 新浪接口也失败: {e}")
+                return []
+        
+        # 按日期排序（从旧到新）
+        results.sort(key=lambda x: x.get("date", ""))
+        
+        logger.info(f"[Easyquotation K线] {code} 获取成功，共 {len(results)} 条K线数据")
+        return results
+        
+    except ImportError:
+        logger.error("[Easyquotation K线] 未安装 easyquotation 库")
+        return []
+    except Exception as e:
+        logger.warning(f"[Easyquotation K线] 获取 {code} K线数据失败: {e}")
+        return []

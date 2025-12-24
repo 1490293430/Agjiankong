@@ -868,6 +868,48 @@ def _fetch_kline_source4(code: str, period: str, adjust: str, start_date: str, e
         return []
 
 
+def _fetch_kline_source5(code: str, period: str, adjust: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    """数据源5: 新浪财经 K线数据源"""
+    try:
+        from market_collector.sina_source import fetch_sina_kline
+        
+        logger.info(f"尝试使用 新浪财经 获取K线数据: {code}")
+        result = fetch_sina_kline(code, period, adjust, start_date, end_date, limit=1000)
+        
+        if result and len(result) > 0:
+            logger.info(f"新浪财经 获取K线数据成功: {code}, {len(result)}条")
+            return result
+        
+        return []
+    except ImportError:
+        logger.debug("新浪财经模块导入失败")
+        return []
+    except Exception as e:
+        logger.debug(f"数据源5(新浪财经)失败 {code}: {str(e)[:100]}")
+        return []
+
+
+def _fetch_kline_source6(code: str, period: str, adjust: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    """数据源6: Easyquotation K线数据源（基于腾讯数据）"""
+    try:
+        from market_collector.easyquotation_source import fetch_easyquotation_kline
+        
+        logger.info(f"尝试使用 Easyquotation 获取K线数据: {code}")
+        result = fetch_easyquotation_kline(code, period, adjust, start_date, end_date, limit=1000)
+        
+        if result and len(result) > 0:
+            logger.info(f"Easyquotation 获取K线数据成功: {code}, {len(result)}条")
+            return result
+        
+        return []
+    except ImportError:
+        logger.debug("Easyquotation模块导入失败")
+        return []
+    except Exception as e:
+        logger.debug(f"数据源6(Easyquotation)失败 {code}: {str(e)[:100]}")
+        return []
+
+
 def fetch_a_stock_kline(
     code: str,
     period: str = "daily",
@@ -1040,13 +1082,25 @@ def fetch_a_stock_kline(
         data_sources = [
             ("Tushare数据源", _fetch_kline_source4),
         ]
+    elif preferred_source == "sina":
+        # 仅使用 新浪财经
+        data_sources = [
+            ("新浪财经数据源", _fetch_kline_source5),
+        ]
+    elif preferred_source == "easyquotation":
+        # 仅使用 Easyquotation（腾讯数据）
+        data_sources = [
+            ("Easyquotation数据源", _fetch_kline_source6),
+        ]
     else:
-        # 自动切换（默认）：优先 AKShare，失败时切换到 Tushare
+        # 自动切换（默认）：优先 AKShare，失败时依次切换到其他数据源
         data_sources = [
             ("AKShare数据源1", _fetch_kline_source1),
             ("AKShare数据源2", _fetch_kline_source2),
             ("AKShare数据源3", _fetch_kline_source3),
             ("Tushare数据源", _fetch_kline_source4),
+            ("新浪财经数据源", _fetch_kline_source5),
+            ("Easyquotation数据源", _fetch_kline_source6),
         ]
     
     # 依次尝试各个数据源获取增量数据

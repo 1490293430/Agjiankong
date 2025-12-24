@@ -7338,6 +7338,16 @@ async function loadConfig() {
             spotDataSourceEl.value = data.spot_data_source || 'auto';
         }
         
+        // 数据采集配置
+        const collectMarketEl = document.getElementById('collect-market-select');
+        if (collectMarketEl) {
+            collectMarketEl.value = data.collect_market || 'ALL';
+        }
+        const collectPeriodEl = document.getElementById('collect-period-select');
+        if (collectPeriodEl) {
+            collectPeriodEl.value = data.collect_period || 'daily';
+        }
+        
         // Tushare Token（不回显，只在服务端保存）
         document.getElementById('cfg-tushare-token').value = '';
         
@@ -7424,6 +7434,10 @@ async function saveConfig() {
         const klineDataSource = document.getElementById('cfg-kline-data-source')?.value || 'auto';
         const spotDataSource = document.getElementById('cfg-spot-data-source')?.value || 'auto';
         const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
+        
+        // 数据采集配置
+        const collectMarket = document.getElementById('collect-market-select')?.value || 'ALL';
+        const collectPeriod = document.getElementById('collect-period-select')?.value || 'daily';
 
         const channels = [];
         const telegramEnabled = document.getElementById('cfg-notify-telegram')?.checked ?? false;
@@ -7445,6 +7459,9 @@ async function saveConfig() {
                 kline_data_source: klineDataSource,
                 spot_data_source: spotDataSource,
                 tushare_token: tushareToken,
+                // 数据采集配置
+                collect_market: collectMarket,
+                collect_period: collectPeriod,
                 // AI 配置
                 openai_api_key: document.getElementById('cfg-ai-api-key')?.value?.trim() || null,
                 openai_api_base: document.getElementById('cfg-ai-api-base')?.value?.trim() || null,

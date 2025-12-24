@@ -381,3 +381,133 @@ def _fetch_batch_sina_hk(codes: List[str]) -> List[Dict[str, Any]]:
         raise
     
     return results
+
+
+# ============ K线数据采集 ============
+
+# 新浪K线数据接口
+SINA_KLINE_API = "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+
+
+def fetch_sina_kline(
+    code: str,
+    period: str = "daily",
+    adjust: str = "",
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 1000
+) -> List[Dict[str, Any]]:
+    """
+    从新浪财经获取A股K线数据
+    
+    Args:
+        code: 股票代码（如：600519）
+        period: 周期（daily, weekly, monthly, 1h）
+        adjust: 复权类型（暂不支持，新浪接口返回不复权数据）
+        start_date: 开始日期（YYYYMMDD，新浪接口不支持，通过limit控制）
+        end_date: 结束日期（YYYYMMDD，新浪接口不支持）
+        limit: 获取的K线数量（最大1023）
+    
+    Returns:
+        K线数据列表
+    """
+    try:
+        # 转换周期参数
+        # 新浪接口支持的周期：5, 15, 30, 60（分钟）, day, week, month
+        period_map = {
+            "daily": "day",
+            "day": "day",
+            "weekly": "week",
+            "week": "week",
+            "monthly": "month",
+            "month": "month",
+            "1h": "60",
+            "hourly": "60",
+            "60": "60",
+        }
+        sina_period = period_map.get(period, "day")
+        
+        # 转换代码格式：600519 -> sh600519, 000001 -> sz000001
+        code_str = str(code).zfill(6)
+        if code_str.startswith(('6', '9')):
+            sina_code = f"sh{code_str}"
+        elif code_str.startswith(('0', '3', '2')):
+            sina_code = f"sz{code_str}"
+        elif code_str.startswith(('4', '8')):
+            sina_code = f"bj{code_str}"  # 北交所
+        else:
+            sina_code = f"sh{code_str}"  # 默认沪市
+        
+        # 限制最大数量
+        limit = min(limit, 1023)
+        
+        # 构建请求URL
+        params = {
+            "symbol": sina_code,
+            "scale": sina_period if sina_period in ["5", "15", "30", "60"] else "",
+            "ma": "no",
+            "datalen": limit
+        }
+        
+        # 日线/周线/月线使用不同的参数
+        if sina_period in ["day", "week", "month"]:
+            url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_code}&scale=240&ma=no&datalen={limit}"
+            if sina_period == "week":
+                url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_code}&scale=1680&ma=no&datalen={limit}"
+            elif sina_period == "month":
+                url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_code}&scale=7200&ma=no&datalen={limit}"
+        else:
+            # 分钟级别
+            url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_code}&scale={sina_period}&ma=no&datalen={limit}"
+        
+        headers = {
+            "Referer": "http://finance.sina.com.cn",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        logger.info(f"[新浪K线] 获取 {code} {period} K线数据...")
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.encoding = 'utf-8'
+        
+        # 解析JSON数据
+        # 返回格式: [{"day":"2024-01-02","open":"1800.00","high":"1810.00","low":"1795.00","close":"1805.00","volume":"12345678"},...]
+        import json
+        data = json.loads(response.text)
+        
+        if not data:
+            logger.warning(f"[新浪K线] {code} 返回数据为空")
+            return []
+        
+        results = []
+        for item in data:
+            try:
+                # 解析日期/时间
+                date_str = item.get("day", "")
+                
+                result = {
+                    "date": date_str[:10] if len(date_str) >= 10 else date_str,
+                    "time": date_str,
+                    "open": _safe_float(item.get("open", 0)),
+                    "high": _safe_float(item.get("high", 0)),
+                    "low": _safe_float(item.get("low", 0)),
+                    "close": _safe_float(item.get("close", 0)),
+                    "volume": _safe_float(item.get("volume", 0)),
+                    "amount": 0,  # 新浪接口不返回成交额
+                    "code": code,
+                    "market": "A"
+                }
+                results.append(result)
+            except Exception as e:
+                logger.debug(f"[新浪K线] 解析数据失败: {e}")
+                continue
+        
+        # 按日期排序（从旧到新）
+        results.sort(key=lambda x: x.get("date", ""))
+        
+        logger.info(f"[新浪K线] {code} 获取成功，共 {len(results)} 条K线数据")
+        return results
+        
+    except Exception as e:
+        logger.warning(f"[新浪K线] 获取 {code} K线数据失败: {e}")
+        return []
