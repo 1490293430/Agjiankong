@@ -255,7 +255,7 @@ def fetch_easyquotation_kline(
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         
-        logger.info(f"[Easyquotation K线] 获取 {code} {period} K线数据...")
+        logger.debug(f"[Easyquotation K线] 获取 {code} {period} K线数据，URL: {url[:80]}...")
         
         response = requests.get(url, headers=headers, timeout=30)
         response.encoding = 'utf-8'
@@ -264,7 +264,7 @@ def fetch_easyquotation_kline(
         data = json.loads(response.text)
         
         if not data:
-            logger.warning(f"[Easyquotation K线] {code} 返回数据为空")
+            logger.debug(f"[Easyquotation K线] {code} 返回数据为空")
             return []
         
         results = []
@@ -273,7 +273,14 @@ def fetch_easyquotation_kline(
         if qq_period in ["day", "week", "month"]:
             # 数据格式: {"code":0,"msg":"","data":{"sh600519":{"day":[["2024-01-02","1800.00","1810.00","1795.00","1805.00","12345678"],...],...}}}
             stock_data = data.get("data", {}).get(qq_code, {})
-            kline_data = stock_data.get(qq_period, []) or stock_data.get("qfq" + qq_period, [])
+            
+            # 尝试多种可能的数据键名
+            kline_data = stock_data.get(qq_period, []) or stock_data.get("qfq" + qq_period, []) or stock_data.get("hfq" + qq_period, [])
+            
+            # 如果还是空，记录详细信息帮助调试
+            if not kline_data:
+                available_keys = list(stock_data.keys()) if stock_data else []
+                logger.debug(f"[Easyquotation K线] {code} 无K线数据，可用键: {available_keys}")
             
             # 转换日期格式用于过滤
             filter_start = None
@@ -330,7 +337,9 @@ def fetch_easyquotation_kline(
         # 按日期排序（从旧到新）
         results.sort(key=lambda x: x.get("date", ""))
         
-        logger.info(f"[Easyquotation K线] {code} 获取成功，共 {len(results)} 条K线数据")
+        if results:
+            logger.debug(f"[Easyquotation K线] {code} 获取成功，共 {len(results)} 条K线数据")
+        
         return results
         
     except ImportError:
