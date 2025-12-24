@@ -480,13 +480,33 @@ def fetch_sina_kline(
             return []
         
         results = []
+        
+        # 转换日期格式用于过滤
+        filter_start = None
+        filter_end = None
+        if start_date:
+            # 支持 YYYYMMDD 和 YYYY-MM-DD 格式
+            filter_start = start_date.replace("-", "") if "-" in start_date else start_date
+        if end_date:
+            filter_end = end_date.replace("-", "") if "-" in end_date else end_date
+        
         for item in data:
             try:
                 # 解析日期/时间
                 date_str = item.get("day", "")
                 
+                # 获取日期并转换格式用于比较
+                item_date = date_str[:10] if len(date_str) >= 10 else date_str
+                item_date_cmp = item_date.replace("-", "") if "-" in item_date else item_date
+                
+                # 根据 start_date 和 end_date 过滤数据
+                if filter_start and item_date_cmp < filter_start:
+                    continue
+                if filter_end and item_date_cmp > filter_end:
+                    continue
+                
                 result = {
-                    "date": date_str[:10] if len(date_str) >= 10 else date_str,
+                    "date": item_date,
                     "time": date_str,
                     "open": _safe_float(item.get("open", 0)),
                     "high": _safe_float(item.get("high", 0)),

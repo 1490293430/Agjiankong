@@ -722,9 +722,16 @@ def _fetch_kline_source1(code: str, period: str, adjust: str, start_date: str, e
                 )
                 try:
                     df = future.result(timeout=25)  # 增加到25秒超时，给网络更多时间
-                    if df.empty:
+                    if df is None:
+                        logger.debug(f"akshare返回None {code}")
                         return []
-                    return _standardize_kline_data(df, code)
+                    if df.empty:
+                        logger.debug(f"akshare返回空DataFrame {code}")
+                        return []
+                    result = _standardize_kline_data(df, code)
+                    if not result:
+                        logger.debug(f"标准化后数据为空 {code}")
+                    return result
                 except concurrent.futures.TimeoutError:
                     logger.warning(f"akshare API调用超时 {code}（25秒），尝试返回数据库已有数据")
                     # 超时后尝试返回数据库已有数据
@@ -1025,7 +1032,10 @@ def fetch_a_stock_kline(
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(get_kline_from_db, code, start_date, default_end, period)
                         try:
-                            return future.result(timeout=8)  # 8秒超时（高并发时需要更长时间）
+                            db_data = future.result(timeout=8)  # 8秒超时（高并发时需要更长时间）
+                            if db_data and len(db_data) > 0:
+                                # 数据已是最新，返回数据库缓存
+                                return (db_data, "数据库缓存") if return_source else db_data
                         except concurrent.futures.TimeoutError:
                             logger.debug(f"从数据库获取K线数据超时 {code}，将从数据源获取")
                         except Exception as e:
@@ -1106,6 +1116,7 @@ def fetch_a_stock_kline(
     # 依次尝试各个数据源获取增量数据
     new_kline_data = []
     used_source = None  # 记录实际使用的数据源
+    last_error = None  # 记录最后一个错误
     for source_name, fetch_func in data_sources:
         try:
             logger.debug(f"尝试使用{source_name}{fetch_mode}获取K线数据: {code}")
@@ -1121,10 +1132,18 @@ def fetch_a_stock_kline(
                 logger.info(f"A股K线数据获取成功({source_name}, {fetch_mode}): {code}, 新增{len(result)}条")
                 break
             else:
+                last_error = f"{source_name}返回空数据"
                 logger.debug(f"{source_name}返回空数据: {code}")
         except Exception as e:
-            logger.warning(f"{source_name}获取K线数据失败 {code}: {str(e)[:150]}")
+            last_error = str(e)[:150]
+            logger.warning(f"{source_name}获取K线数据失败 {code}: {last_error}")
             continue
+    
+    # 如果所有数据源都失败，记录警告（只记录前100个，避免日志过多）
+    import random
+    if not new_kline_data and not db_latest_date:
+        if random.random() < 0.02:  # 2%的概率记录，避免日志过多
+            logger.warning(f"所有数据源获取K线数据失败 {code}，最后错误: {last_error}")
     
     # 如果获取到了新数据，保存到数据库
     # 优化：同步保存，确保数据不丢失（独立连接已优化，性能影响较小）

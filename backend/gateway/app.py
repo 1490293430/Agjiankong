@@ -2113,11 +2113,14 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                 success_count += 1
             else:
                 failed_count += 1
+                # 记录前10个失败的股票，帮助排查问题
+                if failed_count <= 10:
+                    logger.warning(f"[{market}]采集{period_desc}K线数据返回空 {code}，请检查数据源是否可用")
         except Exception as e:
             failed_count += 1
-            # 只记录关键错误，减少日志输出
-            if "timeout" not in str(e).lower() and "连接" not in str(e):
-                logger.debug(f"[{market}]采集{period_desc}K线数据失败 {code}: {e}")
+            # 记录前10个异常，帮助排查问题
+            if failed_count <= 10:
+                logger.error(f"[{market}]采集{period_desc}K线数据异常 {code}: {e}")
     
     def batch_collect():
         """同步批量采集函数"""
@@ -2125,8 +2128,9 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         import concurrent.futures
         import time
         
-        # 动态调整并发数：根据股票数量，但不超过20（降低并发避免数据库超时）
-        max_workers = min(20, max(5, len(target_stocks) // 50))
+        # 动态调整并发数：根据股票数量，但不超过10（降低并发避免被限流）
+        # AKShare 对并发请求有限制，太高会导致大量失败
+        max_workers = min(10, max(3, len(target_stocks) // 100))
         executor = ThreadPoolExecutor(max_workers=max_workers)
         logger.info(f"[{market}]批量采集并发数: {max_workers}")
         

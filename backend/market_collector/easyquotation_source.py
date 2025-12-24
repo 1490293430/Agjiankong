@@ -275,9 +275,28 @@ def fetch_easyquotation_kline(
             stock_data = data.get("data", {}).get(qq_code, {})
             kline_data = stock_data.get(qq_period, []) or stock_data.get("qfq" + qq_period, [])
             
+            # 转换日期格式用于过滤
+            filter_start = None
+            filter_end = None
+            if start_date:
+                # 支持 YYYYMMDD 和 YYYY-MM-DD 格式
+                filter_start = start_date.replace("-", "") if "-" in start_date else start_date
+            if end_date:
+                filter_end = end_date.replace("-", "") if "-" in end_date else end_date
+            
             for item in kline_data:
                 try:
                     if len(item) < 6:
+                        continue
+                    
+                    # 获取日期并转换格式用于比较
+                    item_date = item[0]
+                    item_date_cmp = item_date.replace("-", "") if "-" in item_date else item_date
+                    
+                    # 根据 start_date 和 end_date 过滤数据
+                    if filter_start and item_date_cmp < filter_start:
+                        continue
+                    if filter_end and item_date_cmp > filter_end:
                         continue
                     
                     result = {
