@@ -153,6 +153,7 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             # 添加时间戳
             df["update_time"] = datetime.now().isoformat()
             df["market"] = "A"
+            df["sec_type"] = "stock"  # 标记为股票类型
             
             # 转换为字典列表（股票数据）
             stock_list: List[Dict[str, Any]] = df.to_dict(orient="records")
