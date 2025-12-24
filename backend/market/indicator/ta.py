@@ -163,6 +163,112 @@ def williams_r(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return wr
 
 
+def adx(df: pd.DataFrame, period: int = 14) -> Dict[str, pd.Series]:
+    """计算ADX平均趋向指数
+    
+    Args:
+        df: 包含high、low、close的DataFrame
+        period: 计算周期（默认14）
+    
+    Returns:
+        {
+            "adx": ADX值,
+            "plus_di": +DI值,
+            "minus_di": -DI值
+        }
+    """
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    
+    # 计算 True Range
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # 计算 +DM 和 -DM
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+    
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    
+    # 平滑 TR, +DM, -DM
+    atr = tr.ewm(span=period, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(span=period, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(span=period, adjust=False).mean()
+    
+    # 计算 +DI 和 -DI
+    plus_di = 100 * plus_dm_smooth / (atr + 1e-10)
+    minus_di = 100 * minus_dm_smooth / (atr + 1e-10)
+    
+    # 计算 DX 和 ADX
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
+    adx_value = dx.ewm(span=period, adjust=False).mean()
+    
+    return {
+        "adx": adx_value,
+        "plus_di": plus_di,
+        "minus_di": minus_di
+    }
+
+
+def ichimoku(df: pd.DataFrame, tenkan: int = 9, kijun: int = 26, senkou_b: int = 52) -> Dict[str, pd.Series]:
+    """计算一目均衡表（Ichimoku Cloud）
+    
+    Args:
+        df: 包含high、low、close的DataFrame
+        tenkan: 转换线周期（默认9）
+        kijun: 基准线周期（默认26）
+        senkou_b: 先行带B周期（默认52）
+    
+    Returns:
+        {
+            "tenkan_sen": 转换线,
+            "kijun_sen": 基准线,
+            "senkou_span_a": 先行带A,
+            "senkou_span_b": 先行带B,
+            "chikou_span": 迟行带
+        }
+    """
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    
+    # 转换线 = (9日最高 + 9日最低) / 2
+    tenkan_high = high.rolling(window=tenkan, min_periods=1).max()
+    tenkan_low = low.rolling(window=tenkan, min_periods=1).min()
+    tenkan_sen = (tenkan_high + tenkan_low) / 2
+    
+    # 基准线 = (26日最高 + 26日最低) / 2
+    kijun_high = high.rolling(window=kijun, min_periods=1).max()
+    kijun_low = low.rolling(window=kijun, min_periods=1).min()
+    kijun_sen = (kijun_high + kijun_low) / 2
+    
+    # 先行带A = (转换线 + 基准线) / 2，向前移动26期
+    senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(kijun)
+    
+    # 先行带B = (52日最高 + 52日最低) / 2，向前移动26期
+    senkou_b_high = high.rolling(window=senkou_b, min_periods=1).max()
+    senkou_b_low = low.rolling(window=senkou_b, min_periods=1).min()
+    senkou_span_b = ((senkou_b_high + senkou_b_low) / 2).shift(kijun)
+    
+    # 迟行带 = 收盘价向后移动26期
+    chikou_span = close.shift(-kijun)
+    
+    return {
+        "tenkan_sen": tenkan_sen,
+        "kijun_sen": kijun_sen,
+        "senkou_span_a": senkou_span_a,
+        "senkou_span_b": senkou_span_b,
+        "chikou_span": chikou_span
+    }
+
+
 def calculate_ma60_only(df: pd.DataFrame) -> Dict[str, Any] | None:
     """仅计算MA60（用于低成本的第一层筛选）
     
@@ -365,6 +471,53 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         current_close = float(latest["close"])
         ma20_value = result["ma20"]
         result["bias"] = float((current_close - ma20_value) / ma20_value * 100)
+    
+    # ADX平均趋向指数
+    if len(df) >= 28:
+        adx_data = adx(df, 14)
+        result["adx"] = float(adx_data["adx"].iloc[-1])
+        result["plus_di"] = float(adx_data["plus_di"].iloc[-1])
+        result["minus_di"] = float(adx_data["minus_di"].iloc[-1])
+        # ADX趋势判断
+        if len(df) >= 29:
+            adx_prev = float(adx_data["adx"].iloc[-2])
+            result["adx_prev"] = adx_prev
+            result["adx_rising"] = bool(result["adx"] > adx_prev)  # ADX上升表示趋势增强
+    
+    # 一目均衡表（Ichimoku Cloud）
+    if len(df) >= 52:
+        ichimoku_data = ichimoku(df)
+        # 当前值（注意：先行带已经向前移动了26期，所以取当前位置的值）
+        result["ichimoku_tenkan"] = float(ichimoku_data["tenkan_sen"].iloc[-1])
+        result["ichimoku_kijun"] = float(ichimoku_data["kijun_sen"].iloc[-1])
+        
+        # 先行带A和B（当前位置的云层）
+        senkou_a = ichimoku_data["senkou_span_a"].iloc[-1]
+        senkou_b = ichimoku_data["senkou_span_b"].iloc[-1]
+        if pd.notna(senkou_a):
+            result["ichimoku_senkou_a"] = float(senkou_a)
+        if pd.notna(senkou_b):
+            result["ichimoku_senkou_b"] = float(senkou_b)
+        
+        # 判断价格与云层的关系
+        current_close = float(latest["close"])
+        if pd.notna(senkou_a) and pd.notna(senkou_b):
+            cloud_top = max(float(senkou_a), float(senkou_b))
+            cloud_bottom = min(float(senkou_a), float(senkou_b))
+            result["ichimoku_above_cloud"] = bool(current_close > cloud_top)  # 价格在云上
+            result["ichimoku_below_cloud"] = bool(current_close < cloud_bottom)  # 价格在云下
+            result["ichimoku_in_cloud"] = bool(cloud_bottom <= current_close <= cloud_top)  # 价格在云中
+        
+        # 转换线与基准线的交叉判断
+        if len(df) >= 53:
+            tenkan_prev = float(ichimoku_data["tenkan_sen"].iloc[-2])
+            kijun_prev = float(ichimoku_data["kijun_sen"].iloc[-2])
+            tenkan_curr = result["ichimoku_tenkan"]
+            kijun_curr = result["ichimoku_kijun"]
+            # 转换线上穿基准线（金叉）
+            result["ichimoku_tk_cross_up"] = bool(tenkan_prev <= kijun_prev and tenkan_curr > kijun_curr)
+            # 转换线下穿基准线（死叉）
+            result["ichimoku_tk_cross_down"] = bool(tenkan_prev >= kijun_prev and tenkan_curr < kijun_curr)
     
     # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
     def convert_numpy_types(value):

@@ -1,6 +1,11 @@
 """
 批量计算和缓存技术指标
 用于收盘后批量计算，减少盘中计算压力
+
+设计原则：
+- 自动计算选股配置中所有指标（不管是否启用）
+- 后续添加新指标时，只需在 ta.py 的 calculate_all_indicators 中添加计算逻辑
+- 这里的 SELECTION_INDICATORS 用于记录所需的最小K线数量
 """
 from typing import List, Dict, Any
 from datetime import datetime
@@ -11,6 +16,11 @@ from market.indicator.ta import calculate_all_indicators
 import pandas as pd
 
 logger = get_logger(__name__)
+
+# ============ 选股指标所需的最小K线数量 ============
+# 后续添加新指标时，如果需要更多K线，在这里更新
+# 当前最大需求：一目均衡需要52根K线
+MIN_KLINE_REQUIRED = 60  # 保守值，确保所有指标都能计算
 
 
 def batch_compute_indicators(market: str = "A", max_count: int = 1000, incremental: bool = True) -> Dict[str, Any]:
