@@ -2166,6 +2166,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                     current_source = last_used_source[0] or ""
                     if task_id in kline_collect_progress:
                         kline_collect_progress[task_id].update({
+                            "status": "running",  # 确保状态为running
                             "success": success_count,
                             "failed": failed_count,
                             "current": current,
@@ -2178,7 +2179,9 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
                             from market.service.sse import broadcast_kline_collect_progress
                             broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
                         except Exception as e:
-                            logger.debug(f"SSE广播K线采集进度失败: {e}")
+                            logger.warning(f"SSE广播K线采集进度失败: {e}")
+                    else:
+                        logger.warning(f"task_id {task_id} 不在 kline_collect_progress 中，无法更新进度")
                     last_update_time = current_time
                     
                     # 每50只股票输出一次日志
@@ -2998,12 +3001,19 @@ async def collect_kline_data_api(
                         progress_pct = int((current / len(target_stocks)) * 100) if target_stocks else 0
                         if task_id in kline_collect_progress:
                             kline_collect_progress[task_id].update({
+                                "status": "running",
                                 "success": success_count,
                                 "failed": failed_count,
                                 "current": current,
                                 "progress": progress_pct,
                                 "message": f"采集中({data_source})... 成功={success_count}，失败={failed_count}，进度={current}/{len(target_stocks)}"
                             })
+                            # 通过SSE广播进度更新
+                            try:
+                                from market.service.sse import broadcast_kline_collect_progress
+                                broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+                            except Exception as e:
+                                logger.warning(f"SSE广播K线采集进度失败: {e}")
                         last_update_time = current_time
                         
                         # 每50只股票输出一次日志
@@ -3023,28 +3033,62 @@ async def collect_kline_data_api(
                     "progress": int(((success_count + failed_count) / len(target_stocks)) * 100) if target_stocks else 0,
                     "data_source": data_source
                 }
+                # 通过SSE广播失败进度
+                try:
+                    from market.service.sse import broadcast_kline_collect_progress
+                    broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+                except Exception as broadcast_e:
+                    logger.warning(f"SSE广播K线采集失败进度失败: {broadcast_e}")
                 logger.error(f"K线采集异常终止: {e}", exc_info=True)
                 raise
             finally:
                 # 确保线程池资源释放，即便出现异常
                 executor.shutdown(wait=True, cancel_futures=True)
             
-            # 更新最终进度
+            # 检查是否被停止
+            is_cancelled = kline_collect_stop_flags.get(task_id, False)
             end_time = datetime.now().isoformat()
-            kline_collect_progress[task_id] = {
-                "status": "completed",
-                "total": len(target_stocks),
-                "success": success_count,
-                "failed": failed_count,
-                "current": len(target_stocks),
-                "message": f"K线数据采集完成({data_source})：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
-                "start_time": start_time,
-                "end_time": end_time,
-                "progress": 100,
-                "data_source": data_source
-            }
+            current_processed = success_count + failed_count
             
-            logger.info(f"K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
+            if is_cancelled:
+                # 被用户停止
+                kline_collect_progress[task_id] = {
+                    "status": "cancelled",
+                    "total": len(target_stocks),
+                    "success": success_count,
+                    "failed": failed_count,
+                    "current": current_processed,
+                    "message": f"K线数据采集已停止({data_source})：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "progress": int((current_processed / len(target_stocks)) * 100) if target_stocks else 0,
+                    "data_source": data_source
+                }
+                logger.info(f"K线数据采集已停止：成功={success_count}，失败={failed_count}，已处理={current_processed}/{len(target_stocks)}")
+                # 清理停止标志
+                kline_collect_stop_flags.pop(task_id, None)
+            else:
+                # 正常完成
+                kline_collect_progress[task_id] = {
+                    "status": "completed",
+                    "total": len(target_stocks),
+                    "success": success_count,
+                    "failed": failed_count,
+                    "current": len(target_stocks),
+                    "message": f"K线数据采集完成({data_source})：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "progress": 100,
+                    "data_source": data_source
+                }
+                logger.info(f"K线数据采集完成：成功={success_count}，失败={failed_count}，总计={len(target_stocks)}")
+            
+            # 通过SSE广播最终进度
+            try:
+                from market.service.sse import broadcast_kline_collect_progress
+                broadcast_kline_collect_progress(task_id, kline_collect_progress[task_id])
+            except Exception as e:
+                logger.warning(f"SSE广播K线采集最终进度失败: {e}")
         
         # 启动后台任务
         background_tasks.add_task(batch_collect)
