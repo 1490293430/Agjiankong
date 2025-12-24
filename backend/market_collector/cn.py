@@ -31,28 +31,19 @@ def _get_tushare_stock_codes() -> Set[str]:
 
 
 def _classify_security(code: str, name: str) -> str:
-    """启发式分类：'stock'|'index'|'etf'|'fund'
-    
-    分类优先级：
-    1. ETF（名称含ETF）
-    2. 基金/LOF/债券
-    3. 代码规则（399开头=指数，51/159开头=ETF，501/502开头=基金）
-    4. 000开头的指数特征判断
-    5. 名称关键词判断
-    6. 默认为股票
-    """
+    """启发式分类：'stock'|'index'|'etf'|'fund'"""
     try:
-        name_str = (name or "").upper()
+        name_upper = (name or "").upper()
         code_str = str(code or "").strip()
     except Exception:
         return "stock"
 
     # ETF 优先判断（名称含 ETF）
-    if "ETF" in name_str:
+    if "ETF" in name_upper:
         return "etf"
     
     # LOF 和基金
-    if "LOF" in name_str or "基金" in name:
+    if "LOF" in name_upper or "基金" in name:
         return "fund"
     
     # 债券
@@ -63,58 +54,55 @@ def _classify_security(code: str, name: str) -> str:
     if code_str.startswith("399"):
         return "index"
     if code_str.startswith("51") or code_str.startswith("159"):
-        return "etf"  # 51/159 开头的大多是 ETF
+        return "etf"
     if code_str.startswith("501") or code_str.startswith("502"):
-        return "fund"  # 501/502 开头的是分级基金
+        return "fund"
     
     # 688 开头是科创板股票
     if code_str.startswith("688"):
         return "stock"
     
-    # 60/00/30 开头的普通股票代码，如果名称像公司名就是股票
-    # 公司名称特征：包含"股份"、以"A"/"B"结尾、包含地名+行业等
-    company_patterns = ["股份", "集团", "控股", "实业", "科技", "电子", "医药", 
-                        "生物", "新材", "智能", "网络", "软件", "信息", "通信",
-                        "能源", "环境", "建设", "工程", "制造", "机械", "设备",
-                        "汽车", "电气", "电力", "化工", "材料", "食品", "饮料",
-                        "服饰", "家居", "传媒", "文化", "教育", "医疗", "健康",
-                        "物流", "运输", "航空", "船舶", "港口", "地产", "置业",
-                        "投资", "证券", "保险", "银行", "金融", "租赁", "信托"]
+    # 指数关键词判断（放在公司特征词之前！）
+    index_keywords = [
+        # 交易所/市场前缀
+        "上证", "深证", "沪深", "中证", "沪", "深", "创业板", "科创",
+        # 指数类型
+        "指数", "综指", "成指", "等权", "全指", "红利", "价值", "成长",
+        "基本", "波动", "稳定", "动态", "治理", "高贝", "低贝", "分层",
+        "优选", "领先", "百强", "央视", "腾讯", "济安", "丝路",
+        # 特殊指数
+        "股通", "互联", "龙头", "央企", "国企", "民企", "地企", "沪企",
+        "海外", "周期", "非周期", "上游", "中游", "下游", "投资品",
+        "中小", "大盘", "小盘", "中盘", "超大盘", "流通",
+        # 行业指数后缀
+        "TMT", "ESG", "碳中和", "新丝路", "一带一路", "持续产业",
+        "中国造", "高端装备", "内地资源", "A股资源"
+    ]
     
-    # 如果名称包含公司特征词，判定为股票
-    for pattern in company_patterns:
-        if pattern in name:
-            return "stock"
+    for kw in index_keywords:
+        if kw in name:
+            return "index"
     
-    # 名称以 A/B 结尾的通常是股票（如 "万科A"、"招商银行"）
+    # 000 开头 + 数字开头的名称 = 指数
+    if code_str.startswith("000"):
+        import re
+        if re.match(r'^[\d]+', name):
+            return "index"
+    
+    # 名称以 A/B 结尾的通常是股票
     if name.endswith("Ａ") or name.endswith("Ｂ") or name.endswith("A") or name.endswith("B"):
         return "stock"
     
-    # 000 开头的特殊处理：很多是指数
-    if code_str.startswith("000"):
-        # 指数名称特征词
-        index_name_patterns = [
-            "综指", "成指", "等权", "全指", "红利", "价值", "成长", "基本",
-            "波动", "稳定", "动态", "治理", "高贝", "低贝", "分层", "优选",
-            "领先", "百强", "央视", "腾讯", "济安", "丝路", "AH", "R价值",
-            "R成长", "新兴", "中型", "小型", "大型", "市值", "细分", "主题"
-        ]
-        for pattern in index_name_patterns:
-            if pattern in name:
-                return "index"
-        # 名称是数字开头+中文的短名称，很可能是指数（如"180金融"、"50等权"、"300工业"）
-        import re
-        if re.match(r'^[\d]+', name) and len(name) <= 10:
-            return "index"
+    # 公司名称特征词
+    company_patterns = ["股份", "集团", "控股", "实业", "科技", "电子", 
+                        "生物", "新材", "智能", "网络", "软件",
+                        "环境", "建设", "工程", "制造", "机械", "设备",
+                        "汽车", "电气", "服饰", "家居", "文化", "教育", 
+                        "物流", "运输", "船舶", "置业", "租赁", "信托"]
     
-    # 指数名称关键词（更严格的匹配）
-    strict_index_keywords = [
-        "指数", "综指", "成指", "等权", "全指"
-    ]
-    
-    for kw in strict_index_keywords:
-        if kw in name:
-            return "index"
+    for pattern in company_patterns:
+        if pattern in name:
+            return "stock"
     
     return "stock"
 
