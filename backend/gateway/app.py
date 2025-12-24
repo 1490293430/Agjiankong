@@ -2055,7 +2055,21 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     source_lock = threading.Lock()
     first_source_broadcasted = [False]  # 标记是否已广播过第一个数据源
     
-    # 初始化进度（数据源为空，等获取到具体数据源后再显示）
+    # 获取配置的数据源名称作为默认显示
+    from common.runtime_config import get_runtime_config
+    config = get_runtime_config()
+    preferred_source = config.kline_data_source or "auto"
+    source_name_map = {
+        "auto": "自动切换",
+        "akshare": "AKShare",
+        "tushare": "Tushare",
+        "sina": "新浪财经",
+        "easyquotation": "Easyquotation"
+    }
+    default_source_name = source_name_map.get(preferred_source, "自动切换")
+    last_used_source[0] = default_source_name  # 设置默认数据源名称
+    
+    # 初始化进度
     kline_collect_progress[task_id] = {
         "status": "running",
         "total": len(target_stocks),
@@ -2066,7 +2080,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         "start_time": start_time,
         "progress": 0,
         "market": market,
-        "data_source": ""
+        "data_source": default_source_name
     }
     # 通过SSE广播初始进度
     try:
@@ -2263,6 +2277,66 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     
     # 运行批量采集
     batch_collect()
+
+
+@api_router.post("/market/kline/from-snapshot")
+async def convert_snapshot_to_kline_api(
+    market: str = Query("ALL", description="市场类型：A（A股）、HK（港股）或ALL（全部）"),
+    force: bool = Query(False, description="是否强制转换（忽略今天已转换的检查）"),
+):
+    """将实时快照转换为当日K线并入库
+    
+    说明：
+    - 将Redis中的实时快照数据转换为当日日K线
+    - 自动保存到ClickHouse数据库
+    - 适合收盘后快速更新当日K线，无需调用外部API
+    - 默认情况下，每天只会转换一次（避免重复）
+    
+    参数：
+    - market: 市场类型，A=A股，HK=港股，ALL=全部
+    - force: 是否强制转换（忽略今天已转换的检查）
+    """
+    try:
+        from market_collector.snapshot_to_kline import convert_snapshot_to_kline, should_convert_snapshot, _set_converted_date
+        from datetime import datetime
+        import pytz
+        
+        results = {}
+        market = market.upper() if market else "ALL"
+        
+        if market in ["A", "ALL"]:
+            if force or should_convert_snapshot("A"):
+                results["A"] = convert_snapshot_to_kline("A")
+            else:
+                # 检查是否已转换
+                tz = pytz.timezone("Asia/Shanghai")
+                today_str = datetime.now(tz).strftime("%Y%m%d")
+                results["A"] = {"success": True, "count": 0, "message": f"今天({today_str})已转换过，跳过"}
+        
+        if market in ["HK", "ALL"]:
+            if force or should_convert_snapshot("HK"):
+                results["HK"] = convert_snapshot_to_kline("HK")
+            else:
+                tz = pytz.timezone("Asia/Hong_Kong")
+                today_str = datetime.now(tz).strftime("%Y%m%d")
+                results["HK"] = {"success": True, "count": 0, "message": f"今天({today_str})已转换过，跳过"}
+        
+        # 统计结果
+        total_count = sum(r.get("count", 0) for r in results.values())
+        all_success = all(r.get("success", False) for r in results.values())
+        
+        return {
+            "code": 0 if all_success else 1,
+            "data": {
+                "results": results,
+                "total_count": total_count
+            },
+            "message": f"快照转K线完成，共转换{total_count}只股票" if all_success else "部分转换失败"
+        }
+        
+    except Exception as e:
+        logger.error(f"快照转K线失败: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": str(e)}
 
 
 @api_router.post("/market/kline/collect/single")
@@ -2921,6 +2995,7 @@ async def collect_kline_data_api(
                 result = fetch_kline_func(code, period, "", None, None, False, False, True)
                 if isinstance(result, tuple):
                     kline_data, source_name = result
+                    # 只有当实际从数据源获取时才更新数据源名称（None表示从缓存返回）
                     if source_name:
                         with source_lock:
                             last_used_source[0] = source_name
@@ -2952,7 +3027,20 @@ async def collect_kline_data_api(
         
         period_desc = "日线" if period == "daily" else "小时线"
         
-        # 初始化进度（数据源为空，等获取到具体数据源后再显示）
+        # 获取配置的数据源名称作为默认显示
+        from common.runtime_config import get_runtime_config
+        config = get_runtime_config()
+        preferred_source = config.kline_data_source or "auto"
+        source_name_map = {
+            "auto": "自动切换",
+            "akshare": "AKShare",
+            "tushare": "Tushare",
+            "sina": "新浪财经",
+            "easyquotation": "Easyquotation"
+        }
+        default_source_name = source_name_map.get(preferred_source, "自动切换")
+        
+        # 初始化进度
         kline_collect_progress[task_id] = {
             "status": "running",
             "total": len(target_stocks),
@@ -2962,8 +3050,11 @@ async def collect_kline_data_api(
             "message": f"开始采集{period_desc}K线数据...",
             "start_time": start_time,
             "progress": 0,
-            "data_source": ""
+            "data_source": default_source_name
         }
+        
+        # 设置默认数据源名称
+        last_used_source[0] = default_source_name
         
         async def batch_collect():
             from market.service.ws import kline_collect_stop_flags

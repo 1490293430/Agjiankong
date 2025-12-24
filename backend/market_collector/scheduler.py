@@ -203,6 +203,24 @@ def batch_compute_indicators_job(market: str = "A"):
         logger.error(f"批量计算{market}股指标失败: {e}", exc_info=True)
 
 
+def snapshot_to_kline_job():
+    """快照转K线任务（收盘后自动执行）
+    
+    将实时快照数据转换为当日K线并入库
+    - A股：15:30 后执行
+    - 港股：16:30 后执行
+    """
+    try:
+        from market_collector.snapshot_to_kline import auto_convert_snapshot_to_kline
+        results = auto_convert_snapshot_to_kline()
+        
+        for market, result in results.items():
+            if result.get("count", 0) > 0:
+                logger.info(f"[{market}] 快照转K线完成: {result.get('message')}")
+    except Exception as e:
+        logger.error(f"快照转K线任务失败: {e}", exc_info=True)
+
+
 def main():
     """主函数"""
     logger.info("行情采集调度器启动（实时判断交易时间）...")
@@ -291,17 +309,23 @@ def main():
             except Exception as e:
                 logger.debug(f"检查港股今日交易状态失败: {e}")
             
-            # A股收盘后（15:30-16:00）：如果港股今天休市，只计算A股
+            # A股收盘后（15:12-16:22）：如果港股今天休市，只计算A股
             if not is_a_trading:
-                if (current_hour == 15 and current_minute >= 30) or (current_hour == 16 and current_minute < 30):
+                if (current_hour == 15 and current_minute >= 12) or (current_hour == 16 and current_minute < 22):
+                    # 先执行快照转K线（A股）
+                    snapshot_to_kline_job()
+                    
                     # 如果港股今天休市，只计算A股
                     if not hk_has_traded_today:
                         logger.info("A股收盘，港股今日休市，开始批量计算A股指标...")
                         batch_compute_indicators_job("A")
             
-            # 港股收盘后（16:30-17:00）：如果港股今天有交易，一起计算A股和港股
+            # 港股收盘后（16:22-17:30）：如果港股今天有交易，一起计算A股和港股
             if not is_hk_trading:
-                if (current_hour == 16 and current_minute >= 30) or (current_hour == 17 and current_minute < 30):
+                if (current_hour == 16 and current_minute >= 22) or (current_hour == 17 and current_minute < 30):
+                    # 先执行快照转K线（港股）
+                    snapshot_to_kline_job()
+                    
                     # 如果港股今天有交易，一起计算A股和港股
                     if hk_has_traded_today:
                         logger.info("港股收盘，开始批量计算A股和港股指标...")

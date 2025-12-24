@@ -1034,8 +1034,8 @@ def fetch_a_stock_kline(
                         try:
                             db_data = future.result(timeout=8)  # 8秒超时（高并发时需要更长时间）
                             if db_data and len(db_data) > 0:
-                                # 数据已是最新，返回数据库缓存
-                                return (db_data, "数据库缓存") if return_source else db_data
+                                # 数据已是最新，返回数据库缓存（不返回数据源名称，让调用方知道是缓存）
+                                return (db_data, None) if return_source else db_data
                         except concurrent.futures.TimeoutError:
                             logger.debug(f"从数据库获取K线数据超时 {code}，将从数据源获取")
                         except Exception as e:
@@ -1196,7 +1196,7 @@ def fetch_a_stock_kline(
                 existing_data = get_kline_from_db(code, query_start, default_end, period)
                 if existing_data and len(existing_data) > 0:
                     logger.info(f"数据源获取失败，返回数据库已有数据（可能不完整）: {code}, {len(existing_data)}条（{period}）")
-                    return (existing_data, "数据库缓存") if return_source else existing_data
+                    return (existing_data, None) if return_source else existing_data
             except Exception as e:
                 logger.debug(f"从数据库获取已有数据失败 {code}: {e}")
         
