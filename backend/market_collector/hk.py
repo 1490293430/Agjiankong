@@ -531,8 +531,9 @@ def fetch_hk_stock_kline(
     start_date: str | None = None,
     end_date: str | None = None,
     force_full_refresh: bool = False,
-    skip_db: bool = False,  # 新增参数：是否跳过数据库操作
-) -> List[Dict[str, Any]]:
+    skip_db: bool = False,  # 是否跳过数据库操作
+    return_source: bool = False,  # 是否返回数据源名称
+) -> List[Dict[str, Any]] | tuple:
     """获取港股K线数据（使用Yahoo Finance，国外VPS稳定）
     
     完全使用Yahoo Finance数据源，不再使用AKShare
@@ -545,13 +546,14 @@ def fetch_hk_stock_kline(
         end_date: 结束日期 YYYYMMDD（默认今天）
         force_full_refresh: 是否强制全量刷新
         skip_db: 是否跳过数据库操作
+        return_source: 是否返回数据源名称
     
     Returns:
-        K线数据列表
+        K线数据列表，或 (数据列表, 数据源名称) 元组（当 return_source=True）
     """
     if not YFINANCE_AVAILABLE:
         logger.error("yfinance不可用，无法获取港股K线数据")
-        return []
+        return ([], None) if return_source else []
     
     from common.db import get_kline_latest_date, save_kline_data, get_kline_from_db
     
@@ -559,7 +561,8 @@ def fetch_hk_stock_kline(
     is_hourly = period in ['1h', 'hourly', '60']
     if is_hourly:
         logger.info(f"检测到小时K线请求 {code}, period={period}，使用小时数据处理逻辑")
-        return _fetch_hk_stock_kline_hourly(code, start_date, end_date, force_full_refresh)
+        result = _fetch_hk_stock_kline_hourly(code, start_date, end_date, force_full_refresh)
+        return (result, "Yahoo Finance(小时)") if return_source else result
     
     # 转换代码格式：确保是5位数字格式（如3690 -> 03690）
     code_str = str(code).strip()
@@ -581,7 +584,7 @@ def fetch_hk_stock_kline(
         
         if df.empty:
             logger.warning(f"Yahoo Finance港股无数据: {code} (symbol: {symbol})")
-            return []
+            return ([], None) if return_source else []
         
         # 重置索引，将Date列提取出来
         df = df.reset_index()
@@ -648,11 +651,11 @@ def fetch_hk_stock_kline(
             except Exception as e:
                 logger.warning(f"保存港股K线数据到数据库失败 {code}: {e}")
         
-        return result
+        return (result, "Yahoo Finance") if return_source else result
         
     except Exception as e:
         logger.error(f"Yahoo Finance港股K线数据获取失败 {code}: {e}", exc_info=True)
-        return []
+        return ([], None) if return_source else []
 
 
 def _fetch_hk_stock_kline_hourly(

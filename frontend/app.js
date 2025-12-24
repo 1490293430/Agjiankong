@@ -5017,8 +5017,9 @@ function initStrategy() {
     // 初始化选股页（不再使用滚动监听，改用"加载更多"按钮）
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
-            // 默认同时采集A股和港股
-            const market = 'ALL';
+            // 从下拉框获取用户选择的市场
+            const marketSelect = document.getElementById('collect-market-select');
+            const market = marketSelect?.value || 'ALL';
             const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
             collectKlineData(market, maxCount);
             // 停止按钮始终可用，无需操作
@@ -5241,8 +5242,10 @@ async function runSelection() {
                 const collectBtn = document.getElementById('collect-kline-btn');
                 if (collectBtn) {
                     collectBtn.addEventListener('click', () => {
+                        const marketSelect = document.getElementById('collect-market-select');
+                        const market = marketSelect?.value || 'ALL';
                         const maxCount = parseInt(document.getElementById('collect-max-count-input')?.value || 6000);
-                        collectKlineData('ALL', maxCount);
+                        collectKlineData(market, maxCount);
                     });
                 }
             }, 100);
