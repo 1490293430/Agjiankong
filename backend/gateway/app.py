@@ -1991,7 +1991,7 @@ async def collect_spot_data_api(
             "data": {"task_id": task_id, "market": market},
             "message": f"{market_desc}实时行情采集任务已启动"
         }
-                    except Exception as e:
+    except Exception as e:
         logger.error(f"触发行情数据采集失败: {e}", exc_info=True)
         return {"code": 1, "data": {}, "message": str(e)}
 
