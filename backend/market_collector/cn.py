@@ -31,19 +31,22 @@ def _get_tushare_stock_codes() -> Set[str]:
 
 
 def _classify_security(code: str, name: str) -> str:
-    """启发式分类（回退用）：'stock'|'index'|'etf'|'fund'"""
+    """启发式分类：'stock'|'index'|'etf'|'fund'
+    
+    分类优先级：
+    1. ETF（名称含ETF）
+    2. 基金/LOF/债券
+    3. 代码规则（399开头=指数，51/159开头=ETF，501/502开头=基金）
+    4. 000开头的指数特征判断
+    5. 名称关键词判断
+    6. 默认为股票
+    """
     try:
         name_str = (name or "").upper()
         code_str = str(code or "").strip()
     except Exception:
         return "stock"
 
-    # 排除真正的股票公司名称（优先判断）
-    stock_names = ["指南针", "新华联", "新希望", "新城控股", "新和成", "新宙邦", 
-                   "有色金属", "中际旭创"]
-    if name in stock_names:
-        return "stock"
-    
     # ETF 优先判断（名称含 ETF）
     if "ETF" in name_str:
         return "etf"
@@ -64,23 +67,52 @@ def _classify_security(code: str, name: str) -> str:
     if code_str.startswith("501") or code_str.startswith("502"):
         return "fund"  # 501/502 开头的是分级基金
     
-    # 指数名称关键词（放在最后，避免误判 ETF）
-    index_keywords = [
-        "指数", "综指", "成指", "等权", "全指", "红利", "价值", "成长", 
-        "基本面", "低碳", "新能源", "消费", "金融", "医药", "工业", "材料",
-        "信息", "通信", "可选", "主题", "资源", "装备", "科创", "央企",
-        "国企", "沪深", "中证", "上证", "深证", "创业板", "中小板",
-        "央视", "沪股通", "深股通", "港股通", "基本", "周期", "非周期",
-        "高贝", "低贝", "波动", "稳定", "动态", "治理", "ESG", "碳中和",
-        "新丝路", "一带一路", "互联", "大宗商品", "细分", "优势",
-        "有色", "能源", "银行", "地产", "汽车", "军工", "电子", "计算机",
-        "传媒", "农业", "环保", "电力", "煤炭", "钢铁", "建材", "化工",
-        "食品", "饮料", "家电", "纺织", "服装", "零售", "旅游", "酒店",
-        "航空", "航运", "港口", "公路", "铁路", "物流", "电信", "保险",
-        "券商", "银行", "房地产", "建筑", "机械", "电气", "仪器", "仪表"
+    # 688 开头是科创板股票
+    if code_str.startswith("688"):
+        return "stock"
+    
+    # 60/00/30 开头的普通股票代码，如果名称像公司名就是股票
+    # 公司名称特征：包含"股份"、以"A"/"B"结尾、包含地名+行业等
+    company_patterns = ["股份", "集团", "控股", "实业", "科技", "电子", "医药", 
+                        "生物", "新材", "智能", "网络", "软件", "信息", "通信",
+                        "能源", "环境", "建设", "工程", "制造", "机械", "设备",
+                        "汽车", "电气", "电力", "化工", "材料", "食品", "饮料",
+                        "服饰", "家居", "传媒", "文化", "教育", "医疗", "健康",
+                        "物流", "运输", "航空", "船舶", "港口", "地产", "置业",
+                        "投资", "证券", "保险", "银行", "金融", "租赁", "信托"]
+    
+    # 如果名称包含公司特征词，判定为股票
+    for pattern in company_patterns:
+        if pattern in name:
+            return "stock"
+    
+    # 名称以 A/B 结尾的通常是股票（如 "万科A"、"招商银行"）
+    if name.endswith("Ａ") or name.endswith("Ｂ") or name.endswith("A") or name.endswith("B"):
+        return "stock"
+    
+    # 000 开头的特殊处理：很多是指数
+    if code_str.startswith("000"):
+        # 指数名称特征词
+        index_name_patterns = [
+            "综指", "成指", "等权", "全指", "红利", "价值", "成长", "基本",
+            "波动", "稳定", "动态", "治理", "高贝", "低贝", "分层", "优选",
+            "领先", "百强", "央视", "腾讯", "济安", "丝路", "AH", "R价值",
+            "R成长", "新兴", "中型", "小型", "大型", "市值", "细分", "主题"
+        ]
+        for pattern in index_name_patterns:
+            if pattern in name:
+                return "index"
+        # 名称是数字开头+中文的短名称，很可能是指数（如"180金融"、"50等权"、"300工业"）
+        import re
+        if re.match(r'^[\d]+', name) and len(name) <= 10:
+            return "index"
+    
+    # 指数名称关键词（更严格的匹配）
+    strict_index_keywords = [
+        "指数", "综指", "成指", "等权", "全指"
     ]
     
-    for kw in index_keywords:
+    for kw in strict_index_keywords:
         if kw in name:
             return "index"
     
@@ -153,7 +185,8 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             # 添加时间戳
             df["update_time"] = datetime.now().isoformat()
             df["market"] = "A"
-            df["sec_type"] = "stock"  # 标记为股票类型
+            # 使用启发式方法分类每条记录
+            df["sec_type"] = df.apply(lambda row: _classify_security(row.get('code', ''), row.get('name', '')), axis=1)
             
             # 转换为字典列表（股票数据）
             stock_list: List[Dict[str, Any]] = df.to_dict(orient="records")

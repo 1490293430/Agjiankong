@@ -1085,6 +1085,10 @@ function handleSpotCollectProgress(taskId, progress) {
 async function collectSpotData() {
     const btn = document.getElementById('collect-spot-btn');
     const statusEl = document.getElementById('spot-collect-status');
+    const marketSelect = document.getElementById('collect-market-select');
+    
+    // 获取市场选项
+    const market = marketSelect?.value || 'ALL';
     
     if (btn) {
         btn.disabled = true;
@@ -1096,7 +1100,7 @@ async function collectSpotData() {
     }
     
     try {
-        const res = await apiFetch(`${API_BASE}/api/market/spot/collect`, {
+        const res = await apiFetch(`${API_BASE}/api/market/spot/collect?market=${market}`, {
             method: 'POST'
         });
         
@@ -5371,8 +5375,8 @@ async function collectSingleStockKline() {
 // 单个批量采集K线数据（从akshare获取列表，循环采集）
 async function collectSingleBatchKline() {
     const batchSizeInput = document.getElementById('single-batch-size-input');
-    const marketSelect = document.getElementById('single-batch-market-select');
-    const periodSelect = document.getElementById('single-batch-period-select');
+    const marketSelect = document.getElementById('collect-market-select');
+    const periodSelect = document.getElementById('collect-period-select');
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('single-batch-collect-kline-btn');
     
@@ -5456,7 +5460,21 @@ async function collectSingleBatchKline() {
 }
 
 // 批量采集K线数据
-async function collectKlineData(market = 'A', maxCount = 6000) {
+async function collectKlineData(market = null, maxCount = null) {
+    // 从公共选项获取市场和周期
+    const marketSelect = document.getElementById('collect-market-select');
+    const periodSelect = document.getElementById('collect-period-select');
+    const maxCountInput = document.getElementById('collect-max-count-input');
+    
+    // 如果没有传入参数，从UI获取
+    if (market === null) {
+        market = marketSelect?.value || 'A';
+    }
+    if (maxCount === null) {
+        maxCount = parseInt(maxCountInput?.value) || 6000;
+    }
+    const period = periodSelect?.value || 'daily';
+    
     // 优先使用选股页面的状态显示区域
     let statusEl = document.getElementById('collect-kline-status');
     let btn = document.getElementById('collect-kline-btn');
@@ -5489,7 +5507,7 @@ async function collectKlineData(market = 'A', maxCount = 6000) {
     statusEl.style.color = '#60a5fa';
     
     try {
-        const response = await apiFetch(`${API_BASE}/api/market/kline/collect?market=${market}&max_count=${maxCount}`, {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect?market=${market}&max_count=${maxCount}&period=${period}`, {
             method: 'POST'
         });
         
