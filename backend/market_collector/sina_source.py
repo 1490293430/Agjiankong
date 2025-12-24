@@ -129,7 +129,8 @@ def _fetch_batch_sina(codes: List[str]) -> List[Dict[str, Any]]:
                     "volume": _safe_float(fields[8]) / 100,  # 转换为手
                     "amount": _safe_float(fields[9]),
                     "update_time": datetime.now().isoformat(),
-                    "market": "A"
+                    "market": "A",
+                    "sec_type": _classify_security(code, fields[0])
                 }
                 
                 # 计算涨跌幅
@@ -159,6 +160,36 @@ def _safe_float(value: str) -> float:
         return float(value) if value else 0.0
     except (ValueError, TypeError):
         return 0.0
+
+
+def _classify_security(code: str, name: str) -> str:
+    """
+    根据代码和名称判断证券类型
+    返回: 'stock', 'etf', 'index', 'fund'
+    """
+    code = str(code or '')
+    name = str(name or '')
+    
+    # ETF 判断
+    if 'ETF' in name or 'LOF' in name:
+        return 'etf'
+    
+    # 指数判断
+    if '指数' in name:
+        return 'index'
+    if code.startswith('399'):  # 深证指数
+        return 'index'
+    if code.startswith('000') and ('上证' in name or '深证' in name or '中证' in name or '沪' in name):
+        return 'index'
+    
+    # ETF 代码段判断
+    if len(code) == 6:
+        if code[:2] in ['51', '52', '56', '58'] or code[:3] == '159':
+            return 'etf'
+        if code.startswith('5') and not code.startswith('60'):
+            return 'fund'
+    
+    return 'stock'
 
 
 def fetch_sina_hk_stock_spot(codes: List[str] = None, max_retries: int = 1) -> List[Dict[str, Any]]:

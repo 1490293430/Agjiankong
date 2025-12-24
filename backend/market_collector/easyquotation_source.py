@@ -53,7 +53,8 @@ def fetch_easyquotation_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]
                         "pct": _safe_float(data.get("涨跌(%)", 0)),
                         "change": _safe_float(data.get("涨跌", 0)),
                         "update_time": datetime.now().isoformat(),
-                        "market": "A"
+                        "market": "A",
+                        "sec_type": _classify_security(pure_code, data.get("name", ""))
                     }
                     
                     # 如果没有涨跌幅，手动计算
@@ -93,3 +94,33 @@ def _safe_float(value) -> float:
         return float(value)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _classify_security(code: str, name: str) -> str:
+    """
+    根据代码和名称判断证券类型
+    返回: 'stock', 'etf', 'index', 'fund'
+    """
+    code = str(code or '')
+    name = str(name or '')
+    
+    # ETF 判断
+    if 'ETF' in name or 'LOF' in name:
+        return 'etf'
+    
+    # 指数判断
+    if '指数' in name:
+        return 'index'
+    if code.startswith('399'):  # 深证指数
+        return 'index'
+    if code.startswith('000') and ('上证' in name or '深证' in name or '中证' in name or '沪' in name):
+        return 'index'
+    
+    # ETF 代码段判断
+    if len(code) == 6:
+        if code[:2] in ['51', '52', '56', '58'] or code[:3] == '159':
+            return 'etf'
+        if code.startswith('5') and not code.startswith('60'):
+            return 'fund'
+    
+    return 'stock'
