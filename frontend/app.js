@@ -3786,18 +3786,20 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             },
             // 移动端增加价格轴宽度，确保数字完整显示
             minimumWidth: isMobile ? 70 : 50,
+            // 限制价格轴最小值，防止拖动到负数区域
+            entireTextOnly: true,
         },
         timeScale: {
             borderColor: theme.borderColor,
             timeVisible: true,
             // 配置时间格式，使用正确的日期格式
-            rightOffset: 0,
+            rightOffset: 5, // 右侧留一点空白，方便查看最新数据
             // 确保时间轴文字颜色正确
             tickMarkFormatter: undefined,
             // 移动端调整时间轴显示
             minBarSpacing: minBarSpacing, // 最小K线间距
-            fixLeftEdge: true, // 固定左边缘
-            fixRightEdge: true, // 固定右边缘
+            fixLeftEdge: false, // 允许左右拖动
+            fixRightEdge: false, // 允许左右拖动
         },
         // 配置本地化选项，修复日期时间显示
         localization: {
@@ -4103,14 +4105,47 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             const priceRange = visibleRange.to - visibleRange.from;
             const moveAmount = priceRange * delta;
             
+            // 计算新的价格范围
+            let newFrom = visibleRange.from + moveAmount;
+            let newTo = visibleRange.to + moveAmount;
+            
+            // 限制最小值不能低于-300
+            if (newFrom < -300) {
+                const adjustment = -300 - newFrom;
+                newFrom = -300;
+                newTo = newTo + adjustment;
+            }
+            
             // 更新价格范围
             priceScale.setVisibleRange({
-                from: visibleRange.from + moveAmount,
-                to: visibleRange.to + moveAmount,
+                from: newFrom,
+                to: newTo,
             });
         };
         
         container.addEventListener('wheel', handleWheel, { passive: false });
+        
+        // 监听价格轴变化，限制最小值不能低于-300
+        const handleVisibleRangeChange = () => {
+            if (!chart) return;
+            const priceScale = chart.priceScale('right');
+            if (!priceScale) return;
+            
+            const visibleRange = priceScale.getVisibleRange();
+            if (!visibleRange) return;
+            
+            // 如果最小值低于-300，调整回-300
+            if (visibleRange.from < -300) {
+                const adjustment = -300 - visibleRange.from;
+                priceScale.setVisibleRange({
+                    from: -300,
+                    to: visibleRange.to + adjustment,
+                });
+            }
+        };
+        
+        // 订阅价格轴变化事件
+        chart.priceScale('right').subscribeVisiblePriceRangeChange(handleVisibleRangeChange);
         
         // 保存事件处理器，以便后续清理
         if (!window.chartEventHandlers) {
@@ -8022,10 +8057,16 @@ async function loadConfig() {
             klineDataSourceEl.value = data.kline_data_source || 'auto';
         }
         
-        // 实时行情数据源选择
+        // 实时行情数据源选择（A股）
         const spotDataSourceEl = document.getElementById('cfg-spot-data-source');
         if (spotDataSourceEl) {
             spotDataSourceEl.value = data.spot_data_source || 'auto';
+        }
+        
+        // 实时行情数据源选择（港股）
+        const hkSpotDataSourceEl = document.getElementById('cfg-hk-spot-data-source');
+        if (hkSpotDataSourceEl) {
+            hkSpotDataSourceEl.value = data.hk_spot_data_source || 'auto';
         }
         
         // 数据采集配置
@@ -8123,6 +8164,7 @@ async function saveConfig() {
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
         const klineDataSource = document.getElementById('cfg-kline-data-source')?.value || 'auto';
         const spotDataSource = document.getElementById('cfg-spot-data-source')?.value || 'auto';
+        const hkSpotDataSource = document.getElementById('cfg-hk-spot-data-source')?.value || 'auto';
         const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
         
         // 数据采集配置
@@ -8138,7 +8180,7 @@ async function saveConfig() {
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
-        console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, spotDataSource, hasTushareToken: !!tushareToken });
+        console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, spotDataSource, hkSpotDataSource, hasTushareToken: !!tushareToken });
         
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
@@ -8148,6 +8190,7 @@ async function saveConfig() {
                 kline_years: klineYears,
                 kline_data_source: klineDataSource,
                 spot_data_source: spotDataSource,
+                hk_spot_data_source: hkSpotDataSource,
                 tushare_token: tushareToken,
                 // 数据采集配置
                 collect_market: collectMarket,

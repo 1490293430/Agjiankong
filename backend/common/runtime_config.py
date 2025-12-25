@@ -164,10 +164,16 @@ class RuntimeConfig(BaseModel):
         description="K线数据源：auto（自动切换）、akshare（仅AKShare）、tushare（仅Tushare）、sina（仅新浪财经）、easyquotation（仅Easyquotation）"
     )
     
-    # 实时行情数据源配置
+    # 实时行情数据源配置（A股）
     spot_data_source: str = Field(
         default="auto",
-        description="实时行情数据源：auto（自动切换）、akshare（仅AKShare）、sina（仅新浪）、easyquotation（仅Easyquotation）"
+        description="A股实时行情数据源：auto（自动切换）、easyquotation、eastmoney、sina、akshare"
+    )
+    
+    # 实时行情数据源配置（港股）
+    hk_spot_data_source: str = Field(
+        default="auto",
+        description="港股实时行情数据源：auto（自动切换）、eastmoney、sina、akshare"
     )
     
     # AI / OpenAI 配置（用于AI分析）
@@ -279,7 +285,8 @@ class RuntimeConfigUpdate(BaseModel):
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
     kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、akshare、tushare、sina、easyquotation")
-    spot_data_source: Optional[str] = Field(default=None, description="实时行情数据源：auto、akshare、sina、easyquotation")
+    spot_data_source: Optional[str] = Field(default=None, description="A股实时行情数据源：auto、easyquotation、eastmoney、sina、akshare")
+    hk_spot_data_source: Optional[str] = Field(default=None, description="港股实时行情数据源：auto、eastmoney、sina、akshare")
     
     # 通知渠道详细配置
     notify_telegram_enabled: Optional[bool] = None

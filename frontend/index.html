@@ -697,19 +697,36 @@
                             </div>
                         </div>
                         
-                        <!-- 实时行情数据源选择 -->
+                        <!-- A股实时行情数据源选择 -->
                         <div class="config-item" style="margin-top: 12px;">
                             <label>
-                                实时行情数据源：
+                                A股实时行情数据源：
                                 <select id="cfg-spot-data-source" class="config-select">
                                     <option value="auto">自动切换（推荐）</option>
-                                    <option value="akshare">仅 AKShare(东方财富)</option>
-                                    <option value="sina">仅 新浪财经</option>
                                     <option value="easyquotation">仅 Easyquotation</option>
+                                    <option value="eastmoney">仅 东方财富(并发)</option>
+                                    <option value="sina">仅 新浪财经</option>
+                                    <option value="akshare">仅 AKShare</option>
                                 </select>
                             </label>
                             <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-                                自动切换：优先使用 AKShare，失败时依次尝试新浪财经、Easyquotation
+                                自动切换：Easyquotation → 东方财富 → 新浪 → AKShare
+                            </div>
+                        </div>
+                        
+                        <!-- 港股实时行情数据源选择 -->
+                        <div class="config-item" style="margin-top: 12px;">
+                            <label>
+                                港股实时行情数据源：
+                                <select id="cfg-hk-spot-data-source" class="config-select">
+                                    <option value="auto">自动切换（推荐）</option>
+                                    <option value="eastmoney">仅 东方财富(并发)</option>
+                                    <option value="sina">仅 新浪财经</option>
+                                    <option value="akshare">仅 AKShare</option>
+                                </select>
+                            </label>
+                            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                                自动切换：东方财富 → 新浪 → AKShare
                             </div>
                         </div>
                         

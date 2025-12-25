@@ -722,6 +722,7 @@ body.light-mode .config-select {
     bottom: 0;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(4px);
+    z-index: 2000; /* 确保在content下面 */
 }
 
 .kline-modal-content {
@@ -741,7 +742,7 @@ body.light-mode .config-select {
     padding: 0 !important; /* 移除padding */
     border: none !important; /* 移除边框 */
     /* 确保内容从顶部开始，不被地址栏遮挡 */
-    overflow-y: auto;
+    overflow: hidden; /* 改为hidden，让图表容器自己处理滚动 */
     -webkit-overflow-scrolling: touch;
     /* 确保从顶部开始 */
     align-self: flex-start;
@@ -847,6 +848,8 @@ body.light-mode .config-select {
     min-height: 0; /* 重要：允许flex子元素缩小 */
     margin: 0 !important; /* 移除margin */
     border: none !important; /* 移除边框 */
+    /* 确保触摸事件可以传递到图表 */
+    touch-action: pan-x pan-y pinch-zoom;
 }
 
 /* 控制栏 - 重构版 */
@@ -968,6 +971,10 @@ body.light-mode .config-select {
     min-height: 0;
     overflow: visible;
     background: #0f172a;
+    /* 确保触摸事件可以正常工作 */
+    touch-action: none; /* 让LightweightCharts完全控制触摸事件 */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .kline-chart-container > div,

@@ -102,14 +102,14 @@ def collect_job():
             from common.runtime_config import get_runtime_config
             
             config = get_runtime_config()
-            spot_source = config.spot_data_source or "auto"
+            a_spot_source = config.spot_data_source or "auto"
             
-            a_result, a_source = fetch_a_stock_spot_with_source(spot_source, 2)
+            a_result, a_source = fetch_a_stock_spot_with_source(a_spot_source, 2)
             a_count = len(a_result) if a_result else 0
             a_success = a_count > 0
             if a_success:
                 a_time = datetime.now().strftime("%m-%d %H:%M")
-            logger.info(f"A股采集完成: {a_count}只，数据源: {a_source}，时间: {a_time}")
+            logger.info(f"A股采集完成: {a_count}只，数据源: {a_source}（配置: {a_spot_source}），时间: {a_time}")
             
         except Exception as e:
             logger.error(f"A股采集失败: {e}", exc_info=True)
@@ -134,7 +134,12 @@ def collect_job():
         hk_time = ""
         
         try:
-            result_tuple = fetch_hk_stock_spot()
+            # 港股使用独立的数据源配置
+            from common.runtime_config import get_runtime_config
+            config = get_runtime_config()
+            hk_spot_source = config.hk_spot_data_source or "auto"
+            
+            result_tuple = fetch_hk_stock_spot(source=hk_spot_source)
             # 新的返回格式：(result, source_name)
             if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
                 hk_result, hk_source = result_tuple
@@ -145,7 +150,7 @@ def collect_job():
             hk_success = hk_count > 0
             if hk_success:
                 hk_time = datetime.now().strftime("%m-%d %H:%M")
-            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]，时间: {hk_time}")
+            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]（配置: {hk_spot_source}），时间: {hk_time}")
             
         except Exception as e:
             logger.error(f"港股采集失败: {e}", exc_info=True)

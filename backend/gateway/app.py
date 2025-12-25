@@ -1756,9 +1756,10 @@ async def collect_spot_data_api(
         
         task_id = f"spot_{uuid.uuid4().hex[:8]}"
         
-        # 获取配置的数据源
+        # 获取配置的数据源（A股和港股分开配置）
         config = get_runtime_config()
-        spot_source = config.spot_data_source or "auto"
+        a_spot_source = config.spot_data_source or "auto"
+        hk_spot_source = config.hk_spot_data_source or "auto"
         
         # 标准化市场参数
         market = market.upper() if market else "ALL"
@@ -1803,8 +1804,8 @@ async def collect_spot_data_api(
                 def collect_a_stock():
                     nonlocal a_result, data_source, a_count
                     try:
-                        logger.info(f"[实时快照] 开始采集A股，数据源配置: {spot_source}")
-                        a_result, data_source = fetch_a_stock_spot_with_source(spot_source, 2)
+                        logger.info(f"[实时快照] 开始采集A股，数据源配置: {a_spot_source}")
+                        a_result, data_source = fetch_a_stock_spot_with_source(a_spot_source, 2)
                         a_count = len(a_result) if a_result else 0
                         logger.info(f"[实时快照] A股采集完成: {a_count}只，数据源: {data_source}")
                         return True
@@ -1816,8 +1817,8 @@ async def collect_spot_data_api(
                 def collect_hk_stock():
                     nonlocal hk_result, hk_source, hk_count
                     try:
-                        logger.info("[实时快照] 开始采集港股...")
-                        result_tuple = fetch_hk_stock_spot()
+                        logger.info(f"[实时快照] 开始采集港股，数据源配置: {hk_spot_source}")
+                        result_tuple = fetch_hk_stock_spot(source=hk_spot_source)
                         if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
                             hk_result, hk_source = result_tuple
                         else:
@@ -1840,6 +1841,7 @@ async def collect_spot_data_api(
                             "status": "running",
                             "step": "parallel",
                             "message": "正在并发采集A股和港股实时行情...",
+                            "data_source": f"A股:{a_spot_source} 港股:{hk_spot_source}",
                             "start_time": start_time
                         }
                     })
@@ -1901,6 +1903,7 @@ async def collect_spot_data_api(
                             "status": "running",
                             "step": "a_stock",
                             "message": "正在采集A股实时行情...",
+                            "data_source": a_spot_source,
                             "start_time": start_time
                         }
                     })
@@ -1934,6 +1937,7 @@ async def collect_spot_data_api(
                             "status": "running",
                             "step": "hk_stock",
                             "message": "正在采集港股实时行情...",
+                            "data_source": hk_spot_source,
                             "start_time": start_time
                         }
                     })

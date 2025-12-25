@@ -92,18 +92,18 @@ def fetch_hk_stock_spot(max_retries: int = 1, source: str = None) -> List[Dict[s
     
     Args:
         max_retries: 最大重试次数（每个源只尝试1次）
-        source: 数据源选择（如果为None，则从配置读取）
+        source: 数据源选择（如果为None，则从配置读取 hk_spot_data_source）
             - "auto": 自动切换，按顺序尝试 东方财富(并发) → 新浪 → AKShare
             - "sina": 仅使用新浪财经
             - "eastmoney": 仅使用东方财富(并发)
             - "akshare": 仅使用AKShare
     """
-    # 如果没有指定数据源，从配置读取
+    # 如果没有指定数据源，从配置读取港股专用配置
     if source is None:
         try:
             from common.runtime_config import get_runtime_config
             config = get_runtime_config()
-            source = config.spot_data_source or "auto"
+            source = config.hk_spot_data_source or "auto"
         except Exception:
             source = "auto"
     

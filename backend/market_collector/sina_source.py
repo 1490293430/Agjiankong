@@ -319,13 +319,38 @@ def fetch_sina_hk_stock_spot(codes: List[str] = None, max_retries: int = 1) -> L
 
 
 def _get_all_hk_stock_codes() -> List[str]:
-    """获取所有港股代码列表"""
+    """获取所有港股代码列表
+    
+    优先从Redis缓存读取，如果缓存数据不足则使用东方财富接口获取
+    """
     try:
-        # 使用akshare获取港股列表
-        import akshare as ak
-        df = ak.stock_hk_spot_em()
-        codes = df['代码'].tolist()
-        return codes
+        # 优先从Redis缓存读取已有的港股数据
+        from common.redis import get_json
+        cached_data = get_json("market:hk:spot")
+        if cached_data and len(cached_data) >= 1000:  # 至少1000只才认为缓存有效
+            codes = [str(item.get('code', '')) for item in cached_data if item.get('code')]
+            if codes and len(codes) >= 1000:
+                logger.info(f"[新浪港股] 从Redis缓存获取港股代码列表: {len(codes)}只")
+                return codes
+        
+        # 如果缓存没有或数据不足，使用东方财富接口获取
+        cache_count = len(cached_data) if cached_data else 0
+        logger.info(f"[新浪港股] Redis缓存数据不足({cache_count}只)，使用东方财富接口获取代码列表...")
+        from market_collector.eastmoney_source import fetch_eastmoney_hk_stock_spot
+        result, _ = fetch_eastmoney_hk_stock_spot(max_retries=1)
+        if result:
+            codes = [str(item.get('code', '')) for item in result if item.get('code')]
+            logger.info(f"[新浪港股] 从东方财富获取港股代码列表: {len(codes)}只")
+            return codes
+        
+        # 如果东方财富也失败，使用缓存中的数据（即使不足1000只）
+        if cached_data:
+            codes = [str(item.get('code', '')) for item in cached_data if item.get('code')]
+            if codes:
+                logger.warning(f"[新浪港股] 东方财富获取失败，使用缓存数据: {len(codes)}只")
+                return codes
+        
+        return []
     except Exception as e:
         logger.error(f"[新浪港股] 获取港股代码列表失败: {e}")
         return []
