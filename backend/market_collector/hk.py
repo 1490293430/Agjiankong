@@ -90,13 +90,14 @@ def _try_yahoo_formats(code: str) -> List[str]:
 def fetch_hk_stock_spot(max_retries: int = 1) -> List[Dict[str, Any]]:
     """获取港股实时行情
     
-    数据源顺序：新浪财经 → AKShare(东方财富)
+    数据源顺序：东方财富(并发) → 新浪财经(并发) → AKShare(东方财富)
     
     Args:
         max_retries: 最大重试次数（每个源只尝试1次）
     """
-    # 数据源列表：新浪 → AKShare
+    # 数据源列表：东方财富(并发) → 新浪(并发) → AKShare
     sources = [
+        ("东方财富(并发)", _fetch_hk_spot_eastmoney),
         ("新浪财经", _fetch_hk_spot_sina),
         ("AKShare(东方财富)", _fetch_hk_spot_akshare),
     ]
@@ -115,6 +116,18 @@ def fetch_hk_stock_spot(max_retries: int = 1) -> List[Dict[str, Any]]:
     
     logger.error("[港股实时行情] 所有数据源都失败")
     return [], ""
+
+
+def _fetch_hk_spot_eastmoney() -> List[Dict[str, Any]]:
+    """使用东方财富(并发)获取港股实时行情"""
+    from market_collector.eastmoney_source import fetch_eastmoney_hk_stock_spot
+    result, _ = fetch_eastmoney_hk_stock_spot(max_retries=1)
+    if not result:
+        raise Exception("东方财富港股数据为空")
+    
+    # 保存到Redis并处理差分更新
+    _save_hk_spot_to_redis(result)
+    return result
 
 
 def _fetch_hk_spot_sina() -> List[Dict[str, Any]]:

@@ -3381,12 +3381,18 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
     // 获取当前主题配置
     const theme = getChartTheme();
     
+    // 检测是否为移动端，调整字体大小
+    const isMobile = window.innerWidth <= 768;
+    const fontSize = isMobile ? 14 : 12; // 移动端使用更大字体
+    const minBarSpacing = isMobile ? 6 : 4; // 移动端K线间距更大
+    
     chart = window.LightweightCharts.createChart(container, {
         width: containerWidth,
         height: Math.max(containerHeight, 400), // 确保最小高度
         layout: {
             background: { type: 'solid', color: theme.background },
             textColor: theme.textColor,
+            fontSize: fontSize, // 设置全局字体大小
         },
         grid: {
             vertLines: { color: theme.gridColor },
@@ -3400,6 +3406,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                 top: 0.1,
                 bottom: 0.1,
             },
+            // 移动端增加价格轴宽度，确保数字完整显示
+            minimumWidth: isMobile ? 70 : 50,
         },
         timeScale: {
             borderColor: theme.borderColor,
@@ -3408,6 +3416,10 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             rightOffset: 0,
             // 确保时间轴文字颜色正确
             tickMarkFormatter: undefined,
+            // 移动端调整时间轴显示
+            minBarSpacing: minBarSpacing, // 最小K线间距
+            fixLeftEdge: true, // 固定左边缘
+            fixRightEdge: true, // 固定右边缘
         },
         // 配置本地化选项，修复日期时间显示
         localization: {
@@ -5933,10 +5945,18 @@ function initAI() {
     // 从localStorage加载选择框状态
     try {
         const savedConfig = localStorage.getItem('aiSourceConfig');
+        console.log('[AI] 加载保存的配置:', savedConfig);
         if (savedConfig) {
             const config = JSON.parse(savedConfig);
-            if (watchlistCheckbox) watchlistCheckbox.checked = config.watchlist ?? true;
-            if (selectionCheckbox) selectionCheckbox.checked = config.selection ?? false;
+            console.log('[AI] 解析后的配置:', config);
+            if (watchlistCheckbox) {
+                watchlistCheckbox.checked = config.watchlist ?? true;
+                console.log('[AI] 设置自选股勾选状态:', watchlistCheckbox.checked);
+            }
+            if (selectionCheckbox) {
+                selectionCheckbox.checked = config.selection ?? false;
+                console.log('[AI] 设置选股结果勾选状态:', selectionCheckbox.checked);
+            }
         }
     } catch (e) {
         console.warn('加载AI来源配置失败:', e);
@@ -5948,15 +5968,22 @@ function initAI() {
             watchlist: watchlistCheckbox?.checked ?? true,
             selection: selectionCheckbox?.checked ?? false
         };
+        console.log('[AI] 保存配置:', config);
         localStorage.setItem('aiSourceConfig', JSON.stringify(config));
     };
     
     // 监听选择框变化
     if (watchlistCheckbox) {
-        watchlistCheckbox.addEventListener('change', saveSourceConfig);
+        watchlistCheckbox.addEventListener('change', () => {
+            console.log('[AI] 自选股勾选状态变化:', watchlistCheckbox.checked);
+            saveSourceConfig();
+        });
     }
     if (selectionCheckbox) {
-        selectionCheckbox.addEventListener('change', saveSourceConfig);
+        selectionCheckbox.addEventListener('change', () => {
+            console.log('[AI] 选股结果勾选状态变化:', selectionCheckbox.checked);
+            saveSourceConfig();
+        });
     }
     
     if (!analyzeBtn) {
@@ -7254,6 +7281,275 @@ function initConfig() {
     const changePasswordBtn = document.getElementById('cfg-change-password-btn');
     if (changePasswordBtn) {
         changePasswordBtn.addEventListener('click', changePassword);
+    }
+    
+    // 初始化数据备份功能
+    initBackup();
+}
+
+// 数据备份功能初始化
+function initBackup() {
+    const exportBtn = document.getElementById('backup-export-btn');
+    const importBtn = document.getElementById('backup-import-btn');
+    const fileInput = document.getElementById('backup-file-input');
+    
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportBackup);
+    }
+    
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            fileInput?.click();
+        });
+    }
+    
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+                importBackup(file);
+                fileInput.value = ''; // 清空，允许重复选择同一文件
+            }
+        });
+    }
+    
+    console.log('[备份] 数据备份功能已初始化');
+}
+
+// 导出备份
+async function exportBackup() {
+    const statusEl = document.getElementById('backup-status');
+    const exportBtn = document.getElementById('backup-export-btn');
+    
+    try {
+        if (exportBtn) {
+            exportBtn.disabled = true;
+            exportBtn.textContent = '导出中...';
+        }
+        if (statusEl) statusEl.textContent = '正在收集数据...';
+        
+        // 1. 获取配置页设置
+        let configData = {};
+        try {
+            const configRes = await apiFetch(`${API_BASE}/api/config`);
+            if (configRes.ok) {
+                configData = await configRes.json();
+                console.log('[备份] 配置数据获取成功');
+            }
+        } catch (e) {
+            console.warn('[备份] 获取配置数据失败:', e);
+        }
+        
+        // 2. 获取自选股列表
+        let watchlistData = [];
+        try {
+            const watchlistRes = await apiFetch(`${API_BASE}/api/watchlist`);
+            if (watchlistRes.ok) {
+                const result = await watchlistRes.json();
+                watchlistData = result.data || [];
+                console.log('[备份] 自选股数据获取成功，共', watchlistData.length, '只');
+            }
+        } catch (e) {
+            console.warn('[备份] 获取自选股数据失败:', e);
+        }
+        
+        // 3. 获取选股配置（从localStorage或服务器配置中提取）
+        const selectionConfig = {
+            selection_max_count: configData.selection_max_count || 30,
+            filter_stock_only: configData.filter_stock_only !== false,
+            filter_rsi_min: configData.filter_rsi_min || 30,
+            filter_rsi_max: configData.filter_rsi_max || 75,
+            filter_volume_ratio_min: configData.filter_volume_ratio_min || 0.8,
+            filter_volume_ratio_max: configData.filter_volume_ratio_max || 8,
+        };
+        
+        // 4. 组装备份数据
+        const backupData = {
+            version: '1.0',
+            exportTime: new Date().toISOString(),
+            config: configData,
+            selectionConfig: selectionConfig,
+            watchlist: watchlistData,
+        };
+        
+        // 5. 保存JSON文件（优先使用文件选择器，让用户选择保存位置）
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const defaultFileName = `行情监控备份_${timestamp}.json`;
+        const jsonContent = JSON.stringify(backupData, null, 2);
+        
+        let savedPath = '';
+        
+        // 尝试使用 File System Access API（支持选择保存位置）
+        if (window.showSaveFilePicker) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: defaultFileName,
+                    types: [{
+                        description: 'JSON 文件',
+                        accept: { 'application/json': ['.json'] }
+                    }]
+                });
+                
+                const writable = await handle.createWritable();
+                await writable.write(jsonContent);
+                await writable.close();
+                
+                savedPath = handle.name;
+                console.log('[备份] 文件已保存:', savedPath);
+            } catch (e) {
+                // 用户取消选择或API不可用，回退到传统下载
+                if (e.name !== 'AbortError') {
+                    console.warn('[备份] 文件选择器失败，使用传统下载:', e);
+                    fallbackDownload(jsonContent, defaultFileName);
+                    savedPath = '下载文件夹';
+                } else {
+                    // 用户取消
+                    if (statusEl) statusEl.textContent = '已取消导出';
+                    return;
+                }
+            }
+        } else {
+            // 浏览器不支持 File System Access API，使用传统下载
+            fallbackDownload(jsonContent, defaultFileName);
+            savedPath = '下载文件夹';
+        }
+        
+        if (statusEl) statusEl.textContent = `✅ 备份导出成功！已保存到: ${savedPath}，包含配置、选股设置、${watchlistData.length}只自选股`;
+        showToast('备份导出成功', 'success');
+        
+    } catch (error) {
+        console.error('[备份] 导出失败:', error);
+        if (statusEl) statusEl.textContent = `❌ 导出失败: ${error.message}`;
+        showToast(`导出失败: ${error.message}`, 'error');
+    } finally {
+        if (exportBtn) {
+            exportBtn.disabled = false;
+            exportBtn.textContent = '📤 导出备份';
+        }
+    }
+}
+
+// 传统下载方式（回退方案）
+function fallbackDownload(content, fileName) {
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+
+// 导入备份
+async function importBackup(file) {
+    const statusEl = document.getElementById('backup-status');
+    const importBtn = document.getElementById('backup-import-btn');
+    
+    try {
+        if (importBtn) {
+            importBtn.disabled = true;
+            importBtn.textContent = '导入中...';
+        }
+        if (statusEl) statusEl.textContent = '正在读取文件...';
+        
+        // 1. 读取文件内容
+        const text = await file.text();
+        let backupData;
+        try {
+            backupData = JSON.parse(text);
+        } catch (e) {
+            throw new Error('文件格式错误，请选择有效的JSON备份文件');
+        }
+        
+        // 2. 验证备份数据格式
+        if (!backupData.version || !backupData.exportTime) {
+            throw new Error('无效的备份文件格式');
+        }
+        
+        console.log('[备份] 读取备份文件成功，版本:', backupData.version, '导出时间:', backupData.exportTime);
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        // 3. 恢复配置数据
+        if (backupData.config && Object.keys(backupData.config).length > 0) {
+            if (statusEl) statusEl.textContent = '正在恢复配置...';
+            try {
+                // 合并选股配置到主配置
+                const configToSave = { ...backupData.config };
+                if (backupData.selectionConfig) {
+                    Object.assign(configToSave, backupData.selectionConfig);
+                }
+                
+                const configRes = await apiFetch(`${API_BASE}/api/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(configToSave)
+                });
+                
+                if (configRes.ok) {
+                    console.log('[备份] 配置恢复成功');
+                    successCount++;
+                } else {
+                    console.warn('[备份] 配置恢复失败:', configRes.status);
+                    failCount++;
+                }
+            } catch (e) {
+                console.warn('[备份] 恢复配置失败:', e);
+                failCount++;
+            }
+        }
+        
+        // 4. 恢复自选股
+        if (backupData.watchlist && Array.isArray(backupData.watchlist)) {
+            if (statusEl) statusEl.textContent = '正在恢复自选股...';
+            try {
+                const watchlistRes = await apiFetch(`${API_BASE}/api/watchlist`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stocks: backupData.watchlist })
+                });
+                
+                if (watchlistRes.ok) {
+                    console.log('[备份] 自选股恢复成功，共', backupData.watchlist.length, '只');
+                    // 更新本地缓存
+                    localStorage.setItem('watchlist', JSON.stringify(backupData.watchlist));
+                    successCount++;
+                } else {
+                    console.warn('[备份] 自选股恢复失败:', watchlistRes.status);
+                    failCount++;
+                }
+            } catch (e) {
+                console.warn('[备份] 恢复自选股失败:', e);
+                failCount++;
+            }
+        }
+        
+        // 5. 重新加载配置页面数据
+        await loadConfig();
+        
+        // 6. 显示结果
+        const watchlistCount = backupData.watchlist?.length || 0;
+        if (failCount === 0) {
+            if (statusEl) statusEl.textContent = `✅ 备份恢复成功！已恢复配置和${watchlistCount}只自选股`;
+            showToast('备份恢复成功', 'success');
+        } else {
+            if (statusEl) statusEl.textContent = `⚠️ 部分恢复成功（${successCount}成功，${failCount}失败）`;
+            showToast(`部分恢复成功（${successCount}成功，${failCount}失败）`, 'warning');
+        }
+        
+    } catch (error) {
+        console.error('[备份] 导入失败:', error);
+        if (statusEl) statusEl.textContent = `❌ 导入失败: ${error.message}`;
+        showToast(`导入失败: ${error.message}`, 'error');
+    } finally {
+        if (importBtn) {
+            importBtn.disabled = false;
+            importBtn.textContent = '📥 导入备份';
+        }
     }
 }
 

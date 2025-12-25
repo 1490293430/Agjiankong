@@ -1215,10 +1215,11 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     
     Args:
         source: 数据源选择
-            - "auto": 自动切换，按顺序尝试 Easyquotation → 新浪 → AKShare
+            - "auto": 自动切换，按顺序尝试 Easyquotation → 东方财富(并发) → 新浪 → AKShare
             - "akshare": 仅使用AKShare
             - "sina": 仅使用新浪财经
             - "easyquotation": 仅使用Easyquotation
+            - "eastmoney": 仅使用东方财富(并发)
         max_retries: 每个数据源的最大重试次数（单源模式下使用）
     
     Returns:
@@ -1227,16 +1228,18 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     sources_order = []
     
     if source == "auto":
-        # 优先级：Easyquotation > 新浪 > AKShare（按速度排序）
-        sources_order = ["easyquotation", "sina", "akshare"]
+        # 优先级：Easyquotation > 东方财富(并发) > 新浪 > AKShare
+        sources_order = ["easyquotation", "eastmoney", "sina", "akshare"]
     elif source == "akshare":
         sources_order = ["akshare"]
     elif source == "sina":
         sources_order = ["sina"]
     elif source == "easyquotation":
         sources_order = ["easyquotation"]
+    elif source == "eastmoney":
+        sources_order = ["eastmoney"]
     else:
-        sources_order = ["easyquotation", "sina", "akshare"]
+        sources_order = ["easyquotation", "eastmoney", "sina", "akshare"]
     
     last_error = None
     
@@ -1269,6 +1272,16 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                     _save_spot_to_redis(result, "A")
                     logger.info(f"[实时行情] Easyquotation 获取成功: {len(result)}只股票")
                     return result, "Easyquotation"
+            
+            elif src == "eastmoney":
+                logger.info("[实时行情] 尝试使用 东方财富(并发) 数据源...")
+                from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
+                result = fetch_eastmoney_a_stock_spot(max_retries=1)
+                if result and len(result) > 0:
+                    # 保存到Redis
+                    _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] 东方财富(并发) 获取成功: {len(result)}只股票")
+                    return result, "东方财富(并发)"
                     
         except Exception as e:
             last_error = e

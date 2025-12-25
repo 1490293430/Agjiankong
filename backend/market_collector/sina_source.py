@@ -24,6 +24,8 @@ def fetch_sina_stock_spot(codes: List[str] = None, max_retries: int = 3) -> List
     Returns:
         股票行情列表
     """
+    import concurrent.futures
+    
     for attempt in range(max_retries):
         try:
             # 如果没有指定代码，先获取股票列表
@@ -37,11 +39,21 @@ def fetch_sina_stock_spot(codes: List[str] = None, max_retries: int = 3) -> List
             # 分批获取（每批最多800只）
             batch_size = 800
             all_results = []
+            batches = []
             
             for i in range(0, len(codes), batch_size):
                 batch_codes = codes[i:i + batch_size]
-                batch_results = _fetch_batch_sina(batch_codes)
-                all_results.extend(batch_results)
+                batches.append(batch_codes)
+            
+            # 使用线程池并发请求（最多4个并发）
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_fetch_batch_sina, batch): i for i, batch in enumerate(batches)}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        batch_results = future.result(timeout=60)
+                        all_results.extend(batch_results)
+                    except Exception as e:
+                        logger.warning(f"[新浪] 批次请求失败: {e}")
                 
             logger.info(f"[新浪] 获取完成，共 {len(all_results)} 只股票")
             return all_results
@@ -260,6 +272,8 @@ def fetch_sina_hk_stock_spot(codes: List[str] = None, max_retries: int = 1) -> L
     Returns:
         股票行情列表
     """
+    import concurrent.futures
+    
     for attempt in range(max_retries):
         try:
             # 如果没有指定代码，先获取港股列表
@@ -273,11 +287,21 @@ def fetch_sina_hk_stock_spot(codes: List[str] = None, max_retries: int = 1) -> L
             # 分批获取（每批最多200只，港股接口限制更严格）
             batch_size = 200
             all_results = []
+            batches = []
             
             for i in range(0, len(codes), batch_size):
                 batch_codes = codes[i:i + batch_size]
-                batch_results = _fetch_batch_sina_hk(batch_codes)
-                all_results.extend(batch_results)
+                batches.append(batch_codes)
+            
+            # 使用线程池并发请求（最多4个并发，避免被限流）
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_fetch_batch_sina_hk, batch): i for i, batch in enumerate(batches)}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        batch_results = future.result(timeout=120)
+                        all_results.extend(batch_results)
+                    except Exception as e:
+                        logger.warning(f"[新浪港股] 批次请求失败: {e}")
                 
             logger.info(f"[新浪港股] 获取完成，共 {len(all_results)} 只股票")
             return all_results

@@ -2336,6 +2336,21 @@ body.light-mode .ai-empty-text {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
         border-radius: 8px;
     }
+    
+    /* 移动端K线图容器优化 */
+    .kline-chart-container {
+        min-height: 350px; /* 确保移动端有足够的最小高度 */
+        flex: 1;
+        width: 100%;
+    }
+    
+    /* 移动端K线图body优化 */
+    .kline-modal-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
 }
 
 /* 超小屏幕（手机竖屏） */
@@ -2462,6 +2477,21 @@ body.light-mode .ai-empty-text {
     .indicator-toggle {
         font-size: 11px;
         padding: 6px 10px;
+    }
+    
+    /* 超小屏幕K线图容器优化 */
+    .kline-chart-container {
+        min-height: 300px; /* 超小屏幕确保有足够的最小高度 */
+        flex: 1;
+        width: 100%;
+    }
+    
+    /* 超小屏幕K线图body优化 */
+    .kline-modal-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
     }
 }
 

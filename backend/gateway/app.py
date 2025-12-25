@@ -1769,6 +1769,8 @@ async def collect_spot_data_api(
                 a_count = 0
                 hk_count = 0
                 hk_source = ""
+                a_result = []
+                hk_result = []
                 
                 # 检查是否已被停止
                 if spot_collect_stop_flags.get(task_id, False):
@@ -1784,9 +1786,101 @@ async def collect_spot_data_api(
                     })
                     return
                 
-                # 采集A股
-                if collect_a:
+                # 定义A股采集函数
+                def collect_a_stock():
+                    nonlocal a_result, data_source, a_count
+                    try:
+                        logger.info(f"[实时快照] 开始采集A股，数据源配置: {spot_source}")
+                        a_result, data_source = fetch_a_stock_spot_with_source(spot_source, 2)
+                        a_count = len(a_result) if a_result else 0
+                        logger.info(f"[实时快照] A股采集完成: {a_count}只，数据源: {data_source}")
+                        return True
+                    except Exception as e:
+                        logger.error(f"[实时快照] A股采集失败: {e}", exc_info=True)
+                        return False
+                
+                # 定义港股采集函数
+                def collect_hk_stock():
+                    nonlocal hk_result, hk_source, hk_count
+                    try:
+                        logger.info("[实时快照] 开始采集港股...")
+                        result_tuple = fetch_hk_stock_spot()
+                        if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
+                            hk_result, hk_source = result_tuple
+                        else:
+                            hk_result = result_tuple
+                            hk_source = "AKShare(东方财富)"
+                        hk_count = len(hk_result) if hk_result else 0
+                        logger.info(f"[实时快照] 港股采集完成: {hk_count}只 [{hk_source}]")
+                        return True
+                    except Exception as e:
+                        logger.error(f"[实时快照] 港股采集失败: {e}", exc_info=True)
+                        return False
+                
+                # 并发采集A股和港股
+                if collect_a and collect_hk:
                     # 广播开始状态
+                    broadcast_message({
+                        "type": "spot_collect_progress",
+                        "task_id": task_id,
+                        "progress": {
+                            "status": "running",
+                            "step": "parallel",
+                            "message": "正在并发采集A股和港股实时行情...",
+                            "start_time": start_time
+                        }
+                    })
+                    
+                    spot_collect_progress[task_id] = {
+                        "status": "running",
+                        "step": "parallel",
+                        "start_time": start_time
+                    }
+                    
+                    # 使用线程池并发采集，设置5分钟超时
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                        a_future = executor.submit(collect_a_stock)
+                        hk_future = executor.submit(collect_hk_stock)
+                        
+                        # 等待完成，支持停止检查
+                        futures = {a_future: "A股", hk_future: "港股"}
+                        done_futures = set()
+                        
+                        # 每5秒检查一次，最多等待5分钟
+                        for _ in range(60):
+                            if spot_collect_stop_flags.get(task_id, False):
+                                # 取消未完成的任务
+                                for f in futures:
+                                    f.cancel()
+                                raise Exception("用户停止采集")
+                            
+                            # 检查已完成的任务
+                            newly_done, _ = concurrent.futures.wait(
+                                futures.keys() - done_futures,
+                                timeout=5,
+                                return_when=concurrent.futures.FIRST_COMPLETED
+                            )
+                            done_futures.update(newly_done)
+                            
+                            # 广播进度
+                            if newly_done:
+                                for f in newly_done:
+                                    market_name = futures[f]
+                                    if f == a_future and a_count > 0:
+                                        # A股完成，立即推送结果
+                                        from market_collector.scheduler import _broadcast_spot_result
+                                        a_time_str = datetime.now().strftime("%m-%d %H:%M")
+                                        _broadcast_spot_result(a_count, 0, a_time_str, "", data_source, "", True, False)
+                                    logger.info(f"[实时快照] {market_name}采集完成")
+                            
+                            # 所有任务完成
+                            if len(done_futures) == len(futures):
+                                break
+                        else:
+                            logger.error("[实时快照] 并发采集超时（5分钟）")
+                
+                elif collect_a:
+                    # 只采集A股
                     broadcast_message({
                         "type": "spot_collect_progress",
                         "task_id": task_id,
@@ -1794,150 +1888,62 @@ async def collect_spot_data_api(
                             "status": "running",
                             "step": "a_stock",
                             "message": "正在采集A股实时行情...",
-                            "data_source": "",
                             "start_time": start_time
                         }
                     })
                     
-                    # 更新进度
                     spot_collect_progress[task_id] = {
                         "status": "running",
                         "step": "a_stock",
                         "start_time": start_time
                     }
                     
-                    # 采集A股（使用多数据源+超时控制）
-                    a_result = []
-                    try:
-                        logger.info(f"[实时快照] 开始采集A股，数据源配置: {spot_source}")
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(fetch_a_stock_spot_with_source, spot_source, 2)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(collect_a_stock)
+                        for _ in range(36):  # 3分钟超时
+                            if spot_collect_stop_flags.get(task_id, False):
+                                future.cancel()
+                                raise Exception("用户停止采集")
                             try:
-                                # 分段检查停止标志
-                                for _ in range(36):  # 36 * 5s = 180s
-                                    if spot_collect_stop_flags.get(task_id, False):
-                                        future.cancel()
-                                        raise Exception("用户停止采集")
-                                    try:
-                                        a_result, data_source = future.result(timeout=5)
-                                        break
-                                    except concurrent.futures.TimeoutError:
-                                        continue
-                                else:
-                                    logger.error("[实时快照] A股采集超时（3分钟）")
-                                a_count = len(a_result) if a_result else 0
-                                logger.info(f"[实时快照] A股采集完成: {a_count}只，数据源: {data_source}")
+                                future.result(timeout=5)
+                                break
                             except concurrent.futures.TimeoutError:
-                                logger.error("[实时快照] A股采集超时（3分钟）")
-                    except Exception as e:
-                        if "用户停止采集" in str(e):
-                            broadcast_message({
-                                "type": "spot_collect_progress",
-                                "task_id": task_id,
-                                "progress": {
-                                    "status": "cancelled",
-                                    "step": "stopped",
-                                    "message": f"采集已停止（A股已采集{a_count}只）",
-                                    "a_count": a_count,
-                                    "start_time": start_time
-                                }
-                            })
-                            spot_collect_progress[task_id]["status"] = "cancelled"
-                            spot_collect_stop_flags.pop(task_id, None)
-                            return
-                        logger.error(f"[实时快照] A股采集失败: {e}", exc_info=True)
-                    
-                    # 检查是否已被停止
-                    if spot_collect_stop_flags.get(task_id, False):
-                        broadcast_message({
-                            "type": "spot_collect_progress",
-                            "task_id": task_id,
-                            "progress": {
-                                "status": "cancelled",
-                                "step": "stopped",
-                                "message": f"采集已停止（A股已采集{a_count}只）",
-                                "a_count": a_count,
-                                "data_source": data_source or "",
-                                "start_time": start_time
-                            }
-                        })
-                        spot_collect_progress[task_id]["status"] = "cancelled"
-                        spot_collect_stop_flags.pop(task_id, None)
-                        return
-                    
-                    # A股采集完成后立即推送结果到顶部状态栏
-                    if a_count > 0:
-                        from market_collector.scheduler import _broadcast_spot_result
-                        a_time_str = datetime.now().strftime("%m-%d %H:%M")
-                        _broadcast_spot_result(a_count, 0, a_time_str, "", data_source, "", True, False)
+                                continue
+                        else:
+                            logger.error("[实时快照] A股采集超时（3分钟）")
                 
-                # 采集港股
-                if collect_hk:
-                    # 广播港股开始
-                    msg = f"A股采集完成({a_count}只)，正在采集港股实时行情..." if collect_a else "正在采集港股实时行情..."
+                elif collect_hk:
+                    # 只采集港股
                     broadcast_message({
                         "type": "spot_collect_progress",
                         "task_id": task_id,
                         "progress": {
                             "status": "running",
                             "step": "hk_stock",
-                            "message": msg,
-                            "data_source": "新浪财经",
-                            "a_count": a_count,
+                            "message": "正在采集港股实时行情...",
                             "start_time": start_time
                         }
                     })
                     
-                    # 更新进度
-                    spot_collect_progress[task_id]["step"] = "hk_stock"
+                    spot_collect_progress[task_id] = {
+                        "status": "running",
+                        "step": "hk_stock",
+                        "start_time": start_time
+                    }
                     
-                    # 采集港股（使用线程池+超时控制）
-                    hk_result = []
-                    try:
-                        logger.info("[实时快照] 开始采集港股...")
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(fetch_hk_stock_spot)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(collect_hk_stock)
+                        for _ in range(60):  # 5分钟超时
+                            if spot_collect_stop_flags.get(task_id, False):
+                                future.cancel()
+                                raise Exception("用户停止采集")
                             try:
-                                # 分段检查停止标志
-                                for _ in range(36):  # 36 * 5s = 180s
-                                    if spot_collect_stop_flags.get(task_id, False):
-                                        future.cancel()
-                                        raise Exception("用户停止采集")
-                                    try:
-                                        result_tuple = future.result(timeout=5)
-                                        # 新的返回格式：(result, source_name)
-                                        if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
-                                            hk_result, hk_source = result_tuple
-                                        else:
-                                            hk_result = result_tuple
-                                            hk_source = "AKShare(东方财富)"
-                                        break
-                                    except concurrent.futures.TimeoutError:
-                                        continue
-                                else:
-                                    logger.error("[实时快照] 港股采集超时（3分钟）")
-                                hk_count = len(hk_result) if hk_result else 0
-                                logger.info(f"[实时快照] 港股采集完成: {hk_count}只 [{hk_source}]")
+                                future.result(timeout=5)
+                                break
                             except concurrent.futures.TimeoutError:
-                                logger.error("[实时快照] 港股采集超时（3分钟）")
-                    except Exception as e:
-                        if "用户停止采集" in str(e):
-                            broadcast_message({
-                                "type": "spot_collect_progress",
-                                "task_id": task_id,
-                                "progress": {
-                                    "status": "cancelled",
-                                    "step": "stopped",
-                                    "message": f"采集已停止（A股{a_count}只，港股{hk_count}只）",
-                                    "a_count": a_count,
-                                    "hk_count": hk_count,
-                                    "start_time": start_time
-                                }
-                            })
-                            spot_collect_progress[task_id]["status"] = "cancelled"
-                            spot_collect_stop_flags.pop(task_id, None)
-                            return
-                        logger.error(f"[实时快照] 港股采集失败: {e}", exc_info=True)
+                                continue
+                        else:
+                            logger.error("[实时快照] 港股采集超时（5分钟）")
                 
                 # 广播完成
                 market_desc = "全部" if market == "ALL" else ("A股" if market == "A" else "港股")
@@ -1976,6 +1982,23 @@ async def collect_spot_data_api(
                 spot_collect_stop_flags.pop(task_id, None)
                 
             except Exception as e:
+                if "用户停止采集" in str(e):
+                    broadcast_message({
+                        "type": "spot_collect_progress",
+                        "task_id": task_id,
+                        "progress": {
+                            "status": "cancelled",
+                            "step": "stopped",
+                            "message": f"采集已停止（A股{a_count}只，港股{hk_count}只）",
+                            "a_count": a_count,
+                            "hk_count": hk_count,
+                            "start_time": start_time
+                        }
+                    })
+                    spot_collect_progress[task_id]["status"] = "cancelled"
+                    spot_collect_stop_flags.pop(task_id, None)
+                    return
+                    
                 logger.error(f"[实时快照] 采集任务异常: {e}", exc_info=True)
                 broadcast_message({
                     "type": "spot_collect_progress",
