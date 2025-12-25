@@ -3734,6 +3734,284 @@ body.light-mode .status-text {
     align-items: flex-start;
 }
 
+/* ========== TradingView 风格筛选器 ========== */
+.tv-filter-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+    background: #1e293b;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.tv-filter-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.tv-filter-tab:hover {
+    border-color: #475569;
+    background: #1e293b;
+}
+
+.tv-filter-tab.active {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.tv-filter-tab input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #3b82f6;
+}
+
+.tv-tab-name {
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.tv-tab-arrow {
+    color: #64748b;
+    font-size: 10px;
+    transition: transform 0.2s ease;
+}
+
+.tv-filter-tab.active .tv-tab-arrow {
+    transform: rotate(180deg);
+}
+
+.tv-filter-count {
+    background: #334155;
+    border-color: #475569;
+}
+
+.tv-filter-count .tv-tab-name {
+    color: #f59e0b;
+}
+
+.tv-filter-count input[type="number"] {
+    width: 50px;
+    padding: 2px 6px;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-size: 13px;
+    text-align: center;
+}
+
+/* TradingView 风格配置面板 */
+.tv-filter-panel {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.tv-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+}
+
+.tv-panel-back {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0 8px;
+    line-height: 1;
+}
+
+.tv-panel-back:hover {
+    color: #e2e8f0;
+}
+
+.tv-panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.tv-panel-reset {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.tv-panel-reset:hover {
+    color: #e2e8f0;
+}
+
+.tv-panel-content {
+    padding: 16px;
+}
+
+/* TradingView 风格下拉选择器 */
+.tv-select-row {
+    margin-bottom: 12px;
+}
+
+.tv-select-row:last-child {
+    margin-bottom: 0;
+}
+
+.tv-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+
+.tv-select:hover {
+    border-color: #475569;
+}
+
+.tv-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+/* TradingView 风格数字输入 */
+.tv-number-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 14px;
+}
+
+.tv-number-input:hover {
+    border-color: #475569;
+}
+
+.tv-number-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+/* 双输入行（最小值-最大值） */
+.tv-input-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.tv-input-row:last-child {
+    margin-bottom: 0;
+}
+
+.tv-input-group {
+    flex: 1;
+}
+
+.tv-input-label {
+    display: block;
+    color: #94a3b8;
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+/* 浅色模式 */
+body.light-mode .tv-filter-tabs {
+    background: #f1f5f9;
+}
+
+body.light-mode .tv-filter-tab {
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .tv-filter-tab:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+body.light-mode .tv-filter-tab.active {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+body.light-mode .tv-tab-name {
+    color: #1e293b;
+}
+
+body.light-mode .tv-filter-count {
+    background: #fef3c7;
+    border-color: #fcd34d;
+}
+
+body.light-mode .tv-filter-count .tv-tab-name {
+    color: #d97706;
+}
+
+body.light-mode .tv-filter-count input[type="number"] {
+    background: #ffffff;
+    border-color: #fcd34d;
+    color: #1e293b;
+}
+
+body.light-mode .tv-filter-panel {
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .tv-panel-header {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .tv-panel-title {
+    color: #1e293b;
+}
+
+body.light-mode .tv-select,
+body.light-mode .tv-number-input {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    color: #1e293b;
+}
+
+body.light-mode .tv-select:hover,
+body.light-mode .tv-number-input:hover {
+    border-color: #cbd5e1;
+}
+
+body.light-mode .tv-input-label {
+    color: #64748b;
+}
+
+/* 旧的 filter-item 样式保留兼容 */
 .filter-item {
     position: relative;
     display: inline-flex;

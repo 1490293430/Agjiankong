@@ -4,7 +4,253 @@ console.log('[全局] ========== app.js 开始加载 ==========');
 console.log('[全局] 当前时间:', new Date().toISOString());
 console.log('[全局] 页面URL:', window.location.href);
 
-// 筛选项折叠功能
+// ========== TradingView 风格筛选器 ==========
+// 当前打开的筛选器
+let currentTvFilter = null;
+
+// 筛选器配置定义
+const tvFilterConfigs = {
+    'rsi': {
+        title: '相对强弱指标 (RSI)',
+        fields: [
+            { type: 'range', label: '范围', minId: 'filter-rsi-min', maxId: 'filter-rsi-max', min: 0, max: 100, defaultMin: 30, defaultMax: 75 }
+        ]
+    },
+    'volume-ratio': {
+        title: '量比',
+        fields: [
+            { type: 'range', label: '范围', minId: 'filter-volume-ratio-min', maxId: 'filter-volume-ratio-max', min: 0.1, max: 20, step: 0.1, defaultMin: 0.8, defaultMax: 8 }
+        ]
+    },
+    'macd': {
+        title: 'MACD',
+        fields: [
+            { type: 'select', label: '条件', id: 'filter-macd-condition', options: [
+                { value: 'golden', text: '金叉' },
+                { value: 'dead', text: '死叉' },
+                { value: 'above_zero', text: '零上' }
+            ], default: 'golden' }
+        ]
+    },
+    'kdj': {
+        title: 'KDJ',
+        fields: [
+            { type: 'select', label: '条件', id: 'filter-kdj-condition', options: [
+                { value: 'golden', text: '金叉' },
+                { value: 'dead', text: '死叉' },
+                { value: 'oversold', text: '超卖' }
+            ], default: 'golden' }
+        ]
+    },
+    'ma': {
+        title: '移动平均线 (MA)',
+        fields: [
+            { type: 'select', label: '周期', id: 'filter-ma-period', options: [
+                { value: '5', text: '5' },
+                { value: '10', text: '10' },
+                { value: '20', text: '20' },
+                { value: '60', text: '60' }
+            ], default: '20' },
+            { type: 'select', label: '条件', id: 'filter-ma-condition', options: [
+                { value: 'above', text: '上穿' },
+                { value: 'below', text: '下穿' }
+            ], default: 'above' }
+        ]
+    },
+    'ema': {
+        title: '指数移动平均线 (EMA)',
+        fields: [
+            { type: 'select', label: '周期', id: 'filter-ema-period', options: [
+                { value: '12', text: '12' },
+                { value: '26', text: '26' }
+            ], default: '12' },
+            { type: 'select', label: '条件', id: 'filter-ema-condition', options: [
+                { value: 'above', text: '上穿' },
+                { value: 'golden', text: '金叉' }
+            ], default: 'above' }
+        ]
+    },
+    'boll': {
+        title: '布林带 (BOLL)',
+        fields: [
+            { type: 'select', label: '条件', id: 'filter-boll-condition', options: [
+                { value: 'expanding', text: '扩张' },
+                { value: 'above_mid', text: '上穿中轨' },
+                { value: 'near_lower', text: '近下轨' }
+            ], default: 'expanding' }
+        ]
+    },
+    'bias': {
+        title: '乖离率 (BIAS)',
+        fields: [
+            { type: 'range', label: '范围', minId: 'filter-bias-min', maxId: 'filter-bias-max', min: -20, max: 20, step: 0.1, defaultMin: -6, defaultMax: 6 }
+        ]
+    },
+    'adx': {
+        title: '平均趋向指数 (ADX)',
+        fields: [
+            { type: 'number', label: '最小值', id: 'filter-adx-min', min: 0, max: 100, default: 25 }
+        ]
+    },
+    'ichimoku': {
+        title: '一目均衡表',
+        fields: [
+            { type: 'select', label: '条件', id: 'filter-ichimoku-condition', options: [
+                { value: 'above_cloud', text: '云上' },
+                { value: 'below_cloud', text: '云下' },
+                { value: 'tk_cross', text: '转换上穿' }
+            ], default: 'above_cloud' }
+        ]
+    }
+};
+
+// 初始化 TradingView 风格筛选器
+function initTvFilters() {
+    // 绑定标签点击事件
+    document.querySelectorAll('.tv-filter-tab').forEach(tab => {
+        const filterType = tab.getAttribute('data-filter');
+        const arrow = tab.querySelector('.tv-tab-arrow');
+        
+        // 如果有箭头，说明有配置面板
+        if (arrow) {
+            tab.addEventListener('click', (e) => {
+                // 如果点击的是 checkbox，不打开面板
+                if (e.target.type === 'checkbox') return;
+                
+                openTvFilterPanel(filterType);
+            });
+        }
+    });
+    
+    // 点击外部关闭面板
+    document.addEventListener('click', (e) => {
+        const panel = document.getElementById('tv-filter-panel');
+        const tabs = document.querySelector('.tv-filter-tabs');
+        if (panel && panel.style.display !== 'none') {
+            if (!panel.contains(e.target) && !tabs.contains(e.target)) {
+                closeTvFilterPanel();
+            }
+        }
+    });
+    
+    console.log('[TV筛选器] 初始化完成');
+}
+
+// 打开筛选器配置面板
+function openTvFilterPanel(filterType) {
+    const config = tvFilterConfigs[filterType];
+    if (!config) return;
+    
+    currentTvFilter = filterType;
+    
+    // 更新标签状态
+    document.querySelectorAll('.tv-filter-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.getAttribute('data-filter') === filterType) {
+            tab.classList.add('active');
+        }
+    });
+    
+    // 更新面板标题
+    document.getElementById('tv-panel-title').textContent = config.title;
+    
+    // 生成面板内容
+    const contentEl = document.getElementById('tv-panel-content');
+    let html = '';
+    
+    config.fields.forEach(field => {
+        if (field.type === 'select') {
+            const currentValue = document.getElementById(field.id)?.value || field.default;
+            html += `
+                <div class="tv-select-row">
+                    <select class="tv-select" id="${field.id}" onchange="updateTvFilterPreview('${filterType}')">
+                        ${field.options.map(opt => `<option value="${opt.value}" ${opt.value === currentValue ? 'selected' : ''}>${opt.text}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        } else if (field.type === 'range') {
+            const minValue = document.getElementById(field.minId)?.value || field.defaultMin;
+            const maxValue = document.getElementById(field.maxId)?.value || field.defaultMax;
+            html += `
+                <div class="tv-input-row">
+                    <div class="tv-input-group">
+                        <label class="tv-input-label">最小值</label>
+                        <input type="number" class="tv-number-input" id="${field.minId}" 
+                            value="${minValue}" min="${field.min}" max="${field.max}" 
+                            step="${field.step || 1}" onchange="updateTvFilterPreview('${filterType}')">
+                    </div>
+                    <div class="tv-input-group">
+                        <label class="tv-input-label">最大值</label>
+                        <input type="number" class="tv-number-input" id="${field.maxId}" 
+                            value="${maxValue}" min="${field.min}" max="${field.max}" 
+                            step="${field.step || 1}" onchange="updateTvFilterPreview('${filterType}')">
+                    </div>
+                </div>
+            `;
+        } else if (field.type === 'number') {
+            const currentValue = document.getElementById(field.id)?.value || field.default;
+            html += `
+                <div class="tv-select-row">
+                    <label class="tv-input-label">${field.label}</label>
+                    <input type="number" class="tv-number-input" id="${field.id}" 
+                        value="${currentValue}" min="${field.min}" max="${field.max}" 
+                        onchange="updateTvFilterPreview('${filterType}')">
+                </div>
+            `;
+        }
+    });
+    
+    contentEl.innerHTML = html;
+    
+    // 显示面板
+    document.getElementById('tv-filter-panel').style.display = 'block';
+}
+window.openTvFilterPanel = openTvFilterPanel;
+
+// 关闭筛选器配置面板
+function closeTvFilterPanel() {
+    document.getElementById('tv-filter-panel').style.display = 'none';
+    document.querySelectorAll('.tv-filter-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    currentTvFilter = null;
+}
+window.closeTvFilterPanel = closeTvFilterPanel;
+
+// 重置当前筛选器
+function resetTvFilter() {
+    if (!currentTvFilter) return;
+    
+    const config = tvFilterConfigs[currentTvFilter];
+    if (!config) return;
+    
+    config.fields.forEach(field => {
+        if (field.type === 'select') {
+            const el = document.getElementById(field.id);
+            if (el) el.value = field.default;
+        } else if (field.type === 'range') {
+            const minEl = document.getElementById(field.minId);
+            const maxEl = document.getElementById(field.maxId);
+            if (minEl) minEl.value = field.defaultMin;
+            if (maxEl) maxEl.value = field.defaultMax;
+        } else if (field.type === 'number') {
+            const el = document.getElementById(field.id);
+            if (el) el.value = field.default;
+        }
+    });
+    
+    updateTvFilterPreview(currentTvFilter);
+}
+window.resetTvFilter = resetTvFilter;
+
+// 更新筛选器预览（暂时不需要，因为新设计没有预览文本）
+function updateTvFilterPreview(filterType) {
+    // 可以在这里添加预览更新逻辑
+    console.log('[TV筛选器] 更新预览:', filterType);
+}
+window.updateTvFilterPreview = updateTvFilterPreview;
+
+// 旧的筛选项折叠功能（保留兼容）
 function toggleFilterItem(headerEl) {
     const filterItem = headerEl.closest('.filter-item');
     if (!filterItem || filterItem.classList.contains('filter-item-simple')) return;
@@ -1456,6 +1702,7 @@ function startApp() {
         initAI();
         initNews();
         initConfig();
+        initTvFilters(); // 初始化 TradingView 风格筛选器
         console.log('[启动] 准备初始化市场状态模块');
         initMarketStatus();
         
@@ -5694,10 +5941,11 @@ function renderSelectedStocks(stocks, saveToStorage = false) {
     selectedAllStocks = stocks;
     selectedRenderedCount = 0;
     
-    // 渲染第一批数据
-    renderSelectedStocksBatch();
-    
-    console.log(`[选股] 开始分批渲染，总数: ${stocks.length}`);
+    // 渲染第一批数据（使用 requestAnimationFrame 确保 DOM 已更新）
+    requestAnimationFrame(() => {
+        renderSelectedStocksBatch();
+        console.log(`[选股] 开始分批渲染，总数: ${stocks.length}`);
+    });
 }
 
 // 获取启用的筛选指标
@@ -5838,22 +6086,29 @@ function getEnabledFilters() {
 
 // 分批渲染选股结果（无限滚动）
 function renderSelectedStocksBatch() {
-    if (selectedIsLoading) return;
+    if (selectedIsLoading) {
+        console.log('[选股] 正在加载中，跳过渲染');
+        return;
+    }
     
     const container = document.getElementById('selected-stocks-list');
-    if (!container) return;
-    
-    const strategyTab = document.getElementById('strategy-tab');
-    if (!strategyTab || !strategyTab.classList.contains('active')) {
-        return; // 不在选股页，不渲染
+    if (!container) {
+        console.warn('[选股] 找不到 selected-stocks-list 容器');
+        return;
     }
+    
+    // 移除 tab 检查，因为这个函数只在选股完成时调用
+    // 如果用户切换到其他页面，也不影响数据渲染
     
     // 计算本次要渲染的范围
     const start = selectedRenderedCount;
     const end = Math.min(start + selectedPageSize, selectedAllStocks.length);
     const batch = selectedAllStocks.slice(start, end);
     
+    console.log(`[选股] 渲染批次: ${start}-${end}, 共 ${batch.length} 只`);
+    
     if (batch.length === 0) {
+        console.log('[选股] 没有更多数据需要渲染');
         return;
     }
     
@@ -7728,8 +7983,8 @@ async function saveConfig() {
                 openai_model: document.getElementById('cfg-ai-model')?.value?.trim() || null,
                 ai_auto_analyze_time: document.getElementById('cfg-ai-auto-analyze-time')?.value?.trim() || null,
                 ai_data_period: document.querySelector('input[name="cfg-ai-data-period"]:checked')?.value || 'daily',
-                ai_data_count: parseInt(document.getElementById('cfg-ai-data-count')?.value || '500'),
-                ai_batch_size: parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5'),
+                ai_data_count: Math.max(50, parseInt(document.getElementById('cfg-ai-data-count')?.value || '500')),
+                ai_batch_size: Math.max(1, parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5')),
                 ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram')?.checked ?? false,
                 ai_notify_email: document.getElementById('cfg-ai-notify-email')?.checked ?? false,
                 ai_notify_wechat: document.getElementById('cfg-ai-notify-wechat')?.checked ?? false,

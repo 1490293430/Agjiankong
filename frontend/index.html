@@ -310,204 +310,85 @@
                     <span class="selection-config-arrow" id="selection-config-arrow">▶</span>
                 </div>
                 <div class="selection-config-content hidden" id="selection-config-content">
-                    <!-- 筛选标签栏 -->
-                    <div class="filter-bar">
-                        <!-- 仅股票 -->
-                        <div class="filter-item" data-filter="stock-only">
-                            <div class="filter-item-header">
-                                <input type="checkbox" id="filter-stock-only-enable" checked onclick="event.stopPropagation()">
-                                <span class="filter-item-name">📊 仅股票</span>
-                                <span class="filter-item-preview">(排除ETF/指数)</span>
-                            </div>
+                    <!-- TradingView 风格的指标标签栏 -->
+                    <div class="tv-filter-tabs">
+                        <div class="tv-filter-tab" data-filter="stock-only">
+                            <input type="checkbox" id="filter-stock-only-enable" checked>
+                            <span class="tv-tab-name">仅股票</span>
                         </div>
-                        
-                        <!-- RSI -->
-                        <div class="filter-item" data-filter="rsi">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-rsi-enable" checked onclick="event.stopPropagation()">
-                                <span class="filter-item-name">RSI</span>
-                                <span class="filter-item-preview">(30-75)</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>最小值: <input type="number" id="filter-rsi-min" min="0" max="100" value="30"></label>
-                                <label>最大值: <input type="number" id="filter-rsi-max" min="0" max="100" value="75"></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="rsi">
+                            <input type="checkbox" id="filter-rsi-enable" checked>
+                            <span class="tv-tab-name">RSI</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- 量比 -->
-                        <div class="filter-item" data-filter="volume-ratio">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-volume-ratio-enable" checked onclick="event.stopPropagation()">
-                                <span class="filter-item-name">量比</span>
-                                <span class="filter-item-preview">(0.8-8)</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>最小值: <input type="number" id="filter-volume-ratio-min" step="0.1" min="0.1" max="10" value="0.8"></label>
-                                <label>最大值: <input type="number" id="filter-volume-ratio-max" step="0.1" min="1" max="20" value="8"></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="volume-ratio">
+                            <input type="checkbox" id="filter-volume-ratio-enable" checked>
+                            <span class="tv-tab-name">量比</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- MACD -->
-                        <div class="filter-item" data-filter="macd">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-macd-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">MACD</span>
-                                <span class="filter-item-preview">金叉</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>条件: <select id="filter-macd-condition">
-                                    <option value="golden">金叉</option>
-                                    <option value="dead">死叉</option>
-                                    <option value="above_zero">零上</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="macd">
+                            <input type="checkbox" id="filter-macd-enable">
+                            <span class="tv-tab-name">MACD</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- KDJ -->
-                        <div class="filter-item" data-filter="kdj">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-kdj-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">KDJ</span>
-                                <span class="filter-item-preview">金叉</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>条件: <select id="filter-kdj-condition">
-                                    <option value="golden">金叉</option>
-                                    <option value="dead">死叉</option>
-                                    <option value="oversold">超卖</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="kdj">
+                            <input type="checkbox" id="filter-kdj-enable">
+                            <span class="tv-tab-name">KDJ</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- MA -->
-                        <div class="filter-item" data-filter="ma">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-ma-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">MA</span>
-                                <span class="filter-item-preview">20 上穿</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>周期: <select id="filter-ma-period">
-                                    <option value="5">5</option>
-                                    <option value="10">10</option>
-                                    <option value="20" selected>20</option>
-                                    <option value="60">60</option>
-                                </select></label>
-                                <label>条件: <select id="filter-ma-condition">
-                                    <option value="above">上穿</option>
-                                    <option value="below">下穿</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="ma">
+                            <input type="checkbox" id="filter-ma-enable">
+                            <span class="tv-tab-name">MA</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- EMA -->
-                        <div class="filter-item" data-filter="ema">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-ema-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">EMA</span>
-                                <span class="filter-item-preview">12 上穿</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>周期: <select id="filter-ema-period">
-                                    <option value="12" selected>12</option>
-                                    <option value="26">26</option>
-                                </select></label>
-                                <label>条件: <select id="filter-ema-condition">
-                                    <option value="above">上穿</option>
-                                    <option value="golden">金叉</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="ema">
+                            <input type="checkbox" id="filter-ema-enable">
+                            <span class="tv-tab-name">EMA</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- BOLL -->
-                        <div class="filter-item" data-filter="boll">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-boll-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">BOLL</span>
-                                <span class="filter-item-preview">扩张</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>条件: <select id="filter-boll-condition">
-                                    <option value="expanding">扩张</option>
-                                    <option value="above_mid">上穿中轨</option>
-                                    <option value="near_lower">近下轨</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="boll">
+                            <input type="checkbox" id="filter-boll-enable">
+                            <span class="tv-tab-name">BOLL</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- 威廉%R -->
-                        <div class="filter-item filter-item-simple" data-filter="williams">
-                            <div class="filter-item-header">
-                                <input type="checkbox" id="filter-williams-r-enable">
-                                <span class="filter-item-name">威廉%R</span>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="bias">
+                            <input type="checkbox" id="filter-bias-enable">
+                            <span class="tv-tab-name">BIAS</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- 突破高点 -->
-                        <div class="filter-item filter-item-simple" data-filter="break-high">
-                            <div class="filter-item-header">
-                                <input type="checkbox" id="filter-break-high-enable">
-                                <span class="filter-item-name">突破高点</span>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="adx">
+                            <input type="checkbox" id="filter-adx-enable">
+                            <span class="tv-tab-name">ADX</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- BIAS -->
-                        <div class="filter-item" data-filter="bias">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-bias-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">BIAS</span>
-                                <span class="filter-item-preview">(-6~6)</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>最小值: <input type="number" id="filter-bias-min" step="0.1" min="-20" max="20" value="-6"></label>
-                                <label>最大值: <input type="number" id="filter-bias-max" step="0.1" min="-20" max="20" value="6"></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="williams">
+                            <input type="checkbox" id="filter-williams-r-enable">
+                            <span class="tv-tab-name">威廉%R</span>
                         </div>
-                        
-                        <!-- ADX -->
-                        <div class="filter-item" data-filter="adx">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-adx-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">ADX</span>
-                                <span class="filter-item-preview">> 25</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>最小值: <input type="number" id="filter-adx-min" min="0" max="100" value="25"></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="break-high">
+                            <input type="checkbox" id="filter-break-high-enable">
+                            <span class="tv-tab-name">突破高点</span>
                         </div>
-                        
-                        <!-- 一目均衡 -->
-                        <div class="filter-item" data-filter="ichimoku">
-                            <div class="filter-item-header" onclick="toggleFilterItem(this)">
-                                <input type="checkbox" id="filter-ichimoku-enable" onclick="event.stopPropagation()">
-                                <span class="filter-item-name">一目均衡</span>
-                                <span class="filter-item-preview">云上</span>
-                                <span class="filter-item-arrow">▼</span>
-                            </div>
-                            <div class="filter-item-content">
-                                <label>条件: <select id="filter-ichimoku-condition">
-                                    <option value="above_cloud">云上</option>
-                                    <option value="below_cloud">云下</option>
-                                    <option value="tk_cross">转换上穿</option>
-                                </select></label>
-                            </div>
+                        <div class="tv-filter-tab" data-filter="ichimoku">
+                            <input type="checkbox" id="filter-ichimoku-enable">
+                            <span class="tv-tab-name">一目均衡</span>
+                            <span class="tv-tab-arrow">▼</span>
                         </div>
-                        
-                        <!-- 数量 -->
-                        <div class="filter-item filter-item-count">
-                            <div class="filter-item-header">
-                                <span class="filter-item-name">数量</span>
-                                <input type="number" id="selection-max-count" min="5" max="200" value="30">
-                            </div>
+                        <div class="tv-filter-tab tv-filter-count">
+                            <span class="tv-tab-name">数量</span>
+                            <input type="number" id="selection-max-count" min="5" max="200" value="30">
+                        </div>
+                    </div>
+                    
+                    <!-- TradingView 风格的配置面板 -->
+                    <div class="tv-filter-panel" id="tv-filter-panel" style="display: none;">
+                        <div class="tv-panel-header">
+                            <button class="tv-panel-back" onclick="closeTvFilterPanel()">‹</button>
+                            <span class="tv-panel-title" id="tv-panel-title">RSI</span>
+                            <button class="tv-panel-reset" onclick="resetTvFilter()">重设</button>
+                        </div>
+                        <div class="tv-panel-content" id="tv-panel-content">
+                            <!-- 动态填充 -->
                         </div>
                     </div>
                     
@@ -516,8 +397,6 @@
                         <button id="save-selection-config-btn" class="primary-btn" onclick="saveSelectionConfig()">💾 保存配置</button>
                     </div>
                 </div>
-            </div>
-
             <!-- 选股控制区域 -->
             <div class="strategy-controls">
                 <div class="strategy-controls-row">
@@ -600,6 +479,7 @@
                             <label>
                                 行情采集间隔（秒）：
                                 <input type="number" id="cfg-collector-interval" min="5" max="3600" value="60">
+                                <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">5-3600</span>
                             </label>
                         </div>
                         
@@ -608,6 +488,7 @@
                             <label>
                                 K线数据加载年限（年）：
                                 <input type="number" id="cfg-kline-years" min="0.5" max="10" step="0.5" value="1">
+                                <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">0.5-10</span>
                             </label>
                         </div>
                         
@@ -926,14 +807,14 @@
                         <label>
                             K线根数：
                             <input type="number" id="cfg-ai-data-count" min="50" max="1000" step="10" value="500" style="width: 100px; margin-left: 8px;">
-                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">提交给AI的K线数量</span>
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">50-1000，提交给AI的K线数量</span>
                         </label>
                     </div>
                     <div class="config-item">
                         <label>
                             每次分析的股票数：
                             <input type="number" id="cfg-ai-batch-size" min="1" max="1000" step="1" value="5" style="width: 100px; margin-left: 8px;">
-                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">批量分析时，每批合并分析的股票数量（1-1000）</span>
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">1-1000，批量分析时每批合并的股票数</span>
                         </label>
                     </div>
                     <div class="config-item">
@@ -992,7 +873,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251225_13"></script>
+    <script src="/app.js?v=20251225_15"></script>
 </body>
 </html>
 
