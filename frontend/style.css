@@ -966,7 +966,7 @@ body.light-mode .config-select {
     width: 100%;
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
     background: #0f172a;
 }
 
@@ -1891,6 +1891,63 @@ body.light-mode .ai-analysis-table td {
 
 body.light-mode .ai-analysis-table tbody tr:hover {
     background: #e2e8f0;
+}
+
+/* AI分析表格文字样式 */
+.ai-analysis-row {
+    border-bottom: 1px solid #334155;
+}
+
+.ai-stock-code {
+    font-weight: 600;
+    color: #60a5fa;
+    font-size: 13px;
+}
+
+.ai-stock-name {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-top: 2px;
+}
+
+.ai-advice-text {
+    font-size: 12px;
+    color: #cbd5f5;
+    line-height: 1.4;
+    max-width: 200px;
+    word-wrap: break-word;
+}
+
+.ai-reason-text {
+    font-size: 12px;
+    color: #cbd5f5;
+    line-height: 1.4;
+    max-width: 180px;
+}
+
+.ai-empty-text {
+    color: #94a3b8;
+}
+
+body.light-mode .ai-analysis-row {
+    border-bottom: 1px solid #e2e8f0;
+}
+
+body.light-mode .ai-stock-code {
+    color: #1d4ed8;
+}
+
+body.light-mode .ai-stock-name {
+    color: #374151;
+}
+
+body.light-mode .ai-advice-text,
+body.light-mode .ai-reason-text {
+    color: #374151;
+}
+
+body.light-mode .ai-empty-text {
+    color: #6b7280;
 }
 
 /* 桌面端优化 - 确保K线图头部布局正确 */

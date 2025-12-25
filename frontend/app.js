@@ -3406,6 +3406,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             timeVisible: true,
             // 配置时间格式，使用正确的日期格式
             rightOffset: 0,
+            // 确保时间轴文字颜色正确
+            tickMarkFormatter: undefined,
         },
         // 配置本地化选项，修复日期时间显示
         localization: {
@@ -6460,14 +6462,14 @@ async function renderAIAnalysisBatch(items) {
         
         // 交易理由
         const reasonHtml = analysis.reason 
-            ? `<div style="font-size: 12px; color: #cbd5f5; line-height: 1.4; max-width: 180px;">${analysis.reason}</div>`
-            : '<span style="color: #94a3b8;">-</span>';
+            ? `<div class="ai-reason-text">${analysis.reason}</div>`
+            : '<span class="ai-empty-text">-</span>';
         
         return `
-            <tr style="border-bottom: 1px solid #334155;">
+            <tr class="ai-analysis-row">
                 <td style="padding: 8px;">
-                    <div style="font-weight: 600; color: #60a5fa; font-size: 13px;">${item.code}</div>
-                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">${item.name || '-'}</div>
+                    <div class="ai-stock-code">${item.code}</div>
+                    <div class="ai-stock-name">${item.name || '-'}</div>
                 </td>
                 <td style="padding: 8px; text-align: center;">
                     <span style="color: ${signalColor}; font-weight: 600; font-size: 13px;">${signal}</span>
@@ -6491,7 +6493,7 @@ async function renderAIAnalysisBatch(items) {
                     ${winRateHtml}
                 </td>
                 <td style="padding: 8px;">
-                    <div style="font-size: 12px; color: #cbd5f5; line-height: 1.4; max-width: 200px; word-wrap: break-word;">
+                    <div class="ai-advice-text">
                         ${analysis.advice || '暂无建议'}
                     </div>
                 </td>
