@@ -4399,6 +4399,8 @@ body.light-mode .filter-tag-count .filter-tag-name {
 .selection-config-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
     padding-top: 12px;
     margin-top: 8px;
     border-top: 1px solid #334155;
@@ -4418,6 +4420,45 @@ body.light-mode .filter-tag-count .filter-tag-name {
 
 .selection-config-actions .primary-btn:hover {
     background: #2563eb;
+}
+
+.selection-config-actions .secondary-btn {
+    padding: 8px 16px;
+    background: #374151;
+    color: #e5e7eb;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.selection-config-actions .secondary-btn:hover {
+    background: #4b5563;
+    border-color: #6b7280;
+}
+
+.strategy-preset-select {
+    padding: 8px 12px;
+    background: #1e293b;
+    color: #e5e7eb;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 120px;
+    transition: all 0.2s;
+}
+
+.strategy-preset-select:hover {
+    border-color: #3b82f6;
+}
+
+.strategy-preset-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* 亮色模式 - 选股配置 */
@@ -4440,6 +4481,27 @@ body.light-mode .selection-config-header h3 {
 
 body.light-mode .selection-config-actions {
     border-top-color: #e2e8f0;
+}
+
+body.light-mode .selection-config-actions .secondary-btn {
+    background: #f1f5f9;
+    color: #334155;
+    border-color: #cbd5e1;
+}
+
+body.light-mode .selection-config-actions .secondary-btn:hover {
+    background: #e2e8f0;
+    border-color: #94a3b8;
+}
+
+body.light-mode .strategy-preset-select {
+    background: #ffffff;
+    color: #334155;
+    border-color: #cbd5e1;
+}
+
+body.light-mode .strategy-preset-select:hover {
+    border-color: #3b82f6;
 }
 
 

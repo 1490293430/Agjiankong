@@ -579,6 +579,19 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             if filtered_count > 0:
                 logger.info(f"仅股票筛选：过滤掉 {filtered_count} 只 ETF/指数/基金")
         
+        # 如果启用了市值筛选
+        if filter_config.get("market_cap_enable"):
+            before_count = len(valid_stocks)
+            market_cap_min = filter_config.get("market_cap_min", 1) * 100000000  # 转换为元（前端单位是亿）
+            market_cap_max = filter_config.get("market_cap_max", 100000) * 100000000
+            valid_stocks = [
+                s for s in valid_stocks 
+                if market_cap_min <= (s.get("market_cap") or 0) <= market_cap_max
+            ]
+            filtered_count = before_count - len(valid_stocks)
+            if filtered_count > 0:
+                logger.info(f"市值筛选：过滤掉 {filtered_count} 只（范围：{filter_config.get('market_cap_min', 1)}-{filter_config.get('market_cap_max', 100000)}亿）")
+        
         total_stocks = len(valid_stocks)
         logger.info(f"有效股票数：{total_stocks}")
         

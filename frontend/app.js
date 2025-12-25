@@ -56,6 +56,7 @@ function resetFilter(filterType, event) {
     const defaults = {
         'rsi': { min: 30, max: 75 },
         'volume-ratio': { min: 0.8, max: 8 },
+        'market-cap': { min: 1, max: 100000 },
         'macd': { condition: 'golden' },
         'kdj': { condition: 'golden' },
         'ma': { period: '20', condition: 'above' },
@@ -89,6 +90,182 @@ function resetFilter(filterType, event) {
     console.log(`[TV筛选器] 重置 ${filterType}`);
 }
 window.resetFilter = resetFilter;
+
+// 策略预设配置
+const STRATEGY_PRESETS = {
+    // 短期交易（日内/数日）- 捕捉热点和短期强势
+    short: {
+        name: '短期交易',
+        filters: {
+            'stock-only': { enable: true },
+            'volume-ratio': { enable: true, min: 3.0, max: 10.0 },
+            'rsi': { enable: true, min: 50, max: 80 },
+            'ma': { enable: true, period: '5', condition: 'above' },
+            'macd': { enable: true, condition: 'golden' },
+            'kdj': { enable: false },
+            'ema': { enable: false },
+            'boll': { enable: false },
+            'bias': { enable: false },
+            'adx': { enable: false },
+            'williams': { enable: false },
+            'break-high': { enable: true },
+            'ichimoku': { enable: false }
+        }
+    },
+    // 中期波段（数周）- 把握趋势主升浪
+    medium: {
+        name: '中期波段',
+        filters: {
+            'stock-only': { enable: true },
+            'volume-ratio': { enable: true, min: 1.2, max: 5.0 },
+            'rsi': { enable: true, min: 40, max: 70 },
+            'ma': { enable: true, period: '20', condition: 'above' },
+            'macd': { enable: true, condition: 'above_zero' },
+            'kdj': { enable: false },
+            'ema': { enable: false },
+            'boll': { enable: true, condition: 'expanding' },
+            'bias': { enable: false },
+            'adx': { enable: true, min: 25 },
+            'williams': { enable: false },
+            'break-high': { enable: false },
+            'ichimoku': { enable: false }
+        }
+    },
+    // 长期布局（数月）- 筛选底部反转
+    long: {
+        name: '长期布局',
+        filters: {
+            'stock-only': { enable: true },
+            'volume-ratio': { enable: true, min: 0.8, max: 3.0 },
+            'rsi': { enable: true, min: 30, max: 50 },
+            'ma': { enable: true, period: '60', condition: 'above' },
+            'macd': { enable: false },
+            'kdj': { enable: true, condition: 'golden' },
+            'ema': { enable: false },
+            'boll': { enable: false },
+            'bias': { enable: false },
+            'adx': { enable: false },
+            'williams': { enable: true },
+            'break-high': { enable: false },
+            'ichimoku': { enable: true, condition: 'above_cloud' }
+        }
+    }
+};
+
+// 应用策略预设
+function applyStrategyPreset(presetKey) {
+    if (!presetKey) return;
+    
+    const preset = STRATEGY_PRESETS[presetKey];
+    if (!preset) {
+        console.warn(`[策略预设] 未找到预设: ${presetKey}`);
+        return;
+    }
+    
+    console.log(`[策略预设] 应用预设: ${preset.name}`);
+    
+    // 遍历所有筛选器配置
+    for (const [filterType, config] of Object.entries(preset.filters)) {
+        // 跳过"仅股票"和"市值"选项，保持用户当前的勾选状态
+        if (filterType === 'stock-only' || filterType === 'market-cap') {
+            continue;
+        }
+        
+        // 设置启用/禁用状态
+        const enableEl = document.getElementById(`filter-${filterType}-enable`);
+        if (enableEl) {
+            enableEl.checked = config.enable;
+        }
+        
+        // 设置参数值
+        if (config.min !== undefined) {
+            const minEl = document.getElementById(`filter-${filterType}-min`);
+            if (minEl) minEl.value = config.min;
+        }
+        if (config.max !== undefined) {
+            const maxEl = document.getElementById(`filter-${filterType}-max`);
+            if (maxEl) maxEl.value = config.max;
+        }
+        if (config.condition !== undefined) {
+            const condEl = document.getElementById(`filter-${filterType}-condition`);
+            if (condEl) condEl.value = config.condition;
+        }
+        if (config.period !== undefined) {
+            const periodEl = document.getElementById(`filter-${filterType}-period`);
+            if (periodEl) periodEl.value = config.period;
+        }
+    }
+    
+    // 重置下拉框为默认选项
+    const selectEl = document.getElementById('strategy-preset-select');
+    if (selectEl) {
+        selectEl.value = '';
+    }
+    
+    // 更新预览显示
+    if (typeof updateFilterPreviews === 'function') {
+        updateFilterPreviews();
+    }
+    
+    showToast(`已应用「${preset.name}」策略预设`, 'success');
+}
+window.applyStrategyPreset = applyStrategyPreset;
+
+// 重置所有选股配置为默认值
+function resetSelectionConfig() {
+    console.log('[选股配置] 重置为默认值');
+    
+    // 默认配置
+    const defaults = {
+        'stock-only': { enable: true },
+        'market-cap': { enable: false, min: 1, max: 100000 },
+        'volume-ratio': { enable: true, min: 0.8, max: 8 },
+        'rsi': { enable: true, min: 30, max: 75 },
+        'ma': { enable: false, period: '20', condition: 'above' },
+        'macd': { enable: false, condition: 'golden' },
+        'kdj': { enable: false, condition: 'golden' },
+        'ema': { enable: false, period: '12', condition: 'above' },
+        'boll': { enable: false, condition: 'expanding' },
+        'bias': { enable: false, min: -6, max: 6 },
+        'adx': { enable: false, min: 25 },
+        'williams': { enable: false },
+        'break-high': { enable: false },
+        'ichimoku': { enable: false, condition: 'above_cloud' }
+    };
+    
+    // 应用默认配置
+    for (const [filterType, config] of Object.entries(defaults)) {
+        const enableEl = document.getElementById(`filter-${filterType}-enable`);
+        if (enableEl) {
+            enableEl.checked = config.enable;
+        }
+        
+        if (config.min !== undefined) {
+            const minEl = document.getElementById(`filter-${filterType}-min`);
+            if (minEl) minEl.value = config.min;
+        }
+        if (config.max !== undefined) {
+            const maxEl = document.getElementById(`filter-${filterType}-max`);
+            if (maxEl) maxEl.value = config.max;
+        }
+        if (config.condition !== undefined) {
+            const condEl = document.getElementById(`filter-${filterType}-condition`);
+            if (condEl) condEl.value = config.condition;
+        }
+        if (config.period !== undefined) {
+            const periodEl = document.getElementById(`filter-${filterType}-period`);
+            if (periodEl) periodEl.value = config.period;
+        }
+    }
+    
+    // 更新预览显示
+    if (typeof updateFilterPreviews === 'function') {
+        updateFilterPreviews();
+    }
+    
+    showToast('已重置为默认配置', 'success');
+}
+window.resetSelectionConfig = resetSelectionConfig;
 
 // 旧的筛选项折叠功能（保留兼容）
 function toggleFilterItem(headerEl) {
@@ -5160,6 +5337,10 @@ async function runSelection() {
     const filterConfig = {
         // 仅股票（排除ETF/指数）
         stock_only: document.getElementById('filter-stock-only-enable')?.checked || false,
+        // 市值筛选
+        market_cap_enable: document.getElementById('filter-market-cap-enable')?.checked || false,
+        market_cap_min: parseFloat(document.getElementById('filter-market-cap-min')?.value) || 1,
+        market_cap_max: parseFloat(document.getElementById('filter-market-cap-max')?.value) || 100000,
         // 量比
         volume_ratio_enable: document.getElementById('filter-volume-ratio-enable')?.checked || false,
         volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value) || 0.8,

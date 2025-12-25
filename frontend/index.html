@@ -316,6 +316,27 @@
                             <input type="checkbox" id="filter-stock-only-enable" checked>
                             <span class="tv-tab-name">仅股票</span>
                         </div>
+                        <div class="tv-filter-tab has-dropdown" data-filter="market-cap">
+                            <input type="checkbox" id="filter-market-cap-enable">
+                            <span class="tv-tab-name">市值</span>
+                            <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>总市值筛选</span>
+                                    <button type="button" onclick="resetFilter('market-cap', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>最小值(亿)</label>
+                                        <input type="number" id="filter-market-cap-min" value="1" min="0" step="1">
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>最大值(亿)</label>
+                                        <input type="number" id="filter-market-cap-max" value="100000" min="0" step="100">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <div class="tv-filter-tab has-dropdown" data-filter="rsi">
                             <input type="checkbox" id="filter-rsi-enable" checked>
                             <span class="tv-tab-name">RSI</span>
@@ -550,8 +571,15 @@
                         </div>
                     </div>
                     
-                    <!-- 保存按钮 -->
+                    <!-- 操作按钮区域 -->
                     <div class="selection-config-actions">
+                        <select id="strategy-preset-select" class="strategy-preset-select" onchange="applyStrategyPreset(this.value)">
+                            <option value="">📋 策略预设</option>
+                            <option value="short">短期交易</option>
+                            <option value="medium">中期波段</option>
+                            <option value="long">长期布局</option>
+                        </select>
+                        <button id="reset-selection-config-btn" class="secondary-btn" onclick="resetSelectionConfig()">🔄 重置</button>
                         <button id="save-selection-config-btn" class="primary-btn" onclick="saveSelectionConfig()">💾 保存配置</button>
                     </div>
                 </div>

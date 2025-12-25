@@ -466,11 +466,20 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         ema26_series = ema(df, 26)
         result["ema26"] = float(ema26_series.iloc[-1])
     
-    # BIAS乖离率（收盘价与MA20的偏离程度）
-    if len(df) >= 20 and result.get("ma20"):
+    # BIAS乖离率（使用标准的6,12,24周期）
+    if len(df) >= 6:
         current_close = float(latest["close"])
-        ma20_value = result["ma20"]
-        result["bias"] = float((current_close - ma20_value) / ma20_value * 100)
+        ma6_value = float(ma(df, 6).iloc[-1])
+        result["bias6"] = float((current_close - ma6_value) / ma6_value * 100)
+    if len(df) >= 12:
+        current_close = float(latest["close"])
+        ma12_value = float(ma(df, 12).iloc[-1])
+        result["bias12"] = float((current_close - ma12_value) / ma12_value * 100)
+        result["bias"] = result["bias12"]  # 默认使用12日乖离率
+    if len(df) >= 24:
+        current_close = float(latest["close"])
+        ma24_value = float(ma(df, 24).iloc[-1])
+        result["bias24"] = float((current_close - ma24_value) / ma24_value * 100)
     
     # ADX平均趋向指数
     if len(df) >= 28:
