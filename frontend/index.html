@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="/style.css?v=20251225_12">
+    <link rel="stylesheet" href="/style.css?v=20251226_03">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -129,8 +129,10 @@
     <div class="container">
         <!-- 头部导航 -->
         <header class="header">
-            <h1>📈 行情监控</h1>
-            <div class="realtime-clock" id="realtime-clock"></div>
+            <div class="header-title-group">
+                <h1>📈 行情监控</h1>
+                <div id="realtime-clock" class="realtime-clock"></div>
+            </div>
             <div class="nav-tabs">
                 <button class="tab-btn" data-tab="market">行情</button>
                 <button class="tab-btn" data-tab="watchlist">自选</button>
@@ -1122,7 +1124,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251225_27"></script>
+    <script src="/app.js?v=20251226_01"></script>
 </body>
 </html>
 
