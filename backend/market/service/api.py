@@ -69,13 +69,51 @@ def _calculate_stock_heat(stock: Dict[str, Any]) -> float:
     return heat
 
 
+def _apply_sort(data: List[Dict[str, Any]], sort: str) -> List[Dict[str, Any]]:
+    """对行情数据应用排序
+    
+    Args:
+        data: 行情数据列表
+        sort: 排序方式
+            - default: 按热度排序（默认）
+            - pct_desc: 涨跌幅降序
+            - pct_asc: 涨跌幅升序
+            - volume_desc: 成交量降序
+            - amount_desc: 成交额降序
+            - turnover_desc: 换手率降序
+    
+    Returns:
+        排序后的数据列表
+    """
+    if sort == 'pct_desc':
+        data.sort(key=lambda x: float(x.get('pct', 0) or 0), reverse=True)
+    elif sort == 'pct_asc':
+        data.sort(key=lambda x: float(x.get('pct', 0) or 0), reverse=False)
+    elif sort == 'volume_desc':
+        data.sort(key=lambda x: float(x.get('volume', 0) or 0), reverse=True)
+    elif sort == 'amount_desc':
+        data.sort(key=lambda x: float(x.get('amount', 0) or 0), reverse=True)
+    elif sort == 'turnover_desc':
+        data.sort(key=lambda x: float(x.get('turnover', 0) or 0), reverse=True)
+    else:
+        # 默认按热度排序
+        for stock in data:
+            stock['_heat'] = _calculate_stock_heat(stock)
+        data.sort(key=lambda x: x.get('_heat', 0), reverse=True)
+        for stock in data:
+            stock.pop('_heat', None)
+    
+    return data
+
+
 @router.get("/a/spot")
 async def get_a_stock_spot(
     page: int = Query(1, ge=1, description="页码，从1开始"),
     page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500"),
-    stock_only: bool = Query(False, description="是否仅显示股票（排除ETF/指数）")
+    stock_only: bool = Query(False, description="是否仅显示股票（排除ETF/指数）"),
+    sort: str = Query("default", description="排序方式: default/pct_desc/pct_asc/volume_desc/amount_desc/turnover_desc")
 ):
-    """获取A股实时行情（支持分页）"""
+    """获取A股实时行情（支持分页和排序）"""
     try:
         data = get_json("market:a:spot")
         if not data:
@@ -100,17 +138,8 @@ async def get_a_stock_spot(
         if stock_only:
             data = [item for item in data if item.get('sec_type') == 'stock']
         
-        # 按热度排序（最热的排最前）
-        # 为每只股票计算热度值
-        for stock in data:
-            stock['_heat'] = _calculate_stock_heat(stock)
-        
-        # 按热度值降序排序
-        data.sort(key=lambda x: x.get('_heat', 0), reverse=True)
-        
-        # 移除临时热度字段（不返回给前端）
-        for stock in data:
-            stock.pop('_heat', None)
+        # 应用排序（对全量数据排序后再分页）
+        data = _apply_sort(data, sort)
         
         # 分页处理
         total = len(data)
@@ -137,9 +166,11 @@ async def get_a_stock_spot(
 @router.get("/hk/spot")
 async def get_hk_stock_spot(
     page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500")
+    page_size: int = Query(100, ge=1, le=500, description="每页数量，最大500"),
+    stock_only: bool = Query(False, description="是否仅显示股票（排除ETF/指数）"),
+    sort: str = Query("default", description="排序方式: default/pct_desc/pct_asc/volume_desc/amount_desc/turnover_desc")
 ):
-    """获取港股实时行情（支持分页）"""
+    """获取港股实时行情（支持分页和排序）"""
     try:
         data = get_json("market:hk:spot")
         if not data:
@@ -160,17 +191,12 @@ async def get_hk_stock_spot(
             }
         data = _sanitize_spot_data(data)
         
-        # 按热度排序（最热的排最前）
-        # 为每只股票计算热度值
-        for stock in data:
-            stock['_heat'] = _calculate_stock_heat(stock)
+        # 如果启用了"仅显示股票"，先过滤数据
+        if stock_only:
+            data = [item for item in data if item.get('sec_type') == 'stock']
         
-        # 按热度值降序排序
-        data.sort(key=lambda x: x.get('_heat', 0), reverse=True)
-        
-        # 移除临时热度字段（不返回给前端）
-        for stock in data:
-            stock.pop('_heat', None)
+        # 应用排序（对全量数据排序后再分页）
+        data = _apply_sort(data, sort)
         
         # 分页处理
         total = len(data)

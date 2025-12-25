@@ -84,15 +84,12 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
                             skipped_count += 1
                             continue
                 
-                # 获取K线数据
+                # 获取K线数据（只从数据库获取）
                 kline_data = get_kline_from_db(code, None, None, "daily")
                 
                 if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
-                    # 如果数据库没有数据，尝试从数据源获取
-                    kline_data = fetch_kline_func(code, period="daily")
-                    if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
-                        failed_count += 1
-                        continue
+                    failed_count += 1
+                    continue
                 
                 # 转换为DataFrame并计算指标
                 df = pd.DataFrame(kline_data)

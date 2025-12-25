@@ -20,10 +20,10 @@ class RuntimeConfig(BaseModel):
 
     # 选股相关
     selection_max_count: int = Field(
-        default=30, ge=1, le=200, description="每次最多选出的股票数量"
+        default=30, ge=1, le=6000, description="每次最多选出的股票数量"
     )
     selection_market: str = Field(
-        default="A", description="选股市场：A（A股）或HK（港股）"
+        default="A", description="选股市场：A（A股）、HK（港股）或ALL（全部）"
     )
     
     # 筛选策略配置
@@ -253,8 +253,8 @@ class RuntimeConfig(BaseModel):
 class RuntimeConfigUpdate(BaseModel):
     """前端更新配置时使用的部分更新模型"""
 
-    selection_max_count: Optional[int] = Field(default=None, ge=1, le=200)
-    selection_market: Optional[str] = Field(default=None, description="选股市场：A或HK")
+    selection_max_count: Optional[int] = Field(default=None, ge=1, le=6000)
+    selection_market: Optional[str] = Field(default=None, description="选股市场：A、HK或ALL")
     
     # 筛选策略配置
     filter_stock_only: Optional[bool] = None

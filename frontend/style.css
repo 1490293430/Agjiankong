@@ -2652,6 +2652,54 @@ body.light-mode .ai-empty-text {
     flex: 1;
 }
 
+/* 指标统计信息样式 */
+.indicator-stats {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.indicator-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: center;
+}
+
+.indicator-stats-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.indicator-stats-label {
+    color: #94a3b8;
+}
+
+.indicator-stats-value {
+    color: #3b82f6;
+    font-weight: 500;
+}
+
+.indicator-stats-value.warning {
+    color: #f59e0b;
+}
+
+.indicator-stats-value.error {
+    color: #ef4444;
+}
+
+.indicator-stats-missing {
+    color: #ef4444;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.indicator-stats-ok {
+    color: #22c55e;
+    font-size: 12px;
+}
+
 .primary-btn {
     background: #3b82f6;
     color: white;
@@ -2899,6 +2947,27 @@ body.light-mode .selected-stocks-table th {
 body.light-mode .selected-stocks-table td {
     border-bottom-color: #f1f5f9;
     color: #1f2937;
+}
+
+/* 暗色模式下指标统计样式 */
+body:not(.light-mode) .indicator-stats {
+    color: #94a3b8;
+}
+
+body:not(.light-mode) .indicator-stats-label {
+    color: #64748b;
+}
+
+body:not(.light-mode) .indicator-stats-value {
+    color: #60a5fa;
+}
+
+body:not(.light-mode) .indicator-stats-ok {
+    color: #4ade80;
+}
+
+body:not(.light-mode) .indicator-stats-missing {
+    color: #f87171;
 }
 
 body.light-mode .selected-stocks-table tr:hover {
@@ -3927,6 +3996,25 @@ body.light-mode .tv-field select {
     text-align: center;
 }
 
+.tv-filter-market {
+    background: #334155;
+    border-color: #475569;
+}
+
+.tv-filter-market .tv-tab-name {
+    color: #10b981;
+}
+
+.tv-filter-market select {
+    padding: 2px 6px;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-size: 13px;
+    cursor: pointer;
+}
+
 /* TradingView 风格配置面板 */
 .tv-filter-panel {
     background: #0f172a;
@@ -4102,6 +4190,21 @@ body.light-mode .tv-filter-count .tv-tab-name {
 body.light-mode .tv-filter-count input[type="number"] {
     background: #ffffff;
     border-color: #fcd34d;
+    color: #1e293b;
+}
+
+body.light-mode .tv-filter-market {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+}
+
+body.light-mode .tv-filter-market .tv-tab-name {
+    color: #059669;
+}
+
+body.light-mode .tv-filter-market select {
+    background: #ffffff;
+    border-color: #6ee7b7;
     color: #1e293b;
 }
 

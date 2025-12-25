@@ -331,6 +331,7 @@ async function saveSelectionConfig() {
         // 收集所有筛选配置数据
         const config = {
             selection_max_count: parseInt(document.getElementById('selection-max-count')?.value || '30'),
+            selection_market: document.getElementById('selection-market')?.value || 'A',
             // 仅股票
             filter_stock_only: document.getElementById('filter-stock-only-enable')?.checked || false,
             // 市值
@@ -423,15 +424,24 @@ async function loadSelectionConfig() {
         
         const data = await res.json();
         
+        console.log('[选股配置] 从服务器加载配置:', data);
+        
         // 填充选股配置
         const maxCountEl = document.getElementById('selection-max-count');
         if (maxCountEl) maxCountEl.value = data.selection_max_count || 30;
         
-        // 仅股票筛选
-        const stockOnlyEl = document.getElementById('filter-stock-only-enable');
-        if (stockOnlyEl) stockOnlyEl.checked = data.filter_stock_only !== false;
+        // 市场选择 - 默认A股
+        const marketEl = document.getElementById('selection-market');
+        if (marketEl) marketEl.value = data.selection_market || 'A';
         
-        // 市值
+        // 仅股票筛选 - 默认启用
+        const stockOnlyEl = document.getElementById('filter-stock-only-enable');
+        if (stockOnlyEl) {
+            // 如果服务器没有返回这个字段，默认启用
+            stockOnlyEl.checked = data.filter_stock_only === undefined ? true : data.filter_stock_only;
+        }
+        
+        // 市值 - 默认禁用
         const marketCapEnableEl = document.getElementById('filter-market-cap-enable');
         if (marketCapEnableEl) marketCapEnableEl.checked = data.filter_market_cap_enable || false;
         const marketCapMinEl = document.getElementById('filter-market-cap-min');
@@ -439,17 +449,23 @@ async function loadSelectionConfig() {
         const marketCapMaxEl = document.getElementById('filter-market-cap-max');
         if (marketCapMaxEl) marketCapMaxEl.value = data.filter_market_cap_max ?? 100000;
         
-        // 量比
+        // 量比 - 默认启用
         const volumeEnableEl = document.getElementById('filter-volume-ratio-enable');
-        if (volumeEnableEl) volumeEnableEl.checked = data.filter_volume_ratio_enable !== false;
+        if (volumeEnableEl) {
+            // 如果服务器没有返回这个字段，默认启用
+            volumeEnableEl.checked = data.filter_volume_ratio_enable === undefined ? true : data.filter_volume_ratio_enable;
+        }
         const volumeMinEl = document.getElementById('filter-volume-ratio-min');
         if (volumeMinEl) volumeMinEl.value = data.filter_volume_ratio_min ?? 0.8;
         const volumeMaxEl = document.getElementById('filter-volume-ratio-max');
         if (volumeMaxEl) volumeMaxEl.value = data.filter_volume_ratio_max ?? 8;
         
-        // RSI
+        // RSI - 默认启用
         const rsiEnableEl = document.getElementById('filter-rsi-enable');
-        if (rsiEnableEl) rsiEnableEl.checked = data.filter_rsi_enable !== false;
+        if (rsiEnableEl) {
+            // 如果服务器没有返回这个字段，默认启用
+            rsiEnableEl.checked = data.filter_rsi_enable === undefined ? true : data.filter_rsi_enable;
+        }
         const rsiMinEl = document.getElementById('filter-rsi-min');
         if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min ?? 30;
         const rsiMaxEl = document.getElementById('filter-rsi-max');
@@ -534,6 +550,77 @@ async function loadSelectionConfig() {
     }
 }
 window.loadSelectionConfig = loadSelectionConfig;
+
+// 加载指标统计信息
+async function loadIndicatorStats() {
+    const statsEl = document.getElementById('indicator-stats');
+    if (!statsEl) return;
+    
+    try {
+        // 获取当前选择的市场
+        const marketEl = document.getElementById('selection-market');
+        const market = marketEl?.value || 'A';
+        
+        const res = await apiFetch(`${API_BASE}/api/strategy/indicator-stats?market=${market}`);
+        if (!res.ok) {
+            statsEl.innerHTML = '<span style="color: #ef4444; font-size: 13px;">❌ 加载指标统计失败</span>';
+            return;
+        }
+        
+        const result = await res.json();
+        if (result.code !== 0) {
+            statsEl.innerHTML = `<span style="color: #ef4444; font-size: 13px;">❌ ${result.message}</span>`;
+            return;
+        }
+        
+        const data = result.data;
+        
+        // 构建显示内容
+        let html = '<div class="indicator-stats-row">';
+        
+        // 最新计算时间
+        if (data.latest_date) {
+            html += `<span class="indicator-stats-item">
+                <span class="indicator-stats-label">📅 指标日期:</span>
+                <span class="indicator-stats-value">${data.latest_date}</span>
+            </span>`;
+        }
+        
+        if (data.latest_update_time) {
+            html += `<span class="indicator-stats-item">
+                <span class="indicator-stats-label">🕐 更新时间:</span>
+                <span class="indicator-stats-value">${data.latest_update_time}</span>
+            </span>`;
+        }
+        
+        // 覆盖率
+        const coverageClass = data.coverage_rate >= 80 ? '' : (data.coverage_rate >= 50 ? 'warning' : 'error');
+        html += `<span class="indicator-stats-item">
+            <span class="indicator-stats-label">📊 覆盖率:</span>
+            <span class="indicator-stats-value ${coverageClass}">${data.computed_stocks}/${data.total_stocks} (${data.coverage_rate}%)</span>
+        </span>`;
+        
+        html += '</div>';
+        
+        // 缺失指标提示
+        if (data.missing_indicators && data.missing_indicators.length > 0) {
+            html += `<div class="indicator-stats-missing">
+                ⚠️ 缺失指标: ${data.missing_indicators.join(', ')} - 建议运行盘后批量计算
+            </div>`;
+        } else if (data.computed_stocks > 0) {
+            html += `<div class="indicator-stats-ok">✅ 所有指标数据完整</div>`;
+        } else {
+            html += `<div class="indicator-stats-missing">⚠️ 暂无指标数据，请先运行选股或盘后批量计算</div>`;
+        }
+        
+        statsEl.innerHTML = html;
+        
+    } catch (error) {
+        console.error('[指标统计] 加载失败:', error);
+        statsEl.innerHTML = '<span style="color: #ef4444; font-size: 13px;">❌ 加载指标统计失败</span>';
+    }
+}
+window.loadIndicatorStats = loadIndicatorStats;
 
 // 更新筛选项预览显示
 function updateFilterPreviews() {
@@ -1666,17 +1753,20 @@ function handleSelectionProgress(taskId, progressData) {
         }
     }
     
-    // 更新进度文本
+    // 更新进度文本（去掉百分比，只显示处理进度）
     if (progressText) {
-        let text = `${progress || 0}%`;
+        let text = '';
         if (processed !== undefined && total) {
-            text += ` (${processed}/${total})`;
+            text = `${processed}/${total}`;
         }
         if (passed !== undefined) {
             text += ` 通过: ${passed}`;
         }
         if (elapsed_time !== undefined) {
             text += ` - ${typeof elapsed_time === 'number' ? elapsed_time.toFixed(1) : elapsed_time}秒`;
+        }
+        if (!text) {
+            text = status === 'completed' ? '完成' : '处理中...';
         }
         progressText.textContent = text;
     }
@@ -2294,7 +2384,9 @@ async function initMarket() {
             currentSort = tab.getAttribute('data-sort');
             localStorage.setItem('marketSort', currentSort);
             console.log('[行情] 切换排序:', currentSort);
-            applyFilterAndSort();
+            
+            // 切换排序时，重置页码并重新从后端加载数据（后端会对全量数据排序后分页返回）
+            resetAndLoadMarket();
         });
     });
     
@@ -2374,7 +2466,7 @@ function resetAndLoadMarket() {
     hasMore = true;
     allMarketData = []; // 清除所有数据
     window.filteredMarketData = null; // 清除过滤数据
-    document.getElementById('stock-list').innerHTML = '<tr><td colspan="6" class="loading">加载中...</td></tr>';
+    document.getElementById('stock-list').innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
     loadMarket();
 }
 
@@ -2436,26 +2528,7 @@ async function loadMarket() {
     
     console.log('[行情] 开始加载, currentPage=', currentPage, ', hasMore=', hasMore);
     
-    // 如果有排序，尝试从本地数据加载（后端已处理 stock_only 过滤）
-    if (currentSort !== 'default' && window.filteredMarketData && currentPage > 1) {
-        console.log(`[行情] 排序模式，尝试从本地排序数据加载第${currentPage}页`);
-        isLoading = true;
-        
-        const startIndex = (currentPage - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const nextPageData = window.filteredMarketData.slice(startIndex, endIndex);
-        
-        if (nextPageData.length > 0) {
-            appendStockList(nextPageData);
-            hasMore = endIndex < window.filteredMarketData.length;
-            if (hasMore) {
-                currentPage++;
-            }
-            isLoading = false;
-            return;
-        }
-        isLoading = false;
-    }
+    // 排序由后端处理，不再使用本地排序数据
     
     // 行情页每次都刷新，不再检查是否已有数据
     // 但如果当前正在加载中，跳过重复请求（已在函数开头检查isLoading）
@@ -2472,12 +2545,12 @@ async function loadMarket() {
     
     // 如果是第一页，显示加载提示
     if (currentPage === 1) {
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">加载中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
     } else {
         // 追加加载提示
         const loadingRow = document.createElement('tr');
         loadingRow.id = 'loading-indicator';
-        loadingRow.innerHTML = '<td colspan="6" class="loading">加载更多...</td>';
+        loadingRow.innerHTML = '<td colspan="8" class="loading">加载更多...</td>';
         tbody.appendChild(loadingRow);
     }
     
@@ -2488,9 +2561,10 @@ async function loadMarket() {
             controller.abort('Request timeout after 10 seconds');
         }, 10000); // 10秒超时
         
-        console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}, stockOnly=${filterStockOnly}`);
+        console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}, stockOnly=${filterStockOnly}, sort=${currentSort}`);
         const stockOnlyParam = filterStockOnly ? '&stock_only=true' : '';
-        const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}${stockOnlyParam}`, {
+        const sortParam = currentSort ? `&sort=${currentSort}` : '';
+        const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}${stockOnlyParam}${sortParam}`, {
             signal: controller.signal
         });
         
@@ -2521,7 +2595,7 @@ async function loadMarket() {
         if (result.code === 0) {
             if (currentPage === 1) {
                 tbody.innerHTML = '';
-                // 第一页时保存所有数据（用于前端排序）
+                // 第一页时保存数据
                 allMarketData = result.data || [];
             } else {
                 // 追加数据
@@ -2529,19 +2603,8 @@ async function loadMarket() {
             }
             
                 if (result.data && result.data.length > 0) {
-                // 后端已经处理了 stock_only 过滤，前端只需要处理排序
-                if (currentSort !== 'default') {
-                    // 有排序时，重新应用排序
-                    if (currentPage === 1) {
-                        applyFilterAndSort();
-                    } else {
-                        // 后续页直接追加（后端已排序）
-                        appendStockList(result.data);
-                    }
-                } else {
-                    // 无排序，直接追加数据（后端已处理 stock_only 过滤）
-                    appendStockList(result.data);
-                }
+                // 后端已经处理了排序和过滤，直接追加数据
+                appendStockList(result.data);
                 
                 // 如果是第一页且首次加载，连接SSE实时推送
                 if (currentPage === 1) {
@@ -2602,37 +2665,29 @@ async function loadMarket() {
                     console.log(`[行情] 无分页信息，根据数据量判断: 返回${result.data.length}条, pageSize=${pageSize}, hasMore=${hasMore}`);
                     if (hasMore) {
                         currentPage++;
-                        console.log(`[行情] ✅ 还有更多原始数据，下一页=${currentPage}`);
+                        console.log(`[行情] ✅ 还有更多数据，下一页=${currentPage}`);
                     } else {
-                        console.log(`[行情] ⚠️ 原始数据已全部加载，返回数据量=${result.data.length}, pageSize=${pageSize}`);
-                    }
-                }
-                
-                // 如果启用了排序，检查排序后的数据
-                if (currentSort !== 'default') {
-                    if (window.filteredMarketData) {
-                        const filteredCount = window.filteredMarketData.length;
-                        console.log(`[行情] 排序后数据: ${filteredCount}条`);
+                        console.log(`[行情] ⚠️ 数据已全部加载，返回数据量=${result.data.length}, pageSize=${pageSize}`);
                     }
                 }
                 
                 // 如果没有更多数据，显示提示
                 if (!hasMore && currentPage > 1) {
                     const endRow = document.createElement('tr');
-                    endRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
+                    endRow.innerHTML = '<td colspan="8" style="text-align: center; padding: 20px; color: #94a3b8;">已加载全部数据</td>';
                     tbody.appendChild(endRow);
                 }
             } else {
                 // 数据为空
                 if (currentPage === 1) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8;">暂无数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #94a3b8;">暂无数据</td></tr>';
                 }
                 hasMore = false;
             }
         } else {
             // API返回错误
             if (currentPage === 1) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #ef4444;">加载失败: ${result.message || '未知错误'}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 20px; color: #ef4444;">加载失败: ${result.message || '未知错误'}</td></tr>`;
             }
             hasMore = false;
         }
@@ -2661,7 +2716,7 @@ async function loadMarket() {
             } else {
                 errorMsg = '网络错误，请检查网络连接';
             }
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #ef4444;">${errorMsg}<br/><button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">刷新页面</button></td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 20px; color: #ef4444;">${errorMsg}<br/><button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">刷新页面</button></td></tr>`;
         }
         hasMore = false;
     } finally {
@@ -2676,7 +2731,7 @@ async function loadMarket() {
 function appendStockList(stocks) {
     const tbody = document.getElementById('stock-list');
     if (stocks.length === 0 && tbody.children.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="loading">暂无数据</td></tr>';
         return;
     }
     
@@ -2696,6 +2751,8 @@ function appendStockList(stocks) {
                 ${stock.pct?.toFixed(2) || '-'}%
             </td>
             <td>${formatVolume(stock.volume)}</td>
+            <td>${formatAmount(stock.amount)}</td>
+            <td>${stock.turnover ? stock.turnover.toFixed(2) + '%' : '-'}</td>
             <td>
                 <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: ${isInWatchlist ? 'not-allowed' : 'pointer'}; ${isInWatchlist ? 'opacity: 0.6; pointer-events: none;' : 'opacity: 1; pointer-events: auto;'}" ${isInWatchlist ? 'disabled' : ''}>${isInWatchlist ? '已添加' : '加入自选'}</button>
             </td>
@@ -5365,6 +5422,14 @@ function initSelectionConfig() {
     // ADX变化时更新预览
     const adxMinInput = document.getElementById('filter-adx-min');
     if (adxMinInput) adxMinInput.addEventListener('change', updateFilterPreviews);
+    
+    // 市场选择变化时刷新指标统计
+    const marketSelect = document.getElementById('selection-market');
+    if (marketSelect) {
+        marketSelect.addEventListener('change', () => {
+            loadIndicatorStats();
+        });
+    }
 }
 
 // 选股模块
@@ -5379,6 +5444,9 @@ function initStrategy() {
     
     // 从服务器加载选股配置（持久化配置）
     loadSelectionConfig();
+    
+    // 加载指标统计信息
+    loadIndicatorStats();
     
     // 从服务器加载选股结果
     loadSelectedStocks();
@@ -5494,9 +5562,20 @@ function initStrategy() {
 
 async function runSelection() {
     const selectBtn = document.getElementById('select-btn');
-    const market = 'A'; // 默认A股
+    const market = document.getElementById('selection-market')?.value || 'A'; // 从选择器获取市场
     const maxCount = parseInt(document.getElementById('selection-max-count')?.value) || 30;
     const container = document.getElementById('selected-stocks');
+    
+    // 调试：检查checkbox元素是否存在
+    const stockOnlyEl = document.getElementById('filter-stock-only-enable');
+    const rsiEnableEl = document.getElementById('filter-rsi-enable');
+    const volumeRatioEnableEl = document.getElementById('filter-volume-ratio-enable');
+    
+    console.log('[选股调试] checkbox元素检查:', {
+        stockOnlyEl: stockOnlyEl ? `存在, checked=${stockOnlyEl.checked}` : '不存在',
+        rsiEnableEl: rsiEnableEl ? `存在, checked=${rsiEnableEl.checked}` : '不存在',
+        volumeRatioEnableEl: volumeRatioEnableEl ? `存在, checked=${volumeRatioEnableEl.checked}` : '不存在'
+    });
     
     // 收集筛选配置
     const filterConfig = {
@@ -5545,9 +5624,18 @@ async function runSelection() {
         // 一目均衡表
         ichimoku_enable: document.getElementById('filter-ichimoku-enable')?.checked || false,
         ichimoku_condition: document.getElementById('filter-ichimoku-condition')?.value || 'above_cloud',
+        // CCI
+        cci_enable: document.getElementById('filter-cci-enable')?.checked || false,
+        cci_min: parseFloat(document.getElementById('filter-cci-min')?.value) || -100,
+        cci_max: parseFloat(document.getElementById('filter-cci-max')?.value) || 100,
     };
     
-    console.log('筛选配置:', filterConfig);
+    // 调试：显示启用的筛选条件
+    const enabledFilters = Object.entries(filterConfig)
+        .filter(([key, value]) => key.endsWith('_enable') && value === true)
+        .map(([key]) => key.replace('_enable', ''));
+    console.log('[选股调试] 启用的筛选条件:', enabledFilters);
+    console.log('[选股调试] 完整筛选配置:', filterConfig);
     
     // 禁用选股按钮，显示加载状态
     if (selectBtn) {
@@ -5583,7 +5671,7 @@ async function runSelection() {
             statusEl.textContent = '正在初始化选股引擎...';
             statusEl.className = 'selection-status running';
         }
-        if (progressText) progressText.textContent = '0%';
+        if (progressText) progressText.textContent = '';
     }
     
     // 显示加载状态
@@ -6138,6 +6226,23 @@ function renderSelectedStocks(stocks, saveToStorage = false) {
 function getEnabledFilters() {
     const filters = [];
     
+    // 市值
+    if (document.getElementById('filter-market-cap-enable')?.checked) {
+        filters.push({
+            id: 'market-cap',
+            label: '市值',
+            getValue: (stock) => {
+                const cap = stock.market_cap;
+                if (!cap) return '-';
+                // 转换为亿
+                const capYi = cap / 100000000;
+                if (capYi >= 10000) return (capYi / 10000).toFixed(1) + '万亿';
+                if (capYi >= 1) return capYi.toFixed(0) + '亿';
+                return (capYi * 10000).toFixed(0) + '万';
+            }
+        });
+    }
+    
     // 量比
     if (document.getElementById('filter-volume-ratio-enable')?.checked) {
         filters.push({
@@ -6510,6 +6615,12 @@ function initAI() {
     const statsBtn = document.getElementById('ai-stats-btn');
     if (statsBtn) {
         statsBtn.addEventListener('click', loadStockStatistics);
+    }
+    
+    // 下载AI数据按钮
+    const previewBtn = document.getElementById('ai-preview-btn');
+    if (previewBtn) {
+        previewBtn.addEventListener('click', downloadAIPreviewData);
     }
 
     // 初始化时加载历史AI分析结果
@@ -7039,6 +7150,64 @@ async function loadAIAnalysisHistory() {
         console.warn('加载历史AI分析结果失败:', e);
     }
 }
+
+// 下载AI请求历史记录（最近10次）
+async function downloadAIPreviewData() {
+    const btn = document.getElementById('ai-preview-btn');
+    const originalText = btn?.innerHTML;
+    if (btn) {
+        btn.innerHTML = '⏳ 获取中...';
+        btn.disabled = true;
+    }
+    
+    try {
+        const res = await apiFetch(`${API_BASE}/api/ai/request-history`);
+        const result = await res.json();
+        
+        if (result.code !== 0) {
+            showToast(`获取AI历史失败: ${result.message}`, 'error');
+            return;
+        }
+        
+        const history = result.data;
+        
+        if (!history || history.length === 0) {
+            showToast('暂无AI请求历史记录，请先进行AI分析', 'warning');
+            return;
+        }
+        
+        // 构建下载内容
+        const content = {
+            _说明: '这是最近10次AI分析的完整请求数据，包括提示词和AI响应',
+            导出时间: new Date().toISOString(),
+            记录数量: history.length,
+            历史记录: history,
+        };
+        
+        // 创建下载
+        const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `ai_request_history_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showToast(`AI请求历史已下载（${history.length}条记录）`, 'success');
+        
+    } catch (e) {
+        console.error('下载AI历史失败:', e);
+        showToast(`下载AI历史失败: ${e.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+}
+window.downloadAIPreviewData = downloadAIPreviewData;
 
 // 清除所有AI分析结果
 async function clearAIAnalysis() {

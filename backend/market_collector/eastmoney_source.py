@@ -121,7 +121,7 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
             logger.info(f"[东方财富] 港股总数: {total}，需要 {pages} 页")
             
             # 并发请求各页数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
                 futures = {
                     executor.submit(_fetch_eastmoney_hk_page, page, page_size): page 
                     for page in range(1, pages + 1)

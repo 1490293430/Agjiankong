@@ -15,6 +15,40 @@ from common.config import settings
 
 logger = get_logger(__name__)
 
+# AI请求历史记录（保留最近10次）
+AI_REQUEST_HISTORY_KEY = "ai:request:history"
+MAX_REQUEST_HISTORY = 10
+
+
+def _save_ai_request_history(request_data: Dict[str, Any]):
+    """保存AI请求数据到Redis（保留最近10次）"""
+    try:
+        from common.redis import get_json, set_json
+        
+        history = get_json(AI_REQUEST_HISTORY_KEY) or []
+        
+        # 添加新记录
+        history.insert(0, request_data)
+        
+        # 只保留最近10次
+        if len(history) > MAX_REQUEST_HISTORY:
+            history = history[:MAX_REQUEST_HISTORY]
+        
+        set_json(AI_REQUEST_HISTORY_KEY, history)
+        logger.debug(f"AI请求历史已保存，当前共{len(history)}条记录")
+    except Exception as e:
+        logger.warning(f"保存AI请求历史失败: {e}")
+
+
+def get_ai_request_history() -> List[Dict[str, Any]]:
+    """获取AI请求历史记录"""
+    try:
+        from common.redis import get_json
+        return get_json(AI_REQUEST_HISTORY_KEY) or []
+    except Exception as e:
+        logger.warning(f"获取AI请求历史失败: {e}")
+        return []
+
 
 def validate_trading_signals(signal_data: Dict[str, Any], dynamic_params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """更严格的交易信号验证逻辑
@@ -428,6 +462,29 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             .get("content", "")
             .strip()
         )
+        
+        # 记录AI请求历史
+        _save_ai_request_history({
+            "timestamp": datetime.now().isoformat(),
+            "type": "single",
+            "stock": {
+                "code": stock.get("code", ""),
+                "name": stock.get("name", ""),
+                "price": stock.get("price", 0),
+                "pct": stock.get("pct", 0),
+            },
+            "indicators": indicators,
+            "dynamic_params": dynamic_params,
+            "request": {
+                "url": url,
+                "model": ai_cfg["model"],
+                "temperature": payload["temperature"],
+                "prompt_length": len(full_prompt),
+            },
+            "prompt": full_prompt,
+            "response": content,
+            "include_trading_points": include_trading_points,
+        })
 
         parsed: Dict[str, Any]
         try:
@@ -612,6 +669,34 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
             .get("content", "")
             .strip()
         )
+        
+        # 记录AI请求历史（批量分析）
+        stocks_summary = [
+            {
+                "code": stock.get("code", ""),
+                "name": stock.get("name", ""),
+                "price": stock.get("price", 0),
+                "pct": stock.get("pct", 0),
+            }
+            for stock, indicators, news in stocks_data
+        ]
+        _save_ai_request_history({
+            "timestamp": datetime.now().isoformat(),
+            "type": "batch",
+            "stocks_count": len(stocks_data),
+            "stocks": stocks_summary,
+            "indicators_sample": stocks_data[0][1] if stocks_data else {},  # 只保存第一只股票的指标作为样本
+            "dynamic_params": dynamic_params,
+            "request": {
+                "url": url,
+                "model": ai_cfg["model"],
+                "temperature": payload["temperature"],
+                "prompt_length": len(prompt),
+            },
+            "prompt": prompt,
+            "response": content,
+            "include_trading_points": include_trading_points,
+        })
         
         # 解析JSON数组
         try:

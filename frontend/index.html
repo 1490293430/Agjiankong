@@ -213,11 +213,13 @@
                             <th>最新价</th>
                             <th>涨跌幅</th>
                             <th>成交量</th>
+                            <th>成交额</th>
+                            <th>换手率</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="stock-list">
-                        <tr><td colspan="6" class="loading">加载中...</td></tr>
+                        <tr><td colspan="8" class="loading">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -588,7 +590,15 @@
                         </div>
                         <div class="tv-filter-tab tv-filter-count">
                             <span class="tv-tab-name">数量</span>
-                            <input type="number" id="selection-max-count" min="5" max="200" value="30">
+                            <input type="number" id="selection-max-count" min="5" max="6000" value="30">
+                        </div>
+                        <div class="tv-filter-tab tv-filter-market">
+                            <span class="tv-tab-name">市场</span>
+                            <select id="selection-market">
+                                <option value="A" selected>A股</option>
+                                <option value="HK">港股</option>
+                                <option value="ALL">全部</option>
+                            </select>
                         </div>
                     </div>
                     
@@ -608,9 +618,18 @@
             
             <!-- 选股控制区域 -->
             <div class="strategy-controls">
-                <div class="strategy-controls-row">
-                    <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>
-                    <button id="select-btn" class="primary-btn">🎯 开始选股</button>
+                <div class="strategy-controls-row" style="justify-content: flex-end; align-items: flex-start;">
+                    <!-- 左侧：指标统计信息 -->
+                    <div id="indicator-stats" class="indicator-stats" style="flex: 1; margin-right: 16px;">
+                        <div class="indicator-stats-loading">
+                            <span style="color: #94a3b8; font-size: 13px;">📊 加载指标统计中...</span>
+                        </div>
+                    </div>
+                    <!-- 右侧：操作按钮 -->
+                    <div style="display: flex; gap: 12px; flex-shrink: 0; margin-left: auto;">
+                        <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>
+                        <button id="select-btn" class="primary-btn">🎯 开始选股</button>
+                    </div>
                 </div>
                 <!-- 选股进度显示 -->
                 <div id="selection-progress-container" class="selection-progress-container" style="display: none;">
@@ -644,6 +663,9 @@
                         </label>
                     </div>
                     <button id="analyze-btn">开始分析</button>
+                    <button id="ai-preview-btn" style="margin-left: 12px; padding: 8px 16px; background:#10b981; border:none; border-radius:6px; color:white; cursor:pointer;" title="下载提交给AI的完整数据（包括提示词）">
+                        📥 下载AI数据
+                    </button>
                     <button id="ai-stats-btn" style="margin-left: 12px; padding: 8px 16px; background:#3b82f6; border:none; border-radius:6px; color:white; cursor:pointer;">
                         查看胜率统计
                     </button>
@@ -1099,7 +1121,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251225_24"></script>
+    <script src="/app.js?v=20251225_27"></script>
 </body>
 </html>
 

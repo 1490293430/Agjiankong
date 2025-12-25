@@ -1250,6 +1250,28 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                 logger.info("[实时行情] 尝试使用 AKShare(东方财富) 数据源...")
                 result = fetch_a_stock_spot(max_retries=1)
                 if result and len(result) > 0:
+                    # AKShare可能没有市值数据，尝试从东方财富补充
+                    has_market_cap = any(s.get("market_cap") for s in result[:100])
+                    if not has_market_cap:
+                        try:
+                            from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
+                            logger.info("[实时行情] 从东方财富补充市值数据...")
+                            eastmoney_data = fetch_eastmoney_a_stock_spot(max_retries=1)
+                            if eastmoney_data:
+                                market_cap_map = {str(s.get("code", "")): s.get("market_cap", 0) for s in eastmoney_data if s.get("market_cap")}
+                                circulating_cap_map = {str(s.get("code", "")): s.get("circulating_market_cap", 0) for s in eastmoney_data if s.get("circulating_market_cap")}
+                                pe_map = {str(s.get("code", "")): s.get("pe", 0) for s in eastmoney_data if s.get("pe")}
+                                for stock in result:
+                                    code = str(stock.get("code", ""))
+                                    if code in market_cap_map:
+                                        stock["market_cap"] = market_cap_map[code]
+                                    if code in circulating_cap_map:
+                                        stock["circulating_market_cap"] = circulating_cap_map[code]
+                                    if code in pe_map:
+                                        stock["pe"] = pe_map[code]
+                                logger.info(f"[实时行情] 市值数据补充完成，{len(market_cap_map)}只股票有市值")
+                        except Exception as e:
+                            logger.warning(f"[实时行情] 补充市值数据失败（不影响主数据）: {e}")
                     logger.info(f"[实时行情] AKShare 获取成功: {len(result)}只股票")
                     return result, "AKShare(东方财富)"
                     
@@ -1258,6 +1280,29 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                 from market_collector.sina_source import fetch_sina_stock_spot
                 result = fetch_sina_stock_spot(max_retries=1)
                 if result and len(result) > 0:
+                    # 新浪财经没有市值数据，尝试从东方财富补充
+                    try:
+                        from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
+                        logger.info("[实时行情] 从东方财富补充市值数据...")
+                        eastmoney_data = fetch_eastmoney_a_stock_spot(max_retries=1)
+                        if eastmoney_data:
+                            # 构建市值映射
+                            market_cap_map = {str(s.get("code", "")): s.get("market_cap", 0) for s in eastmoney_data if s.get("market_cap")}
+                            circulating_cap_map = {str(s.get("code", "")): s.get("circulating_market_cap", 0) for s in eastmoney_data if s.get("circulating_market_cap")}
+                            pe_map = {str(s.get("code", "")): s.get("pe", 0) for s in eastmoney_data if s.get("pe")}
+                            # 补充到结果中
+                            for stock in result:
+                                code = str(stock.get("code", ""))
+                                if code in market_cap_map:
+                                    stock["market_cap"] = market_cap_map[code]
+                                if code in circulating_cap_map:
+                                    stock["circulating_market_cap"] = circulating_cap_map[code]
+                                if code in pe_map:
+                                    stock["pe"] = pe_map[code]
+                            logger.info(f"[实时行情] 市值数据补充完成，{len(market_cap_map)}只股票有市值")
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 补充市值数据失败（不影响主数据）: {e}")
+                    
                     # 保存到Redis
                     _save_spot_to_redis(result, "A")
                     logger.info(f"[实时行情] 新浪财经 获取成功: {len(result)}只股票")
@@ -1268,6 +1313,29 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                 from market_collector.easyquotation_source import fetch_easyquotation_stock_spot
                 result = fetch_easyquotation_stock_spot(max_retries=1)
                 if result and len(result) > 0:
+                    # Easyquotation没有市值数据，尝试从东方财富补充
+                    try:
+                        from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
+                        logger.info("[实时行情] 从东方财富补充市值数据...")
+                        eastmoney_data = fetch_eastmoney_a_stock_spot(max_retries=1)
+                        if eastmoney_data:
+                            # 构建市值映射
+                            market_cap_map = {str(s.get("code", "")): s.get("market_cap", 0) for s in eastmoney_data if s.get("market_cap")}
+                            circulating_cap_map = {str(s.get("code", "")): s.get("circulating_market_cap", 0) for s in eastmoney_data if s.get("circulating_market_cap")}
+                            pe_map = {str(s.get("code", "")): s.get("pe", 0) for s in eastmoney_data if s.get("pe")}
+                            # 补充到结果中
+                            for stock in result:
+                                code = str(stock.get("code", ""))
+                                if code in market_cap_map:
+                                    stock["market_cap"] = market_cap_map[code]
+                                if code in circulating_cap_map:
+                                    stock["circulating_market_cap"] = circulating_cap_map[code]
+                                if code in pe_map:
+                                    stock["pe"] = pe_map[code]
+                            logger.info(f"[实时行情] 市值数据补充完成，{len(market_cap_map)}只股票有市值")
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 补充市值数据失败（不影响主数据）: {e}")
+                    
                     # 保存到Redis
                     _save_spot_to_redis(result, "A")
                     logger.info(f"[实时行情] Easyquotation 获取成功: {len(result)}只股票")

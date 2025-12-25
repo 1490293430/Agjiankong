@@ -515,6 +515,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         from market_collector.hk import fetch_hk_stock_kline
         from common.db import batch_get_indicators, save_indicator, get_stock_list_from_db, get_stock_name_map
         from market.indicator.ta import calculate_all_indicators
+        from common.redis import get_json
         import time
         import math
         
@@ -528,12 +529,27 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             market = cfg.selection_market
         
         # 从ClickHouse获取股票列表
-        all_stocks = get_stock_list_from_db(market.upper())
+        market_upper = market.upper()
+        all_stocks = []
         
-        if market.upper() == "HK":
-            fetch_kline_func = fetch_hk_stock_kline
+        if market_upper == "ALL":
+            # 获取A股和港股
+            a_stocks = get_stock_list_from_db("A")
+            hk_stocks = get_stock_list_from_db("HK")
+            # 标记市场来源
+            for s in a_stocks:
+                s["_market"] = "A"
+            for s in hk_stocks:
+                s["_market"] = "HK"
+            all_stocks = a_stocks + hk_stocks
+            fetch_kline_func = fetch_a_stock_kline  # 默认用A股K线函数，后面会根据_market判断
+            logger.info(f"全市场选股：A股{len(a_stocks)}只，港股{len(hk_stocks)}只")
         else:
-            fetch_kline_func = fetch_a_stock_kline
+            all_stocks = get_stock_list_from_db(market_upper)
+            if market_upper == "HK":
+                fetch_kline_func = fetch_hk_stock_kline
+            else:
+                fetch_kline_func = fetch_a_stock_kline
         
         if not all_stocks:
             return {
@@ -543,8 +559,40 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 "task_id": task_id
             }
         
+        # 从Redis获取快照数据，补充市值信息
+        if market_upper == "ALL":
+            # 获取A股和港股的快照数据
+            a_spot = get_json("market:a:spot") or []
+            hk_spot = get_json("market:hk:spot") or []
+            spot_data = a_spot + hk_spot
+        else:
+            redis_key = f"market:{market.lower()}:spot"
+            spot_data = get_json(redis_key) or []
+        
+        if spot_data:
+            # 构建市值映射
+            market_cap_map = {}
+            for s in spot_data:
+                code = str(s.get("code", ""))
+                if code and s.get("market_cap"):
+                    market_cap_map[code] = s.get("market_cap", 0)
+            
+            # 补充市值到股票列表
+            if market_cap_map:
+                for stock in all_stocks:
+                    code = str(stock.get("code", ""))
+                    if code in market_cap_map:
+                        stock["market_cap"] = market_cap_map[code]
+                logger.info(f"从Redis补充市值数据：{len(market_cap_map)}只股票有市值")
+        
         # 获取股票名称映射
-        stock_name_map = get_stock_name_map(market.upper())
+        if market_upper == "ALL":
+            a_name_map = get_stock_name_map("A")
+            hk_name_map = get_stock_name_map("HK")
+            stock_name_map = {**a_name_map, **hk_name_map} if a_name_map or hk_name_map else {}
+        else:
+            stock_name_map = get_stock_name_map(market_upper)
+        
         if stock_name_map:
             for stock in all_stocks:
                 code = str(stock.get("code", ""))
@@ -584,13 +632,16 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             before_count = len(valid_stocks)
             market_cap_min = filter_config.get("market_cap_min", 1) * 100000000  # 转换为元（前端单位是亿）
             market_cap_max = filter_config.get("market_cap_max", 100000) * 100000000
+            # 只过滤有市值数据的股票，没有市值数据的股票保留（不参与市值筛选）
             valid_stocks = [
                 s for s in valid_stocks 
-                if market_cap_min <= (s.get("market_cap") or 0) <= market_cap_max
+                if s.get("market_cap") is None or market_cap_min <= s.get("market_cap", 0) <= market_cap_max
             ]
             filtered_count = before_count - len(valid_stocks)
             if filtered_count > 0:
                 logger.info(f"市值筛选：过滤掉 {filtered_count} 只（范围：{filter_config.get('market_cap_min', 1)}-{filter_config.get('market_cap_max', 100000)}亿）")
+            else:
+                logger.info(f"市值筛选：无市值数据，跳过筛选")
         
         total_stocks = len(valid_stocks)
         logger.info(f"有效股票数：{total_stocks}")
@@ -598,6 +649,10 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         # 解析启用的筛选指标（只用勾选的，不使用默认指标）
         enabled_filters = []
         filter_names = []
+        
+        # 调试日志：显示收到的筛选配置
+        logger.info(f"[选股调试] 收到的筛选配置: {filter_config}")
+        logger.info(f"[选股调试] stock_only={filter_config.get('stock_only')}, rsi_enable={filter_config.get('rsi_enable')}, volume_ratio_enable={filter_config.get('volume_ratio_enable')}")
         
         # 按计算复杂度排序：简单的先筛选
         if filter_config.get("volume_ratio_enable"):
@@ -636,11 +691,29 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         if filter_config.get("ichimoku_enable"):
             enabled_filters.append(("ichimoku", filter_config))
             filter_names.append("一目均衡")
+        if filter_config.get("cci_enable"):
+            enabled_filters.append(("cci", filter_config))
+            filter_names.append("CCI")
         
         if not enabled_filters:
             # 没有启用任何筛选，返回全部股票（按成交额排序）
             sorted_stocks = sorted(valid_stocks, key=lambda x: x.get("amount", 0) or 0, reverse=True)
             selected = sorted_stocks[:max_count]
+            
+            # 清理NaN值，避免JSON序列化错误
+            def clean_nan_values(obj):
+                if isinstance(obj, dict):
+                    return {k: clean_nan_values(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [clean_nan_values(item) for item in obj]
+                elif isinstance(obj, float):
+                    if math.isnan(obj) or math.isinf(obj):
+                        return None
+                    return obj
+                return obj
+            
+            selected = clean_nan_values(selected)
+            
             save_selected_stocks(selected, market.upper())
             _broadcast_selection_progress(task_id, {
                 "status": "completed",
@@ -759,6 +832,115 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         passed_stocks = valid_stocks.copy()
         indicators_map = dict(cached_indicators)  # 复制缓存的指标
         
+        # 检查是否需要EMA、BIAS、ADX、CCI、一目均衡等高级指标
+        # 这些指标不在数据库缓存中，需要实时计算
+        advanced_filters = {"ema", "bias", "adx", "ichimoku", "cci"}
+        need_advanced = any(f[0] in advanced_filters for f in enabled_filters)
+        
+        if need_advanced:
+            logger.info(f"检测到高级指标筛选，需要实时计算EMA/BIAS/ADX/CCI/一目均衡...")
+            
+            # 找出所有需要计算高级指标的股票：
+            # 1. 没有缓存的股票
+            # 2. 有缓存但缺少高级指标的股票
+            codes_need_recalc = []
+            for stock in valid_stocks:
+                code = str(stock.get("code", ""))
+                indicators = indicators_map.get(code, {})
+                # 检查是否缺少高级指标（没有缓存或缓存中没有高级指标）
+                if not indicators or not indicators.get("ema12") or not indicators.get("bias") or not indicators.get("adx") or not indicators.get("cci") or not indicators.get("ichimoku_tenkan"):
+                    codes_need_recalc.append(code)
+            
+            logger.info(f"需要计算高级指标的股票：{len(codes_need_recalc)}只（总有效股票：{len(valid_stocks)}只，已缓存：{len(indicators_map)}只）")
+            
+            if codes_need_recalc:
+                _broadcast_selection_progress(task_id, {
+                    "status": "running",
+                    "stage": "computing",
+                    "message": f"计算高级指标中，共{len(codes_need_recalc)}只股票需要计算...",
+                    "progress": 4,
+                    "total": total_stocks,
+                    "missing_count": len(codes_need_recalc)
+                })
+                
+                recalc_count = 0
+                recalc_failed = 0
+                
+                # 根据市场类型选择正确的K线获取函数
+                def get_kline_func_for_code(code):
+                    """根据股票代码获取对应的K线函数"""
+                    # 检查股票的市场类型
+                    for stock in valid_stocks:
+                        if str(stock.get("code", "")) == code:
+                            stock_market = stock.get("_market", market_upper)
+                            if stock_market == "HK":
+                                return fetch_hk_stock_kline
+                            else:
+                                return fetch_a_stock_kline
+                    return fetch_kline_func
+                
+                def recalc_indicator(code):
+                    """重新计算单只股票的完整指标并保存到数据库"""
+                    try:
+                        from common.db import get_kline_from_db, save_indicator
+                        from datetime import datetime
+                        
+                        # 只从数据库获取K线数据
+                        kline_data = get_kline_from_db(code, None, None, "daily")
+                        
+                        if not kline_data or len(kline_data) < 20:
+                            return (code, None)
+                        df = pd.DataFrame(kline_data)
+                        indicators = calculate_all_indicators(df)
+                        
+                        if indicators:
+                            # 保存到数据库，下次就不用重新计算了
+                            today = datetime.now().strftime("%Y-%m-%d")
+                            # 判断市场类型
+                            stock_market = "A"
+                            for stock in valid_stocks:
+                                if str(stock.get("code", "")) == code:
+                                    stock_market = stock.get("_market", market_upper)
+                                    break
+                            save_indicator(code, stock_market, today, indicators)
+                        
+                        return (code, indicators)
+                    except Exception as e:
+                        logger.debug(f"重新计算指标失败 {code}: {e}")
+                        return (code, None)
+                
+                # 并发重新计算
+                max_workers = min(30, len(codes_need_recalc))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(recalc_indicator, code): code for code in codes_need_recalc}
+                    
+                    processed_count = 0
+                    for future in concurrent.futures.as_completed(futures, timeout=300):  # 增加超时到5分钟
+                        try:
+                            code, indicators = future.result(timeout=30)
+                            if indicators:
+                                indicators_map[code] = indicators
+                                recalc_count += 1
+                            else:
+                                recalc_failed += 1
+                        except Exception:
+                            recalc_failed += 1
+                        
+                        processed_count += 1
+                        # 每处理100只更新一次进度
+                        if processed_count % 100 == 0:
+                            _broadcast_selection_progress(task_id, {
+                                "status": "running",
+                                "stage": "computing",
+                                "message": f"计算高级指标中... {processed_count}/{len(codes_need_recalc)}，成功{recalc_count}只",
+                                "progress": 4 + int((processed_count / len(codes_need_recalc)) * 5),
+                                "total": total_stocks,
+                                "computed": recalc_count,
+                                "failed": recalc_failed
+                            })
+                
+                logger.info(f"高级指标计算完成：成功{recalc_count}只，失败{recalc_failed}只")
+        
         # 初始化进度
         _broadcast_selection_progress(task_id, {
             "status": "running",
@@ -794,12 +976,17 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             new_passed = []
             processed = 0
             
+            missing_indicator_count = 0
             for stock in passed_stocks:
                 code = str(stock.get("code", ""))
                 current_price = stock.get("price", 0)
                 
                 # 获取指标（已在预计算阶段准备好）
                 indicators = indicators_map.get(code, {})
+                
+                # 统计缺少指标的股票数量
+                if not indicators:
+                    missing_indicator_count += 1
                 
                 # 根据指标类型筛选
                 passed = _check_single_filter(filter_type, filter_config, stock, indicators, current_price)
@@ -826,7 +1013,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                     })
             
             passed_stocks = new_passed
-            logger.info(f"【{current_filter_name}】筛选完成，剩余{len(passed_stocks)}只")
+            logger.info(f"【{current_filter_name}】筛选完成，剩余{len(passed_stocks)}只（{missing_indicator_count}只缺少指标数据）")
             
             # 如果没有股票通过，提前结束
             if not passed_stocks:
@@ -872,6 +1059,20 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         
         # 保存结果
         save_selected_stocks(selected, market.upper())
+        
+        # 清理NaN值，避免JSON序列化错误
+        def clean_nan(obj):
+            if isinstance(obj, dict):
+                return {k: clean_nan(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_nan(item) for item in obj]
+            elif isinstance(obj, float):
+                if math.isnan(obj) or math.isinf(obj):
+                    return None
+                return obj
+            return obj
+        
+        selected = clean_nan(selected)
         
         total_time = time.time() - start_time
         failed_count = len(failed_codes) if failed_codes else 0
@@ -949,14 +1150,18 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
         condition = config.get("ema_condition", "above")
         ema_key = f"ema{period}"
         ema_value = indicators.get(ema_key)
-        if not ema_value:
+        if ema_value is None:
+            # 调试：记录缺失EMA的情况
+            logger.debug(f"EMA筛选：股票缺少{ema_key}指标，可用指标: {list(indicators.keys())[:10]}")
             return False
         if condition == "above":
             return current_price > ema_value
         elif condition == "golden":
             ema12 = indicators.get("ema12")
             ema26 = indicators.get("ema26")
-            return ema12 and ema26 and ema12 > ema26
+            if ema12 is None or ema26 is None:
+                return False
+            return ema12 > ema26
         return True
     
     elif filter_type == "macd":
@@ -994,6 +1199,7 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
     elif filter_type == "bias":
         bias = indicators.get("bias")
         if bias is None:
+            logger.debug(f"BIAS筛选：股票缺少bias指标，可用指标: {list(indicators.keys())[:10]}")
             return False
         min_val = config.get("bias_min", -6)
         max_val = config.get("bias_max", 6)
@@ -1020,6 +1226,7 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
     elif filter_type == "adx":
         adx = indicators.get("adx")
         if adx is None:
+            logger.debug(f"ADX筛选：股票缺少adx指标，可用指标: {list(indicators.keys())[:10]}")
             return False
         min_val = config.get("adx_min", 25)
         return adx >= min_val
@@ -1029,13 +1236,40 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
         senkou_a = indicators.get("ichimoku_senkou_a")
         senkou_b = indicators.get("ichimoku_senkou_b")
         if senkou_a is None or senkou_b is None:
+            logger.debug(f"一目均衡筛选：股票缺少ichimoku指标，可用指标: {list(indicators.keys())[:10]}")
             return False
         cloud_top = max(senkou_a, senkou_b)
         if condition == "above_cloud":
             return current_price > cloud_top
         return True
     
+    elif filter_type == "cci":
+        cci = indicators.get("cci")
+        if cci is None:
+            logger.debug(f"CCI筛选：股票缺少cci指标，可用指标: {list(indicators.keys())[:10]}")
+            return False
+        min_val = config.get("cci_min", -100)
+        max_val = config.get("cci_max", 100)
+        return min_val <= cci <= max_val
+    
     return True
+
+
+@api_router.get("/strategy/indicator-stats")
+async def get_indicator_stats_api(
+    market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（全部）")
+):
+    """获取指标计算统计信息
+    
+    返回指标的最新计算时间、覆盖率等信息
+    """
+    try:
+        from common.db import get_indicator_stats
+        stats = get_indicator_stats(market.upper())
+        return {"code": 0, "data": stats, "message": "success"}
+    except Exception as e:
+        logger.error(f"获取指标统计失败: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": str(e)}
 
 
 @api_router.get("/strategy/selected")
@@ -1202,6 +1436,130 @@ async def analyze_stock_api(
     except Exception as e:
         logger.error(f"分析股票失败 {code}: {e}", exc_info=True)
         return {"code": 1, "data": {}, "message": str(e)}
+
+
+@api_router.get("/ai/preview-data/{code}")
+async def preview_ai_data_api(
+    code: str,
+    multi_timeframe: bool = Query(
+        True,
+        description="是否启用多周期分析（日线+小时线）",
+    ),
+):
+    """预览提交给AI的完整数据（包括提示词）
+    
+    用于调试和验证AI分析的输入数据
+    """
+    try:
+        from ai.prompt import build_stock_analysis_prompt
+        from ai.parameter_optimizer import get_dynamic_parameters
+        from datetime import datetime
+        
+        # 获取配置
+        from common.runtime_config import get_runtime_config
+        config = get_runtime_config()
+        ai_period = config.ai_data_period or "daily"
+        ai_count = config.ai_data_count or 500
+        
+        # 获取股票行情
+        a_stocks = get_json("market:a:spot") or []
+        stock = next((s for s in a_stocks if str(s.get("code", "")) == code), None)
+        
+        if not stock:
+            return {"code": 1, "data": {}, "message": "股票不存在"}
+        
+        # 获取K线数据
+        kline_data = fetch_a_stock_kline(code, period=ai_period)
+        if not kline_data:
+            return {"code": 1, "data": {}, "message": "K线数据不足"}
+        
+        # 记录原始K线数量
+        original_kline_count = len(kline_data)
+        
+        # 限制数据数量为配置的根数（取最新的N根）
+        if len(kline_data) > ai_count:
+            kline_data = kline_data[-ai_count:]
+        
+        actual_kline_count = len(kline_data)
+        
+        if actual_kline_count < 20:
+            return {"code": 1, "data": {}, "message": f"K线数据不足（当前{actual_kline_count}根，需要至少20根）"}
+        
+        df = pd.DataFrame(kline_data)
+        
+        # 多周期分析
+        hourly_kline_count = 0
+        if multi_timeframe:
+            hourly_kline = fetch_a_stock_kline(code, period="1h")
+            hourly_df = None
+            if hourly_kline and len(hourly_kline) >= 20:
+                hourly_kline_count = len(hourly_kline)
+                if len(hourly_kline) > ai_count:
+                    hourly_kline = hourly_kline[-ai_count:]
+                hourly_df = pd.DataFrame(hourly_kline)
+            
+            indicators = calculate_multi_timeframe_indicators(df, hourly_df)
+            single_indicators = calculate_all_indicators(df)
+            for key, value in single_indicators.items():
+                if key not in indicators:
+                    indicators[key] = value
+        else:
+            indicators = calculate_all_indicators(df)
+        
+        # 获取动态参数
+        dynamic_params = get_dynamic_parameters(indicators)
+        
+        # 构建提示词
+        prompt = build_stock_analysis_prompt(
+            stock, indicators, None,
+            include_trading_points=True,
+            dynamic_params=dynamic_params
+        )
+        
+        # 构建返回数据
+        result = {
+            "generated_at": datetime.now().isoformat(),
+            "config": {
+                "ai_data_period": ai_period,
+                "ai_data_count": ai_count,
+                "multi_timeframe": multi_timeframe,
+            },
+            "kline_info": {
+                "original_count": original_kline_count,
+                "actual_count": actual_kline_count,
+                "hourly_count": hourly_kline_count,
+                "period": ai_period,
+                "date_range": {
+                    "start": kline_data[0].get("date") if kline_data else None,
+                    "end": kline_data[-1].get("date") if kline_data else None,
+                }
+            },
+            "stock": stock,
+            "indicators": indicators,
+            "dynamic_params": dynamic_params,
+            "prompt": prompt,
+            "prompt_length": len(prompt),
+        }
+        
+        return {"code": 0, "data": result, "message": "success"}
+    except Exception as e:
+        logger.error(f"预览AI数据失败 {code}: {e}", exc_info=True)
+        return {"code": 1, "data": {}, "message": str(e)}
+
+
+@api_router.get("/ai/request-history")
+async def get_ai_request_history_api():
+    """获取AI请求历史记录（最近10次）
+    
+    返回每次AI分析时发送的完整数据，包括提示词和AI响应
+    """
+    try:
+        from ai.analyzer import get_ai_request_history
+        history = get_ai_request_history()
+        return {"code": 0, "data": history, "message": "success"}
+    except Exception as e:
+        logger.error(f"获取AI请求历史失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
 
 
 class AiAnalyzeBatchRequest(BaseModel):
@@ -1940,7 +2298,7 @@ async def collect_spot_data_api(
                     
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(collect_a_stock)
-                        for _ in range(36):  # 3分钟超时
+                        for _ in range(60):  # 5分钟超时
                             if spot_collect_stop_flags.get(task_id, False):
                                 future.cancel()
                                 raise Exception("用户停止采集")
@@ -1950,7 +2308,7 @@ async def collect_spot_data_api(
                             except concurrent.futures.TimeoutError:
                                 continue
                         else:
-                            logger.error("[实时快照] A股采集超时（3分钟）")
+                            logger.error("[实时快照] A股采集超时（5分钟）")
                 
                 elif collect_hk:
                     # 只采集港股
