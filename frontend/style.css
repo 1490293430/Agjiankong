@@ -3743,9 +3743,11 @@ body.light-mode .status-text {
     background: #1e293b;
     border-radius: 8px;
     margin-bottom: 12px;
+    overflow: visible;
 }
 
 .tv-filter-tab {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -3796,19 +3798,23 @@ body.light-mode .status-text {
 .tv-dropdown {
     display: none;
     position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    min-width: 200px;
+    top: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 220px;
     background: #1e293b;
     border: 1px solid #334155;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    z-index: 100;
+    z-index: 1000;
 }
 
 .tv-filter-tab.has-dropdown.expanded .tv-dropdown {
     display: block;
+}
+
+.tv-filter-tab.has-dropdown.expanded .tv-tab-arrow {
+    transform: rotate(180deg);
 }
 
 .tv-dropdown-header {
