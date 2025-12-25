@@ -4148,53 +4148,11 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         window.chartResizeHandler = handleResize;
         window.addEventListener('resize', handleResize);
         
-        // 添加垂直移动功能：Shift + 鼠标滚轮可以垂直移动价格轴
-        // 鼠标滚轮事件：Shift + 滚轮 = 垂直移动价格轴，普通滚轮 = 水平移动时间轴
-        const handleWheel = (e) => {
-            // 使用 e.shiftKey 检测 Shift 键，更可靠
-            if (!chart || !e.shiftKey) return;
-            
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const priceScale = chart.priceScale('right');
-            if (!priceScale) return;
-            
-            // 获取当前价格范围
-            const visibleRange = priceScale.getVisibleRange();
-            if (!visibleRange) return;
-            
-            // 计算移动距离（根据滚轮方向）
-            const delta = e.deltaY > 0 ? 0.1 : -0.1; // 每次移动10%的价格范围
-            const priceRange = visibleRange.to - visibleRange.from;
-            const moveAmount = priceRange * delta;
-            
-            // 计算新的价格范围
-            let newFrom = visibleRange.from + moveAmount;
-            let newTo = visibleRange.to + moveAmount;
-            
-            // 限制最小值不能低于-300
-            if (newFrom < -300) {
-                const adjustment = -300 - newFrom;
-                newFrom = -300;
-                newTo = newTo + adjustment;
-            }
-            
-            // 更新价格范围
-            priceScale.setVisibleRange({
-                from: newFrom,
-                to: newTo,
-            });
-        };
-        
-        container.addEventListener('wheel', handleWheel, { passive: false });
-        
         // 保存事件处理器，以便后续清理
         if (!window.chartEventHandlers) {
             window.chartEventHandlers = {};
         }
         window.chartEventHandlers[container.id] = {
-            wheel: handleWheel,
             resize: handleResize,
         };
         
