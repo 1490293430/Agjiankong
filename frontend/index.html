@@ -316,50 +316,204 @@
                             <input type="checkbox" id="filter-stock-only-enable" checked>
                             <span class="tv-tab-name">仅股票</span>
                         </div>
-                        <div class="tv-filter-tab" data-filter="rsi">
+                        <div class="tv-filter-tab has-dropdown" data-filter="rsi">
                             <input type="checkbox" id="filter-rsi-enable" checked>
                             <span class="tv-tab-name">RSI</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>相对强弱指标 (RSI)</span>
+                                    <button type="button" onclick="resetFilter('rsi', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>最小值</label>
+                                        <input type="number" id="filter-rsi-min" value="30" min="0" max="100">
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>最大值</label>
+                                        <input type="number" id="filter-rsi-max" value="75" min="0" max="100">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="volume-ratio">
+                        <div class="tv-filter-tab has-dropdown" data-filter="volume-ratio">
                             <input type="checkbox" id="filter-volume-ratio-enable" checked>
                             <span class="tv-tab-name">量比</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>量比</span>
+                                    <button type="button" onclick="resetFilter('volume-ratio', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>最小值</label>
+                                        <input type="number" id="filter-volume-ratio-min" value="0.8" step="0.1">
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>最大值</label>
+                                        <input type="number" id="filter-volume-ratio-max" value="8" step="0.1">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="macd">
+                        <div class="tv-filter-tab has-dropdown" data-filter="macd">
                             <input type="checkbox" id="filter-macd-enable">
                             <span class="tv-tab-name">MACD</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>MACD</span>
+                                    <button type="button" onclick="resetFilter('macd', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field full">
+                                        <label>条件</label>
+                                        <select id="filter-macd-condition">
+                                            <option value="golden">金叉</option>
+                                            <option value="dead">死叉</option>
+                                            <option value="above_zero">零上</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="kdj">
+                        <div class="tv-filter-tab has-dropdown" data-filter="kdj">
                             <input type="checkbox" id="filter-kdj-enable">
                             <span class="tv-tab-name">KDJ</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>KDJ</span>
+                                    <button type="button" onclick="resetFilter('kdj', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field full">
+                                        <label>条件</label>
+                                        <select id="filter-kdj-condition">
+                                            <option value="golden">金叉</option>
+                                            <option value="dead">死叉</option>
+                                            <option value="oversold">超卖</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="ma">
+                        <div class="tv-filter-tab has-dropdown" data-filter="ma">
                             <input type="checkbox" id="filter-ma-enable">
                             <span class="tv-tab-name">MA</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>移动平均线 (MA)</span>
+                                    <button type="button" onclick="resetFilter('ma', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>周期</label>
+                                        <select id="filter-ma-period">
+                                            <option value="5">5</option>
+                                            <option value="10">10</option>
+                                            <option value="20" selected>20</option>
+                                            <option value="60">60</option>
+                                        </select>
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>条件</label>
+                                        <select id="filter-ma-condition">
+                                            <option value="above">上穿</option>
+                                            <option value="below">下穿</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="ema">
+                        <div class="tv-filter-tab has-dropdown" data-filter="ema">
                             <input type="checkbox" id="filter-ema-enable">
                             <span class="tv-tab-name">EMA</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>指数移动平均线 (EMA)</span>
+                                    <button type="button" onclick="resetFilter('ema', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>周期</label>
+                                        <select id="filter-ema-period">
+                                            <option value="12" selected>12</option>
+                                            <option value="26">26</option>
+                                        </select>
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>条件</label>
+                                        <select id="filter-ema-condition">
+                                            <option value="above">上穿</option>
+                                            <option value="golden">金叉</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="boll">
+                        <div class="tv-filter-tab has-dropdown" data-filter="boll">
                             <input type="checkbox" id="filter-boll-enable">
                             <span class="tv-tab-name">BOLL</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>布林带 (BOLL)</span>
+                                    <button type="button" onclick="resetFilter('boll', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field full">
+                                        <label>条件</label>
+                                        <select id="filter-boll-condition">
+                                            <option value="expanding">扩张</option>
+                                            <option value="above_mid">上穿中轨</option>
+                                            <option value="near_lower">近下轨</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="bias">
+                        <div class="tv-filter-tab has-dropdown" data-filter="bias">
                             <input type="checkbox" id="filter-bias-enable">
                             <span class="tv-tab-name">BIAS</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>乖离率 (BIAS)</span>
+                                    <button type="button" onclick="resetFilter('bias', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>最小值</label>
+                                        <input type="number" id="filter-bias-min" value="-6" step="0.1">
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>最大值</label>
+                                        <input type="number" id="filter-bias-max" value="6" step="0.1">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="tv-filter-tab" data-filter="adx">
+                        <div class="tv-filter-tab has-dropdown" data-filter="adx">
                             <input type="checkbox" id="filter-adx-enable">
                             <span class="tv-tab-name">ADX</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>平均趋向指数 (ADX)</span>
+                                    <button type="button" onclick="resetFilter('adx', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field full">
+                                        <label>最小值</label>
+                                        <input type="number" id="filter-adx-min" value="25" min="0" max="100">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="tv-filter-tab" data-filter="williams">
                             <input type="checkbox" id="filter-williams-r-enable">
@@ -369,26 +523,30 @@
                             <input type="checkbox" id="filter-break-high-enable">
                             <span class="tv-tab-name">突破高点</span>
                         </div>
-                        <div class="tv-filter-tab" data-filter="ichimoku">
+                        <div class="tv-filter-tab has-dropdown" data-filter="ichimoku">
                             <input type="checkbox" id="filter-ichimoku-enable">
                             <span class="tv-tab-name">一目均衡</span>
                             <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>一目均衡表</span>
+                                    <button type="button" onclick="resetFilter('ichimoku', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field full">
+                                        <label>条件</label>
+                                        <select id="filter-ichimoku-condition">
+                                            <option value="above_cloud">云上</option>
+                                            <option value="below_cloud">云下</option>
+                                            <option value="tk_cross">转换上穿</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="tv-filter-tab tv-filter-count">
                             <span class="tv-tab-name">数量</span>
                             <input type="number" id="selection-max-count" min="5" max="200" value="30">
-                        </div>
-                    </div>
-                    
-                    <!-- TradingView 风格的配置面板 -->
-                    <div class="tv-filter-panel" id="tv-filter-panel" style="display: none;">
-                        <div class="tv-panel-header">
-                            <button class="tv-panel-back" onclick="closeTvFilterPanel()">‹</button>
-                            <span class="tv-panel-title" id="tv-panel-title">RSI</span>
-                            <button class="tv-panel-reset" onclick="resetTvFilter()">重设</button>
-                        </div>
-                        <div class="tv-panel-content" id="tv-panel-content">
-                            <!-- 动态填充 -->
                         </div>
                     </div>
                     
@@ -397,6 +555,8 @@
                         <button id="save-selection-config-btn" class="primary-btn" onclick="saveSelectionConfig()">💾 保存配置</button>
                     </div>
                 </div>
+            </div>
+            
             <!-- 选股控制区域 -->
             <div class="strategy-controls">
                 <div class="strategy-controls-row">
@@ -873,7 +1033,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251225_16"></script>
+    <script src="/app.js?v=20251225_17"></script>
 </body>
 </html>
 
