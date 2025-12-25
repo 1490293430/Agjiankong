@@ -1176,11 +1176,9 @@ function handleSpotCollectResult(data) {
     
     // 数据源（显示A股和港股数据源）
     if (sourceEl) {
-        let sourceText = source || '未知';
-        if (hkSource && hkCount > 0) {
-            sourceText = `A:${source || '未知'} H:${hkSource}`;
-        }
-        sourceEl.textContent = sourceText;
+        const aSourceText = source || '未知';
+        const hkSourceText = hkSource || '未知';
+        sourceEl.textContent = `A:${aSourceText} H:${hkSourceText}`;
     }
     
     console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), A股源=${source}, 港股源=${hkSource}`);
@@ -1648,15 +1646,22 @@ function switchToTab(targetTab, addHistory = true) {
         // 切换到选股页时，加载选股结果
         if (targetTab === 'strategy') {
             console.log('[选股] 切换到选股页');
-            // 如果选股结果为空，尝试从 localStorage 加载
+            // 如果选股结果为空，从服务器加载
             if (!selectedAllStocks || selectedAllStocks.length === 0) {
-                const savedResults = loadSelectionResults();
-                if (savedResults && savedResults.length > 0) {
-                    console.log('[选股] 从 localStorage 恢复选股结果');
-                    renderSelectedStocks(savedResults, false);
-                } else {
-                    // 尝试从服务器加载
-                    loadLastSelectionResult();
+                loadSelectedStocks();
+            }
+        }
+        
+        // 切换到AI分析页时，从服务器加载历史分析结果
+        if (targetTab === 'ai') {
+            console.log('[AI] 切换到AI分析页');
+            // 检查是否已有数据，如果没有则从服务器加载
+            const container = document.getElementById('ai-analysis-result');
+            if (container) {
+                const hasData = container.querySelector('.ai-analysis-table') || 
+                               container.querySelector('.ai-analysis-content');
+                if (!hasData) {
+                    loadAIAnalysisHistory();
                 }
             }
         }
@@ -4930,12 +4935,8 @@ function initStrategy() {
     // 从服务器加载选股配置（持久化配置）
     loadSelectionConfig();
     
-    // 加载保存的选股结果
-    const savedResults = loadSelectionResults();
-    if (savedResults && savedResults.length > 0) {
-        console.log('[选股] 恢复上次选股结果');
-        renderSelectedStocks(savedResults, false); // false 表示不重复保存
-    }
+    // 从服务器加载选股结果
+    loadSelectedStocks();
     
     // 配置按钮事件
     const resetConfigBtn = document.getElementById('reset-config-btn');
@@ -5578,15 +5579,7 @@ async function stopKlineCollect() {
 async function loadSelectedStocks() {
     const container = document.getElementById('selected-stocks');
     
-    // 优先从 localStorage 加载
-    const savedResults = loadSelectionResults();
-    if (savedResults && savedResults.length > 0) {
-        renderSelectedStocks(savedResults, false);
-        showToast(`已加载本地保存的选股结果（${savedResults.length}只）`, 'success');
-        return;
-    }
-    
-    // 如果本地没有，从服务器加载
+    // 从服务器加载
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
     
     try {
@@ -5604,8 +5597,8 @@ async function loadSelectedStocks() {
         if (result.code === 0 && result.data) {
             const data = result.data;
             if (data.stocks && data.stocks.length > 0) {
-                renderSelectedStocks(data.stocks);
-                showToast(`已加载上次选股结果（${data.market}股，${data.count}只）`, 'success');
+                renderSelectedStocks(data.stocks, false);
+                console.log(`[选股] 从服务器加载选股结果: ${data.market}股，${data.count}只`);
             } else {
                 container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">暂无保存的选股结果</div>';
             }
@@ -5629,39 +5622,7 @@ let selectedRenderedCount = 0; // 已渲染的数量
 let selectedPageSize = 20; // 每批渲染的数量
 let selectedIsLoading = false; // 是否正在加载
 
-// 保存选股结果到 localStorage
-function saveSelectionResults(stocks) {
-    try {
-        const data = {
-            stocks: stocks,
-            timestamp: Date.now()
-        };
-        localStorage.setItem('selectionResults', JSON.stringify(data));
-        console.log('[选股] 结果已保存到本地存储，共', stocks.length, '只');
-    } catch (e) {
-        console.warn('[选股] 保存结果失败:', e);
-    }
-}
-
-// 从 localStorage 加载选股结果
-function loadSelectionResults() {
-    try {
-        const saved = localStorage.getItem('selectionResults');
-        if (saved) {
-            const data = JSON.parse(saved);
-            // 检查数据是否有效
-            if (data.stocks && data.stocks.length > 0) {
-                console.log('[选股] 从本地存储加载结果，共', data.stocks.length, '只');
-                return data.stocks;
-            }
-        }
-    } catch (e) {
-        console.warn('[选股] 加载结果失败:', e);
-    }
-    return null;
-}
-
-function renderSelectedStocks(stocks, saveToStorage = true) {
+function renderSelectedStocks(stocks, saveToStorage = false) {
     const container = document.getElementById('selected-stocks');
     
     if (stocks.length === 0) {
@@ -5678,11 +5639,6 @@ function renderSelectedStocks(stocks, saveToStorage = true) {
         selectedAllStocks = [];
         selectedRenderedCount = 0;
         return;
-    }
-    
-    // 保存到 localStorage
-    if (saveToStorage) {
-        saveSelectionResults(stocks);
     }
     
     // 获取勾选的筛选指标
