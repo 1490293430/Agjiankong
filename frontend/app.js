@@ -576,6 +576,14 @@ let candleSeries = null;
 let volumeSeries = null;
 let ws = null;
 
+// EMA配置状态（提前定义，避免引用错误）
+let emaConfig = {
+    enabled: false,  // 默认关闭
+    values: [20, 50, 100]  // 根据Pine Script默认值
+};
+let volumeVisible = false;  // 默认关闭
+let emaSeries = [];
+
 console.log('[全局] app.js 全局变量初始化完成');
 
 // 全局SSE连接管理器（单条SSE连接推送所有数据）
@@ -3693,47 +3701,89 @@ function updateChartTheme() {
 function renderChart(data) {
     const container = document.getElementById('chart-container');
     if (!container) {
-        console.error('K线容器不存在');
+        console.error('[K线渲染] 容器不存在: #chart-container');
         return;
     }
+    
+    console.log('[K线渲染] 开始渲染，数据条数:', data?.length || 0);
     
     container.innerHTML = '';
     
     // 检查 LightweightCharts 是否可用
     if (!window.LightweightCharts || !window.LightweightCharts.createChart) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线图库加载失败，请刷新页面</div>';
-        console.error('LightweightCharts not loaded');
+        console.error('[K线渲染] LightweightCharts 未加载');
         return;
     }
     
-    // 确保容器有宽度和高度
-    // 获取容器的实际尺寸，如果为0则延迟重试
-    let containerWidth, containerHeight;
-    const containerRect = container.getBoundingClientRect();
-    containerWidth = containerRect.width || container.offsetWidth || container.clientWidth || 0;
-    containerHeight = containerRect.height || container.offsetHeight || container.clientHeight || 0;
+    // 检查数据有效性
+    if (!data || !Array.isArray(data) || data.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据为空</div>';
+        console.error('[K线渲染] 数据无效:', data);
+        return;
+    }
     
-    // 如果容器尺寸为0或过小，延迟重试（可能是模态框还没完全显示）
+    // 获取容器尺寸的辅助函数
+    const getContainerSize = () => {
+        const rect = container.getBoundingClientRect();
+        const width = rect.width || container.offsetWidth || container.clientWidth || 0;
+        const height = rect.height || container.offsetHeight || container.clientHeight || 0;
+        return { width, height };
+    };
+    
+    // 获取回退尺寸（当容器尺寸不可用时）
+    const getFallbackSize = () => {
+        // 获取模态框内容区域的尺寸
+        const modalContent = document.querySelector('.kline-modal-content');
+        const modalBody = document.querySelector('.kline-modal-body');
+        
+        let width = window.innerWidth - 40;
+        let height = Math.max(window.innerHeight * 0.5, 350);
+        
+        if (modalContent) {
+            const modalRect = modalContent.getBoundingClientRect();
+            if (modalRect.width > 100) width = modalRect.width - 32;
+        }
+        
+        if (modalBody) {
+            const bodyRect = modalBody.getBoundingClientRect();
+            if (bodyRect.height > 100) height = bodyRect.height - 100; // 减去控制栏高度
+        }
+        
+        return { width: Math.max(width, 300), height: Math.max(height, 300) };
+    };
+    
+    let { width: containerWidth, height: containerHeight } = getContainerSize();
+    console.log('[K线渲染] 初始容器尺寸:', { width: containerWidth, height: containerHeight });
+    
+    // 如果容器尺寸为0或过小，延迟重试
     if (containerWidth < 100 || containerHeight < 100) {
-        console.warn('容器尺寸不足，延迟重试', { width: containerWidth, height: containerHeight });
-        // 使用requestAnimationFrame等待下一个渲染周期
-        requestAnimationFrame(() => {
-            setTimeout(() => {
-                const retryRect = container.getBoundingClientRect();
-                containerWidth = retryRect.width || container.offsetWidth || container.clientWidth || window.innerWidth - 40;
-                containerHeight = retryRect.height || container.offsetHeight || container.clientHeight || Math.max(window.innerHeight * 0.6, 400);
-                
-                // 如果还是不够，使用窗口尺寸的合理比例（手机端）
-                if (containerWidth < 100) {
-                    containerWidth = window.innerWidth - 40;
-                }
-                if (containerHeight < 100) {
-                    containerHeight = Math.max(window.innerHeight * 0.6, 400);
-                }
-                
-                renderChartInternal(data, container, containerWidth, containerHeight);
-            }, 100);
-        });
+        console.warn('[K线渲染] 容器尺寸不足，延迟重试');
+        
+        // 最多重试3次
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        const tryRender = () => {
+            retryCount++;
+            const size = getContainerSize();
+            console.log(`[K线渲染] 重试 ${retryCount}/${maxRetries}，容器尺寸:`, size);
+            
+            if (size.width >= 100 && size.height >= 100) {
+                // 尺寸足够，开始渲染
+                renderChartInternal(data, container, size.width, size.height);
+            } else if (retryCount < maxRetries) {
+                // 继续重试
+                requestAnimationFrame(() => setTimeout(tryRender, 100));
+            } else {
+                // 重试次数用尽，使用回退尺寸
+                const fallback = getFallbackSize();
+                console.warn('[K线渲染] 使用回退尺寸:', fallback);
+                renderChartInternal(data, container, fallback.width, fallback.height);
+            }
+        };
+        
+        requestAnimationFrame(() => setTimeout(tryRender, 100));
         return;
     }
     
@@ -3743,8 +3793,16 @@ function renderChart(data) {
 
 // 内部渲染函数
 function renderChartInternal(data, container, containerWidth, containerHeight) {
+    console.log('[K线渲染] renderChartInternal 开始', { 
+        dataLength: data?.length, 
+        containerWidth, 
+        containerHeight,
+        containerId: container?.id 
+    });
+    
     // 销毁旧图表
     if (chart) {
+        console.log('[K线渲染] 销毁旧图表');
         // 清理事件监听器
         if (window.chartEventHandlers && window.chartEventHandlers[container.id]) {
             const handlers = window.chartEventHandlers[container.id];
@@ -3847,6 +3905,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             pinch: true,
         },
     });
+    
+    console.log('[K线渲染] 图表创建成功');
     
     candleSeries = chart.addCandlestickSeries({
         upColor: '#ef4444',
@@ -4006,30 +4066,31 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
     
     console.log('K线数据条数:', candleData.length);
     if (candleData.length > 0) {
-        console.log('K线数据示例（前3条）:', candleData.slice(0, 3));
+        console.log('[K线渲染] K线数据示例（前3条）:', candleData.slice(0, 3));
     }
     
     if (candleData.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据格式错误</div>';
+        console.error('[K线渲染] 转换后的K线数据为空');
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据格式错误，无法解析</div>';
         return;
     }
     
     try {
         // 检查图表和series是否已创建
         if (!chart) {
-            console.error('图表未创建，无法设置数据');
+            console.error('[K线渲染] 图表未创建，无法设置数据');
             container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">图表初始化失败，请刷新页面</div>';
             return;
         }
         
         if (!candleSeries || !volumeSeries) {
-            console.error('图表series未创建，无法设置数据');
+            console.error('[K线渲染] 图表series未创建，无法设置数据');
             container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">图表series初始化失败，请刷新页面</div>';
             return;
         }
         
         // 直接设置所有数据（LightweightCharts可以处理大量数据）
-        console.log('设置K线数据，条数:', candleData.length);
+        console.log('[K线渲染] 设置K线数据，条数:', candleData.length);
         
         // 确保价格轴禁用自动缩放，避免添加series时触发自动缩放
         if (chart && chart.priceScale('right')) {
@@ -4040,7 +4101,10 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         
         // 设置数据
         candleSeries.setData(candleData);
+        console.log('[K线渲染] K线数据设置完成');
+        
         volumeSeries.setData(volumeData);
+        console.log('[K线渲染] 成交量数据设置完成');
         
         // 更新EMA和成交量显示状态
         if (volumeSeries) {
@@ -4213,13 +4277,8 @@ async function loadIndicators(code) {
     }
 }
 
-// EMA配置状态
-let emaConfig = {
-    enabled: false,  // 默认关闭
-    values: [20, 50, 100]  // 根据Pine Script默认值
-};
-let volumeVisible = false;  // 默认关闭
-let emaSeries = [];
+// EMA配置状态（已在文件开头定义）
+// let emaConfig, volumeVisible, emaSeries 已移至全局变量区域
 
 function renderIndicators(indicators) {
     // 指标数据已加载，更新显示状态（面板内容已在initIndicatorPanels中初始化）

@@ -845,7 +845,7 @@ body.light-mode .config-select {
     display: flex;
     flex-direction: column;
     gap: 0 !important; /* 移除gap */
-    min-height: 0; /* 重要：允许flex子元素缩小 */
+    min-height: 350px; /* 确保最小高度 */
     margin: 0 !important; /* 移除margin */
     border: none !important; /* 移除边框 */
     /* 确保触摸事件可以传递到图表 */
@@ -968,7 +968,7 @@ body.light-mode .config-select {
     position: relative;
     width: 100%;
     flex: 1;
-    min-height: 0;
+    min-height: 350px; /* 确保有最小高度 */
     overflow: visible;
     background: #0f172a;
     /* 确保触摸事件可以正常工作 */
@@ -1200,11 +1200,13 @@ body.light-mode .kline-controls select option {
 }
 
 #chart-container {
-    background: #1e293b;
-    border-radius: 8px;
-    padding: 20px;
-    height: 600px;
-    margin-bottom: 20px;
+    background: #0f172a;
+    border-radius: 0;
+    padding: 0;
+    /* 使用flex布局时，高度由父容器决定 */
+    /* height: 600px; 移除固定高度，让flex布局生效 */
+    min-height: 350px; /* 确保最小高度 */
+    margin-bottom: 0;
 }
 
 .indicators-info {
