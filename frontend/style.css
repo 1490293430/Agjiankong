@@ -603,6 +603,30 @@ body.light-mode .ai-analysis-result {
     border: 1px solid #e2e8f0;
 }
 
+/* AI分析容器样式 */
+.ai-analysis-container {
+    background: #1e293b;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #334155;
+}
+
+.ai-analysis-header {
+    padding: 16px;
+    border-bottom: 1px solid #334155;
+    color: #60a5fa;
+}
+
+body.light-mode .ai-analysis-container {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+body.light-mode .ai-analysis-header {
+    border-bottom: 1px solid #e2e8f0;
+    color: #1d4ed8;
+}
+
 /* 资讯列表在白天模式的浅色样式 */
 body.light-mode .news-list {
     background: #ffffff;
@@ -2766,6 +2790,11 @@ body.light-mode .selected-stocks-table thead {
     background: #f1f5f9;
 }
 
+body.light-mode .selected-stocks-table-wrapper {
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
 body.light-mode .selected-stocks-table th {
     color: #475569;
     border-bottom-color: #e2e8f0;
@@ -2773,6 +2802,7 @@ body.light-mode .selected-stocks-table th {
 
 body.light-mode .selected-stocks-table td {
     border-bottom-color: #f1f5f9;
+    color: #1f2937;
 }
 
 body.light-mode .selected-stocks-table tr:hover {

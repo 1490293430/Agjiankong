@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20251225_01">
+    <link rel="stylesheet" href="style.css?v=20251225_07">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -152,8 +152,12 @@
                         <span id="spot-result-hk-time" class="spot-result-time">17:51</span>
                     </div>
                     <div class="spot-result-row">
-                        <span class="spot-result-label">数据源:</span>
-                        <span id="spot-collect-result-source" class="spot-result-source">Easyquotation</span>
+                        <span class="spot-result-label">A源:</span>
+                        <span id="spot-collect-result-a-source" class="spot-result-source">Easyquotation</span>
+                    </div>
+                    <div class="spot-result-row">
+                        <span class="spot-result-label">H源:</span>
+                        <span id="spot-collect-result-hk-source" class="spot-result-source">新浪财经</span>
                     </div>
                 </div>
                 <div class="market-status">
@@ -962,7 +966,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20251225_05"></script>
+    <script src="app.js?v=20251225_07"></script>
 </body>
 </html>
 

@@ -1137,7 +1137,6 @@ function handleSpotCollectResult(data) {
     const aTimeEl = document.getElementById('spot-result-a-time');
     const hkTextEl = document.getElementById('spot-result-hk-text');
     const hkTimeEl = document.getElementById('spot-result-hk-time');
-    const sourceEl = document.getElementById('spot-collect-result-source');
     
     if (!container) {
         console.warn('[SSE] 实时数据采集结果元素未找到');
@@ -1174,11 +1173,14 @@ function handleSpotCollectResult(data) {
     }
     if (hkTimeEl) hkTimeEl.textContent = hkTime;
     
-    // 数据源（显示A股和港股数据源）
-    if (sourceEl) {
-        const aSourceText = source || '未知';
-        const hkSourceText = hkSource || '未知';
-        sourceEl.textContent = `A:${aSourceText} H:${hkSourceText}`;
+    // 数据源（分开显示A股和港股数据源）
+    const aSourceEl = document.getElementById('spot-collect-result-a-source');
+    const hkSourceEl = document.getElementById('spot-collect-result-hk-source');
+    if (aSourceEl) {
+        aSourceEl.textContent = source || '未知';
+    }
+    if (hkSourceEl) {
+        hkSourceEl.textContent = hkSource || '未知';
     }
     
     console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), A股源=${source}, 港股源=${hkSource}`);
@@ -6522,9 +6524,9 @@ async function renderAIAnalysisBatch(items) {
         : '';
 
     container.innerHTML = `
-        <div style="background: #1e293b; border-radius: 8px; overflow: hidden; border: 1px solid #334155;">
-            <div style="padding: 16px; border-bottom: 1px solid #334155;">
-                <h3 style="margin: 0; color: #60a5fa; font-size: 18px; font-weight: 600;">📊 AI分析结果 (${successItems.length}只股票)</h3>
+        <div class="ai-analysis-container">
+            <div class="ai-analysis-header">
+                <h3 style="margin: 0; font-size: 18px; font-weight: 600;">📊 AI分析结果 (${successItems.length}只股票)</h3>
             </div>
             <div style="overflow-x: auto;">
                 <table class="ai-analysis-table">

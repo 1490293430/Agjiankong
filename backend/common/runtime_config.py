@@ -27,6 +27,9 @@ class RuntimeConfig(BaseModel):
     )
     
     # 筛选策略配置
+    filter_stock_only: bool = Field(
+        default=True, description="是否仅筛选股票（排除ETF/指数/基金）"
+    )
     filter_volume_ratio_min: float = Field(
         default=1.2, ge=0.5, le=10.0, description="量比最小值"
     )
@@ -170,6 +173,7 @@ class RuntimeConfigUpdate(BaseModel):
     selection_market: Optional[str] = Field(default=None, description="选股市场：A或HK")
     
     # 筛选策略配置
+    filter_stock_only: Optional[bool] = None
     filter_volume_ratio_min: Optional[float] = Field(default=None, ge=0.5, le=10.0)
     filter_volume_ratio_max: Optional[float] = Field(default=None, ge=1.0, le=20.0)
     filter_rsi_min: Optional[int] = Field(default=None, ge=0, le=100)
