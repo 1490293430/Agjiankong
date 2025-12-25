@@ -39,13 +39,9 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
         
         # 获取股票列表
         if market.upper() == "HK":
-            from market_collector.hk import fetch_hk_stock_kline
             all_stocks = get_json("market:hk:spot") or []
-            fetch_kline_func = fetch_hk_stock_kline
         else:
-            from market_collector.cn import fetch_a_stock_kline
             all_stocks = get_json("market:a:spot") or []
-            fetch_kline_func = fetch_a_stock_kline
         
         if not all_stocks:
             logger.warning(f"未获取到{market}股行情数据")

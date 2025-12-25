@@ -512,7 +512,6 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
     
     try:
         from strategy.selector import save_selected_stocks
-        from market_collector.hk import fetch_hk_stock_kline
         from common.db import batch_get_indicators, save_indicator, get_stock_list_from_db, get_stock_name_map
         from market.indicator.ta import calculate_all_indicators
         from common.redis import get_json
@@ -542,14 +541,9 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             for s in hk_stocks:
                 s["_market"] = "HK"
             all_stocks = a_stocks + hk_stocks
-            fetch_kline_func = fetch_a_stock_kline  # 默认用A股K线函数，后面会根据_market判断
             logger.info(f"全市场选股：A股{len(a_stocks)}只，港股{len(hk_stocks)}只")
         else:
             all_stocks = get_stock_list_from_db(market_upper)
-            if market_upper == "HK":
-                fetch_kline_func = fetch_hk_stock_kline
-            else:
-                fetch_kline_func = fetch_a_stock_kline
         
         if not all_stocks:
             return {
@@ -867,19 +861,6 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
                 
                 recalc_count = 0
                 recalc_failed = 0
-                
-                # 根据市场类型选择正确的K线获取函数
-                def get_kline_func_for_code(code):
-                    """根据股票代码获取对应的K线函数"""
-                    # 检查股票的市场类型
-                    for stock in valid_stocks:
-                        if str(stock.get("code", "")) == code:
-                            stock_market = stock.get("_market", market_upper)
-                            if stock_market == "HK":
-                                return fetch_hk_stock_kline
-                            else:
-                                return fetch_a_stock_kline
-                    return fetch_kline_func
                 
                 def recalc_indicator(code):
                     """重新计算单只股票的完整指标并保存到数据库"""
