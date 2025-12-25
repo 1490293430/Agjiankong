@@ -285,10 +285,9 @@ def _parse_eastmoney_item(item: dict, market: str) -> Dict[str, Any]:
     if not code:
         return None
     
-    # 过滤无效数据
-    price = item.get("f2")
-    if price == "-" or price is None:
-        return None
+    # 注意：不再过滤 price == "-" 的数据
+    # 港股在非交易时间可能返回 "-" 作为价格，但这些仍然是有效的股票
+    # 只过滤完全没有代码的数据
     
     def safe_float(val):
         if val == "-" or val is None:
