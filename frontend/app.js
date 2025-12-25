@@ -8,29 +8,31 @@ console.log('[全局] 页面URL:', window.location.href);
 
 // 初始化 TradingView 风格筛选器
 function initTvFilters() {
-    // 绑定标签点击事件（展开/收起下拉框）
-    document.querySelectorAll('.tv-filter-tab.has-dropdown').forEach(tab => {
-        tab.addEventListener('click', (e) => {
-            // 如果点击的是 checkbox 或下拉框内部，不处理
-            if (e.target.type === 'checkbox' || e.target.closest('.tv-dropdown')) return;
-            
-            e.stopPropagation();
-            
-            // 关闭其他展开的下拉框
-            document.querySelectorAll('.tv-filter-tab.has-dropdown.expanded').forEach(t => {
-                if (t !== tab) t.classList.remove('expanded');
-            });
-            
-            // 切换当前下拉框
-            tab.classList.toggle('expanded');
-        });
-    });
+    // 使用事件委托，绑定到父容器
+    const tabsContainer = document.querySelector('.tv-filter-tabs');
+    if (!tabsContainer) {
+        console.warn('[TV筛选器] 未找到 .tv-filter-tabs 容器');
+        return;
+    }
     
-    // 阻止下拉框内部点击冒泡
-    document.querySelectorAll('.tv-dropdown').forEach(dropdown => {
-        dropdown.addEventListener('click', (e) => {
-            e.stopPropagation();
+    // 点击标签展开/收起下拉框
+    tabsContainer.addEventListener('click', (e) => {
+        const tab = e.target.closest('.tv-filter-tab.has-dropdown');
+        if (!tab) return;
+        
+        // 如果点击的是 checkbox 或下拉框内部，不处理
+        if (e.target.type === 'checkbox' || e.target.closest('.tv-dropdown')) return;
+        
+        e.stopPropagation();
+        
+        // 关闭其他展开的下拉框
+        document.querySelectorAll('.tv-filter-tab.has-dropdown.expanded').forEach(t => {
+            if (t !== tab) t.classList.remove('expanded');
         });
+        
+        // 切换当前下拉框
+        tab.classList.toggle('expanded');
+        console.log('[TV筛选器] 切换下拉框:', tab.dataset.filter, tab.classList.contains('expanded'));
     });
     
     // 点击外部关闭下拉框
