@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <timezone>Asia/Shanghai</timezone>
+</clickhouse>

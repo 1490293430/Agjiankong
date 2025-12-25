@@ -64,6 +64,13 @@ body {
     font-size: 24px;
 }
 
+.realtime-clock {
+    color: #94a3b8;
+    font-size: 14px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    margin-left: 12px;
+}
+
 .nav-tabs {
     display: flex;
     gap: 10px;

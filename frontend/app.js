@@ -1786,9 +1786,38 @@ function handleSelectionProgress(taskId, progressData) {
 window.addEventListener('beforeunload', closeSSEConnection);
 window.addEventListener('pagehide', closeSSEConnection);
 
+// 初始化实时时钟（上海时间）
+function initRealtimeClock() {
+    const clockEl = document.getElementById('realtime-clock');
+    if (!clockEl) return;
+    
+    function updateClock() {
+        const now = new Date();
+        // 转换为上海时间
+        const shanghaiTime = now.toLocaleString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        clockEl.textContent = shanghaiTime;
+    }
+    
+    updateClock();
+    setInterval(updateClock, 1000);
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[全局] DOMContentLoaded 事件触发');
+    
+    // 启动实时时钟
+    initRealtimeClock();
+    
     try {
         console.log('[全局] 开始初始化认证...');
         await initAuth();

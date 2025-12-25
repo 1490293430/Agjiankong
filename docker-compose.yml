@@ -18,6 +18,7 @@ services:
     environment:
       # 将 REDIS_PASSWORD 传递给 Redis 容器，用于配置 requirepass
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - TZ=Asia/Shanghai
     # 启用 AOF 和 RDB 双重持久化，确保数据不丢失
     # --appendonly yes: 启用 AOF（Append Only File）持久化
     # --save 60 1000: 如果60秒内至少有1000个key发生变化，则保存RDB快照
@@ -48,6 +49,7 @@ services:
       CLICKHOUSE_USER: default
       # 默认密码为弱口令，仅用于本地开发环境，生产环境务必通过环境变量覆盖
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
+      TZ: Asia/Shanghai
     restart: always
 
   collector:
