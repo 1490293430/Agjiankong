@@ -327,14 +327,54 @@ async function saveSelectionConfig() {
     }
     
     try {
-        // 收集配置数据
+        // 收集所有筛选配置数据
         const config = {
             selection_max_count: parseInt(document.getElementById('selection-max-count')?.value || '30'),
+            // 仅股票
             filter_stock_only: document.getElementById('filter-stock-only-enable')?.checked || false,
-            filter_rsi_min: parseInt(document.getElementById('filter-rsi-min')?.value || '30'),
-            filter_rsi_max: parseInt(document.getElementById('filter-rsi-max')?.value || '75'),
+            // 市值
+            filter_market_cap_enable: document.getElementById('filter-market-cap-enable')?.checked || false,
+            filter_market_cap_min: parseFloat(document.getElementById('filter-market-cap-min')?.value || '1'),
+            filter_market_cap_max: parseFloat(document.getElementById('filter-market-cap-max')?.value || '100000'),
+            // 量比
+            filter_volume_ratio_enable: document.getElementById('filter-volume-ratio-enable')?.checked || false,
             filter_volume_ratio_min: parseFloat(document.getElementById('filter-volume-ratio-min')?.value || '0.8'),
             filter_volume_ratio_max: parseFloat(document.getElementById('filter-volume-ratio-max')?.value || '8'),
+            // RSI
+            filter_rsi_enable: document.getElementById('filter-rsi-enable')?.checked || false,
+            filter_rsi_min: parseInt(document.getElementById('filter-rsi-min')?.value || '30'),
+            filter_rsi_max: parseInt(document.getElementById('filter-rsi-max')?.value || '75'),
+            // MA
+            filter_ma_enable: document.getElementById('filter-ma-enable')?.checked || false,
+            filter_ma_period: document.getElementById('filter-ma-period')?.value || '20',
+            filter_ma_condition: document.getElementById('filter-ma-condition')?.value || 'above',
+            // EMA
+            filter_ema_enable: document.getElementById('filter-ema-enable')?.checked || false,
+            filter_ema_period: document.getElementById('filter-ema-period')?.value || '12',
+            filter_ema_condition: document.getElementById('filter-ema-condition')?.value || 'above',
+            // MACD
+            filter_macd_enable: document.getElementById('filter-macd-enable')?.checked || false,
+            filter_macd_condition: document.getElementById('filter-macd-condition')?.value || 'golden',
+            // KDJ
+            filter_kdj_enable: document.getElementById('filter-kdj-enable')?.checked || false,
+            filter_kdj_condition: document.getElementById('filter-kdj-condition')?.value || 'golden',
+            // BIAS
+            filter_bias_enable: document.getElementById('filter-bias-enable')?.checked || false,
+            filter_bias_min: parseFloat(document.getElementById('filter-bias-min')?.value || '-6'),
+            filter_bias_max: parseFloat(document.getElementById('filter-bias-max')?.value || '6'),
+            // 威廉指标
+            filter_williams_r_enable: document.getElementById('filter-williams-r-enable')?.checked || false,
+            // 突破高点
+            filter_break_high_enable: document.getElementById('filter-break-high-enable')?.checked || false,
+            // 布林带
+            filter_boll_enable: document.getElementById('filter-boll-enable')?.checked || false,
+            filter_boll_condition: document.getElementById('filter-boll-condition')?.value || 'expanding',
+            // ADX
+            filter_adx_enable: document.getElementById('filter-adx-enable')?.checked || false,
+            filter_adx_min: parseFloat(document.getElementById('filter-adx-min')?.value || '25'),
+            // 一目均衡
+            filter_ichimoku_enable: document.getElementById('filter-ichimoku-enable')?.checked || false,
+            filter_ichimoku_condition: document.getElementById('filter-ichimoku-condition')?.value || 'above_cloud',
         };
         
         console.log('[选股配置] 保存配置:', config);
@@ -384,19 +424,93 @@ async function loadSelectionConfig() {
         
         // 仅股票筛选
         const stockOnlyEl = document.getElementById('filter-stock-only-enable');
-        if (stockOnlyEl) stockOnlyEl.checked = data.filter_stock_only !== false; // 默认勾选
+        if (stockOnlyEl) stockOnlyEl.checked = data.filter_stock_only !== false;
         
-        const rsiMinEl = document.getElementById('filter-rsi-min');
-        if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min || 30;
+        // 市值
+        const marketCapEnableEl = document.getElementById('filter-market-cap-enable');
+        if (marketCapEnableEl) marketCapEnableEl.checked = data.filter_market_cap_enable || false;
+        const marketCapMinEl = document.getElementById('filter-market-cap-min');
+        if (marketCapMinEl) marketCapMinEl.value = data.filter_market_cap_min ?? 1;
+        const marketCapMaxEl = document.getElementById('filter-market-cap-max');
+        if (marketCapMaxEl) marketCapMaxEl.value = data.filter_market_cap_max ?? 100000;
         
-        const rsiMaxEl = document.getElementById('filter-rsi-max');
-        if (rsiMaxEl) rsiMaxEl.value = data.filter_rsi_max || 75;
-        
+        // 量比
+        const volumeEnableEl = document.getElementById('filter-volume-ratio-enable');
+        if (volumeEnableEl) volumeEnableEl.checked = data.filter_volume_ratio_enable !== false;
         const volumeMinEl = document.getElementById('filter-volume-ratio-min');
-        if (volumeMinEl) volumeMinEl.value = data.filter_volume_ratio_min || 0.8;
-        
+        if (volumeMinEl) volumeMinEl.value = data.filter_volume_ratio_min ?? 0.8;
         const volumeMaxEl = document.getElementById('filter-volume-ratio-max');
-        if (volumeMaxEl) volumeMaxEl.value = data.filter_volume_ratio_max || 8;
+        if (volumeMaxEl) volumeMaxEl.value = data.filter_volume_ratio_max ?? 8;
+        
+        // RSI
+        const rsiEnableEl = document.getElementById('filter-rsi-enable');
+        if (rsiEnableEl) rsiEnableEl.checked = data.filter_rsi_enable !== false;
+        const rsiMinEl = document.getElementById('filter-rsi-min');
+        if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min ?? 30;
+        const rsiMaxEl = document.getElementById('filter-rsi-max');
+        if (rsiMaxEl) rsiMaxEl.value = data.filter_rsi_max ?? 75;
+        
+        // MA
+        const maEnableEl = document.getElementById('filter-ma-enable');
+        if (maEnableEl) maEnableEl.checked = data.filter_ma_enable || false;
+        const maPeriodEl = document.getElementById('filter-ma-period');
+        if (maPeriodEl) maPeriodEl.value = data.filter_ma_period || '20';
+        const maConditionEl = document.getElementById('filter-ma-condition');
+        if (maConditionEl) maConditionEl.value = data.filter_ma_condition || 'above';
+        
+        // EMA
+        const emaEnableEl = document.getElementById('filter-ema-enable');
+        if (emaEnableEl) emaEnableEl.checked = data.filter_ema_enable || false;
+        const emaPeriodEl = document.getElementById('filter-ema-period');
+        if (emaPeriodEl) emaPeriodEl.value = data.filter_ema_period || '12';
+        const emaConditionEl = document.getElementById('filter-ema-condition');
+        if (emaConditionEl) emaConditionEl.value = data.filter_ema_condition || 'above';
+        
+        // MACD
+        const macdEnableEl = document.getElementById('filter-macd-enable');
+        if (macdEnableEl) macdEnableEl.checked = data.filter_macd_enable || false;
+        const macdConditionEl = document.getElementById('filter-macd-condition');
+        if (macdConditionEl) macdConditionEl.value = data.filter_macd_condition || 'golden';
+        
+        // KDJ
+        const kdjEnableEl = document.getElementById('filter-kdj-enable');
+        if (kdjEnableEl) kdjEnableEl.checked = data.filter_kdj_enable || false;
+        const kdjConditionEl = document.getElementById('filter-kdj-condition');
+        if (kdjConditionEl) kdjConditionEl.value = data.filter_kdj_condition || 'golden';
+        
+        // BIAS
+        const biasEnableEl = document.getElementById('filter-bias-enable');
+        if (biasEnableEl) biasEnableEl.checked = data.filter_bias_enable || false;
+        const biasMinEl = document.getElementById('filter-bias-min');
+        if (biasMinEl) biasMinEl.value = data.filter_bias_min ?? -6;
+        const biasMaxEl = document.getElementById('filter-bias-max');
+        if (biasMaxEl) biasMaxEl.value = data.filter_bias_max ?? 6;
+        
+        // 威廉指标
+        const williamsEnableEl = document.getElementById('filter-williams-r-enable');
+        if (williamsEnableEl) williamsEnableEl.checked = data.filter_williams_r_enable || false;
+        
+        // 突破高点
+        const breakHighEnableEl = document.getElementById('filter-break-high-enable');
+        if (breakHighEnableEl) breakHighEnableEl.checked = data.filter_break_high_enable || false;
+        
+        // 布林带
+        const bollEnableEl = document.getElementById('filter-boll-enable');
+        if (bollEnableEl) bollEnableEl.checked = data.filter_boll_enable || false;
+        const bollConditionEl = document.getElementById('filter-boll-condition');
+        if (bollConditionEl) bollConditionEl.value = data.filter_boll_condition || 'expanding';
+        
+        // ADX
+        const adxEnableEl = document.getElementById('filter-adx-enable');
+        if (adxEnableEl) adxEnableEl.checked = data.filter_adx_enable || false;
+        const adxMinEl = document.getElementById('filter-adx-min');
+        if (adxMinEl) adxMinEl.value = data.filter_adx_min ?? 25;
+        
+        // 一目均衡
+        const ichimokuEnableEl = document.getElementById('filter-ichimoku-enable');
+        if (ichimokuEnableEl) ichimokuEnableEl.checked = data.filter_ichimoku_enable || false;
+        const ichimokuConditionEl = document.getElementById('filter-ichimoku-condition');
+        if (ichimokuConditionEl) ichimokuConditionEl.value = data.filter_ichimoku_condition || 'above_cloud';
         
         // 更新预览显示
         updateFilterPreviews();
@@ -7629,14 +7743,54 @@ async function exportBackup() {
             console.warn('[备份] 获取自选股数据失败:', e);
         }
         
-        // 3. 获取选股配置（从localStorage或服务器配置中提取）
+        // 3. 获取选股配置（从服务器配置中提取所有筛选器设置）
         const selectionConfig = {
             selection_max_count: configData.selection_max_count || 30,
+            // 仅股票
             filter_stock_only: configData.filter_stock_only !== false,
-            filter_rsi_min: configData.filter_rsi_min || 30,
-            filter_rsi_max: configData.filter_rsi_max || 75,
-            filter_volume_ratio_min: configData.filter_volume_ratio_min || 0.8,
-            filter_volume_ratio_max: configData.filter_volume_ratio_max || 8,
+            // 市值
+            filter_market_cap_enable: configData.filter_market_cap_enable || false,
+            filter_market_cap_min: configData.filter_market_cap_min ?? 1,
+            filter_market_cap_max: configData.filter_market_cap_max ?? 100000,
+            // 量比
+            filter_volume_ratio_enable: configData.filter_volume_ratio_enable !== false,
+            filter_volume_ratio_min: configData.filter_volume_ratio_min ?? 0.8,
+            filter_volume_ratio_max: configData.filter_volume_ratio_max ?? 8,
+            // RSI
+            filter_rsi_enable: configData.filter_rsi_enable !== false,
+            filter_rsi_min: configData.filter_rsi_min ?? 30,
+            filter_rsi_max: configData.filter_rsi_max ?? 75,
+            // MA
+            filter_ma_enable: configData.filter_ma_enable || false,
+            filter_ma_period: configData.filter_ma_period || '20',
+            filter_ma_condition: configData.filter_ma_condition || 'above',
+            // EMA
+            filter_ema_enable: configData.filter_ema_enable || false,
+            filter_ema_period: configData.filter_ema_period || '12',
+            filter_ema_condition: configData.filter_ema_condition || 'above',
+            // MACD
+            filter_macd_enable: configData.filter_macd_enable || false,
+            filter_macd_condition: configData.filter_macd_condition || 'golden',
+            // KDJ
+            filter_kdj_enable: configData.filter_kdj_enable || false,
+            filter_kdj_condition: configData.filter_kdj_condition || 'golden',
+            // BIAS
+            filter_bias_enable: configData.filter_bias_enable || false,
+            filter_bias_min: configData.filter_bias_min ?? -6,
+            filter_bias_max: configData.filter_bias_max ?? 6,
+            // 威廉指标
+            filter_williams_r_enable: configData.filter_williams_r_enable || false,
+            // 突破高点
+            filter_break_high_enable: configData.filter_break_high_enable || false,
+            // 布林带
+            filter_boll_enable: configData.filter_boll_enable || false,
+            filter_boll_condition: configData.filter_boll_condition || 'expanding',
+            // ADX
+            filter_adx_enable: configData.filter_adx_enable || false,
+            filter_adx_min: configData.filter_adx_min ?? 25,
+            // 一目均衡
+            filter_ichimoku_enable: configData.filter_ichimoku_enable || false,
+            filter_ichimoku_condition: configData.filter_ichimoku_condition || 'above_cloud',
         };
         
         // 4. 组装备份数据

@@ -30,26 +30,95 @@ class RuntimeConfig(BaseModel):
     filter_stock_only: bool = Field(
         default=True, description="是否仅筛选股票（排除ETF/指数/基金）"
     )
+    filter_market_cap_enable: bool = Field(
+        default=False, description="是否启用市值筛选"
+    )
+    filter_market_cap_min: float = Field(
+        default=1, ge=0, description="市值最小值（亿）"
+    )
+    filter_market_cap_max: float = Field(
+        default=100000, ge=0, description="市值最大值（亿）"
+    )
+    filter_volume_ratio_enable: bool = Field(
+        default=True, description="是否启用量比筛选"
+    )
     filter_volume_ratio_min: float = Field(
-        default=1.2, ge=0.5, le=10.0, description="量比最小值"
+        default=0.8, ge=0, description="量比最小值"
     )
     filter_volume_ratio_max: float = Field(
-        default=5.0, ge=1.0, le=20.0, description="量比最大值"
+        default=8.0, ge=0, description="量比最大值"
+    )
+    filter_rsi_enable: bool = Field(
+        default=True, description="是否启用RSI筛选"
     )
     filter_rsi_min: int = Field(
-        default=40, ge=0, le=100, description="RSI最小值"
+        default=30, ge=0, le=100, description="RSI最小值"
     )
     filter_rsi_max: int = Field(
-        default=65, ge=0, le=100, description="RSI最大值"
+        default=75, ge=0, le=100, description="RSI最大值"
+    )
+    filter_ma_enable: bool = Field(
+        default=False, description="是否启用MA筛选"
+    )
+    filter_ma_period: str = Field(
+        default="20", description="MA周期"
+    )
+    filter_ma_condition: str = Field(
+        default="above", description="MA条件：above/below"
+    )
+    filter_ema_enable: bool = Field(
+        default=False, description="是否启用EMA筛选"
+    )
+    filter_ema_period: str = Field(
+        default="12", description="EMA周期"
+    )
+    filter_ema_condition: str = Field(
+        default="above", description="EMA条件：above/golden"
+    )
+    filter_macd_enable: bool = Field(
+        default=False, description="是否启用MACD筛选"
+    )
+    filter_macd_condition: str = Field(
+        default="golden", description="MACD条件：golden/dead/above_zero"
+    )
+    filter_kdj_enable: bool = Field(
+        default=False, description="是否启用KDJ筛选"
+    )
+    filter_kdj_condition: str = Field(
+        default="golden", description="KDJ条件：golden/dead/oversold"
+    )
+    filter_bias_enable: bool = Field(
+        default=False, description="是否启用BIAS筛选"
+    )
+    filter_bias_min: float = Field(
+        default=-6, description="BIAS最小值"
+    )
+    filter_bias_max: float = Field(
+        default=6, description="BIAS最大值"
     )
     filter_williams_r_enable: bool = Field(
-        default=True, description="是否启用威廉指标筛选"
+        default=False, description="是否启用威廉指标筛选"
     )
     filter_break_high_enable: bool = Field(
-        default=True, description="是否启用突破高点筛选"
+        default=False, description="是否启用突破高点筛选"
     )
     filter_boll_enable: bool = Field(
-        default=True, description="是否启用布林带筛选"
+        default=False, description="是否启用布林带筛选"
+    )
+    filter_boll_condition: str = Field(
+        default="expanding", description="布林带条件：expanding/above_mid/near_lower"
+    )
+    filter_adx_enable: bool = Field(
+        default=False, description="是否启用ADX筛选"
+    )
+    filter_adx_min: float = Field(
+        default=25, ge=0, le=100, description="ADX最小值"
+    )
+    filter_ichimoku_enable: bool = Field(
+        default=False, description="是否启用一目均衡筛选"
+    )
+    filter_ichimoku_condition: str = Field(
+        default="above_cloud", description="一目均衡条件：above_cloud/below_cloud/tk_cross"
     )
 
     # 行情采集相关
@@ -174,13 +243,36 @@ class RuntimeConfigUpdate(BaseModel):
     
     # 筛选策略配置
     filter_stock_only: Optional[bool] = None
-    filter_volume_ratio_min: Optional[float] = Field(default=None, ge=0.5, le=10.0)
-    filter_volume_ratio_max: Optional[float] = Field(default=None, ge=1.0, le=20.0)
+    filter_market_cap_enable: Optional[bool] = None
+    filter_market_cap_min: Optional[float] = Field(default=None, ge=0)
+    filter_market_cap_max: Optional[float] = Field(default=None, ge=0)
+    filter_volume_ratio_enable: Optional[bool] = None
+    filter_volume_ratio_min: Optional[float] = Field(default=None, ge=0)
+    filter_volume_ratio_max: Optional[float] = Field(default=None, ge=0)
+    filter_rsi_enable: Optional[bool] = None
     filter_rsi_min: Optional[int] = Field(default=None, ge=0, le=100)
     filter_rsi_max: Optional[int] = Field(default=None, ge=0, le=100)
+    filter_ma_enable: Optional[bool] = None
+    filter_ma_period: Optional[str] = None
+    filter_ma_condition: Optional[str] = None
+    filter_ema_enable: Optional[bool] = None
+    filter_ema_period: Optional[str] = None
+    filter_ema_condition: Optional[str] = None
+    filter_macd_enable: Optional[bool] = None
+    filter_macd_condition: Optional[str] = None
+    filter_kdj_enable: Optional[bool] = None
+    filter_kdj_condition: Optional[str] = None
+    filter_bias_enable: Optional[bool] = None
+    filter_bias_min: Optional[float] = None
+    filter_bias_max: Optional[float] = None
     filter_williams_r_enable: Optional[bool] = None
     filter_break_high_enable: Optional[bool] = None
     filter_boll_enable: Optional[bool] = None
+    filter_boll_condition: Optional[str] = None
+    filter_adx_enable: Optional[bool] = None
+    filter_adx_min: Optional[float] = Field(default=None, ge=0, le=100)
+    filter_ichimoku_enable: Optional[bool] = None
+    filter_ichimoku_condition: Optional[str] = None
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
     collect_market: Optional[str] = Field(default=None, description="数据采集市场：ALL、A、HK")
     collect_period: Optional[str] = Field(default=None, description="数据采集周期：daily、1h")

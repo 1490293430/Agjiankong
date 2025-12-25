@@ -94,7 +94,13 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
             # 先获取总数
             total = _get_eastmoney_hk_total()
             if total == 0:
-                raise Exception("获取港股总数失败")
+                logger.warning("[东方财富] 获取港股总数为0，尝试直接获取第一页数据")
+                # 尝试直接获取第一页，看看能拿到多少
+                first_page = _fetch_eastmoney_hk_page(1, page_size)
+                if first_page:
+                    logger.info(f"[东方财富] 直接获取第一页成功: {len(first_page)}只")
+                    return first_page, "东方财富(并发)"
+                raise Exception("获取港股总数失败且第一页也为空")
             
             # 计算需要的页数
             pages = (total + page_size - 1) // page_size
@@ -113,6 +119,7 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
                         results = future.result()
                         if results:
                             all_results.extend(results)
+                            logger.debug(f"[东方财富] 港股第{page}页获取成功: {len(results)}只")
                     except Exception as e:
                         logger.warning(f"[东方财富] 港股第{page}页获取失败: {e}")
             
@@ -205,7 +212,9 @@ def _get_eastmoney_hk_total() -> int:
     try:
         response = requests.get(EASTMONEY_API_URL, params=params, headers=headers, timeout=15)
         data = response.json()
-        return data.get("data", {}).get("total", 0)
+        total = data.get("data", {}).get("total", 0)
+        logger.info(f"[东方财富] 港股总数查询结果: {total}")
+        return total
     except Exception as e:
         logger.warning(f"[东方财富] 获取港股总数失败: {e}")
         return 0
@@ -232,13 +241,18 @@ def _fetch_eastmoney_hk_page(page: int, page_size: int) -> List[Dict[str, Any]]:
     }
     
     try:
+        logger.debug(f"[东方财富] 请求港股第{page}页，page_size={page_size}")
         response = requests.get(EASTMONEY_API_URL, params=params, headers=headers, timeout=30)
         data = response.json()
         
         if data.get("rc") != 0:
+            logger.warning(f"[东方财富] 港股第{page}页返回错误: rc={data.get('rc')}")
             return []
         
         items = data.get("data", {}).get("diff", [])
+        total_in_response = data.get("data", {}).get("total", 0)
+        logger.debug(f"[东方财富] 港股第{page}页返回: items={len(items) if items else 0}, total={total_in_response}")
+        
         if not items:
             return []
         
@@ -251,6 +265,7 @@ def _fetch_eastmoney_hk_page(page: int, page_size: int) -> List[Dict[str, Any]]:
             except Exception as e:
                 continue
         
+        logger.debug(f"[东方财富] 港股第{page}页解析成功: {len(results)}只")
         return results
         
     except Exception as e:
