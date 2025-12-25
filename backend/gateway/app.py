@@ -1100,7 +1100,9 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
         return False
     
     if filter_type == "volume_ratio":
-        vol_ratio = indicators.get("vol_ratio", 0)
+        vol_ratio = indicators.get("vol_ratio")
+        if vol_ratio is None:
+            return False
         min_val = config.get("volume_ratio_min", 0.8)
         max_val = config.get("volume_ratio_max", 8.0)
         return min_val <= vol_ratio <= max_val
