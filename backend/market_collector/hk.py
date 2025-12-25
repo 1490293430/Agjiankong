@@ -87,20 +87,46 @@ def _try_yahoo_formats(code: str) -> List[str]:
     return unique_formats
 
 
-def fetch_hk_stock_spot(max_retries: int = 1) -> List[Dict[str, Any]]:
+def fetch_hk_stock_spot(max_retries: int = 1, source: str = None) -> List[Dict[str, Any]]:
     """获取港股实时行情
-    
-    数据源顺序：东方财富(并发) → 新浪财经(并发) → AKShare(东方财富)
     
     Args:
         max_retries: 最大重试次数（每个源只尝试1次）
+        source: 数据源选择（如果为None，则从配置读取）
+            - "auto": 自动切换，按顺序尝试 东方财富(并发) → 新浪 → AKShare
+            - "sina": 仅使用新浪财经
+            - "eastmoney": 仅使用东方财富(并发)
+            - "akshare": 仅使用AKShare
     """
-    # 数据源列表：东方财富(并发) → 新浪(并发) → AKShare
-    sources = [
-        ("东方财富(并发)", _fetch_hk_spot_eastmoney),
-        ("新浪财经", _fetch_hk_spot_sina),
-        ("AKShare(东方财富)", _fetch_hk_spot_akshare),
-    ]
+    # 如果没有指定数据源，从配置读取
+    if source is None:
+        try:
+            from common.runtime_config import get_runtime_config
+            config = get_runtime_config()
+            source = config.spot_data_source or "auto"
+        except Exception:
+            source = "auto"
+    
+    # 根据配置选择数据源顺序
+    if source == "sina":
+        sources = [("新浪财经", _fetch_hk_spot_sina)]
+    elif source == "eastmoney":
+        sources = [("东方财富(并发)", _fetch_hk_spot_eastmoney)]
+    elif source == "akshare":
+        sources = [("AKShare(东方财富)", _fetch_hk_spot_akshare)]
+    elif source == "easyquotation":
+        # easyquotation 不支持港股，回退到新浪
+        logger.info("[港股实时行情] Easyquotation不支持港股，使用新浪财经")
+        sources = [("新浪财经", _fetch_hk_spot_sina)]
+    else:
+        # auto模式：东方财富(并发) → 新浪 → AKShare
+        sources = [
+            ("东方财富(并发)", _fetch_hk_spot_eastmoney),
+            ("新浪财经", _fetch_hk_spot_sina),
+            ("AKShare(东方财富)", _fetch_hk_spot_akshare),
+        ]
+    
+    logger.info(f"[港股实时行情] 配置的数据源: {source}")
     
     for source_name, fetch_func in sources:
         try:
