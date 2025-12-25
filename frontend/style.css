@@ -1866,7 +1866,7 @@ body.light-mode .ai-analysis-table td {
 }
 
 body.light-mode .ai-analysis-table tbody tr:hover {
-    background: #f1f5f9;
+    background: #e2e8f0;
 }
 
 /* 桌面端优化 - 确保K线图头部布局正确 */
@@ -2776,7 +2776,7 @@ body.light-mode .selected-stocks-table td {
 }
 
 body.light-mode .selected-stocks-table tr:hover {
-    background: #f8fafc;
+    background: #e2e8f0;
 }
 
 body.light-mode .stock-name {

@@ -20,6 +20,62 @@ _last_batch_compute_market = set()  # 存储格式："{market}_{date}"，例如 
 _last_news_collect_time = None
 
 
+def _broadcast_spot_result(a_count: int, hk_count: int, a_time: str, hk_time: str, a_source: str, hk_source: str, a_success: bool, hk_success: bool):
+    """广播采集结果到前端顶部状态栏
+    
+    每次推送时，从Redis读取A股和港股各自的最新采集时间，
+    这样即使一个市场采集失败，也能显示另一个市场的最新状态。
+    
+    Args:
+        a_count: A股采集数量
+        hk_count: 港股采集数量
+        a_time: A股采集时间（格式：MM-DD HH:MM），如果为空则从Redis读取
+        hk_time: 港股采集时间（格式：MM-DD HH:MM），如果为空则从Redis读取
+        a_source: A股数据源
+        hk_source: 港股数据源
+        a_success: A股采集是否成功
+        hk_success: 港股采集是否成功
+    """
+    try:
+        from market.service.sse import broadcast_message
+        from common.redis import set_json, get_json
+        
+        # 从Redis读取上次保存的采集结果
+        last_result = get_json("spot:collect:result") or {}
+        
+        # 如果本次有新的采集时间，使用新的；否则使用上次保存的
+        final_a_time = a_time if a_time else last_result.get("a_time", "")
+        final_hk_time = hk_time if hk_time else last_result.get("hk_time", "")
+        final_a_count = a_count if a_success else last_result.get("a_count", 0)
+        final_hk_count = hk_count if hk_success else last_result.get("hk_count", 0)
+        final_a_source = a_source if a_source else last_result.get("a_source", "")
+        final_hk_source = hk_source if hk_source else last_result.get("hk_source", "")
+        final_a_success = a_success if a_time else last_result.get("a_success", False)
+        final_hk_success = hk_success if hk_time else last_result.get("hk_success", False)
+        
+        spot_result_data = {
+            "success": final_a_success or final_hk_success,
+            "time": datetime.now().strftime("%m-%d %H:%M"),
+            "a_count": final_a_count,
+            "hk_count": final_hk_count,
+            "a_time": final_a_time,
+            "hk_time": final_hk_time,
+            "a_source": final_a_source,
+            "hk_source": final_hk_source,
+            "a_success": final_a_success,
+            "hk_success": final_hk_success,
+            "source": final_a_source  # 兼容旧版本
+        }
+        # 保存到Redis持久化
+        set_json("spot:collect:result", spot_result_data)
+        broadcast_message({
+            "type": "spot_collect_result",
+            "data": spot_result_data
+        })
+    except Exception as e:
+        logger.debug(f"广播采集结果失败: {e}")
+
+
 def collect_job():
     """采集任务（单次采集，不做交易时间判断）
 
@@ -27,18 +83,20 @@ def collect_job():
     - 是否在交易时间内的判断由调度循环控制；
     - 这里始终尝试采集一次 A 股和港股，方便在启动时或手动触发时获取最新快照，
       避免非交易时间页面完全没有数据。
+    - A股和港股分开采集，各自完成后立即推送采集结果（包含独立的时间戳）
+    - 每次推送会从Redis读取另一个市场的最新状态，确保即使一个市场采集失败也不影响另一个
     - 采集完成后自动检查交易计划
     - 采集结果会通过SSE广播到前端顶部状态栏
     """
-    a_count = 0
-    hk_count = 0
-    data_source = "AKShare"
-    success = True
-    
     try:
         logger.info("开始采集行情数据...")
         
-        # 采集A股（使用多数据源）
+        # ========== 采集A股（使用多数据源）==========
+        a_count = 0
+        a_source = ""
+        a_success = False
+        a_time = ""
+        
         try:
             from market_collector.cn import fetch_a_stock_spot_with_source
             from common.runtime_config import get_runtime_config
@@ -46,21 +104,35 @@ def collect_job():
             config = get_runtime_config()
             spot_source = config.spot_data_source or "auto"
             
-            a_result, data_source = fetch_a_stock_spot_with_source(spot_source, 2)
+            a_result, a_source = fetch_a_stock_spot_with_source(spot_source, 2)
             a_count = len(a_result) if a_result else 0
-            logger.info(f"A股采集完成: {a_count}只，数据源: {data_source}")
+            a_success = a_count > 0
+            if a_success:
+                a_time = datetime.now().strftime("%m-%d %H:%M")
+            logger.info(f"A股采集完成: {a_count}只，数据源: {a_source}，时间: {a_time}")
+            
         except Exception as e:
             logger.error(f"A股采集失败: {e}", exc_info=True)
             # 回退到原始方法
             try:
-                fetch_a_stock_spot()
-                data_source = "AKShare"
+                a_result = fetch_a_stock_spot()
+                a_count = len(a_result) if a_result else 0
+                a_source = "AKShare"
+                a_success = a_count > 0
+                if a_success:
+                    a_time = datetime.now().strftime("%m-%d %H:%M")
             except Exception as e2:
                 logger.error(f"A股采集回退也失败: {e2}")
-                success = False
         
-        # 采集港股
+        # A股采集完成后立即推送结果（港股数据从Redis读取上次的）
+        _broadcast_spot_result(a_count, 0, a_time, "", a_source, "", a_success, False)
+        
+        # ========== 采集港股 ==========
+        hk_count = 0
         hk_source = ""
+        hk_success = False
+        hk_time = ""
+        
         try:
             result_tuple = fetch_hk_stock_spot()
             # 新的返回格式：(result, source_name)
@@ -70,34 +142,18 @@ def collect_job():
                 hk_result = result_tuple
                 hk_source = "AKShare(东方财富)"
             hk_count = len(hk_result) if hk_result else 0
-            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]")
+            hk_success = hk_count > 0
+            if hk_success:
+                hk_time = datetime.now().strftime("%m-%d %H:%M")
+            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]，时间: {hk_time}")
+            
         except Exception as e:
             logger.error(f"港股采集失败: {e}", exc_info=True)
         
-        logger.info("行情数据采集完成")
+        # 港股采集完成后推送结果（A股数据从Redis读取上次的）
+        _broadcast_spot_result(0, hk_count, "", hk_time, "", hk_source, False, hk_success)
         
-        # 广播采集结果到前端顶部状态栏
-        try:
-            from market.service.sse import broadcast_message
-            from common.redis import set_json
-            time_str = datetime.now().strftime("%m-%d %H:%M")
-            spot_result_data = {
-                "success": success and (a_count > 0 or hk_count > 0),
-                "time": time_str,
-                "a_count": a_count,
-                "hk_count": hk_count,
-                "a_time": time_str,
-                "hk_time": time_str,
-                "source": data_source
-            }
-            # 保存到Redis持久化
-            set_json("spot:collect:result", spot_result_data)
-            broadcast_message({
-                "type": "spot_collect_result",
-                "data": spot_result_data
-            })
-        except Exception as e:
-            logger.debug(f"广播采集结果失败: {e}")
+        logger.info("行情数据采集完成")
         
         # 采集完成后，自动检查交易计划
         try:
@@ -109,28 +165,6 @@ def collect_job():
             logger.warning(f"自动检查交易计划失败: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"采集任务执行失败: {e}", exc_info=True)
-        # 广播失败结果
-        try:
-            from market.service.sse import broadcast_message
-            from common.redis import set_json
-            time_str = datetime.now().strftime("%m-%d %H:%M")
-            spot_result_data = {
-                "success": False,
-                "time": time_str,
-                "a_count": 0,
-                "hk_count": 0,
-                "a_time": time_str,
-                "hk_time": time_str,
-                "source": ""
-            }
-            # 保存到Redis持久化
-            set_json("spot:collect:result", spot_result_data)
-            broadcast_message({
-                "type": "spot_collect_result",
-                "data": spot_result_data
-            })
-        except Exception as e2:
-            logger.debug(f"广播采集失败结果失败: {e2}")
 
 
 def news_collect_job():

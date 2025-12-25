@@ -1146,28 +1146,29 @@ function handleSpotCollectResult(data) {
     
     const success = data.success;
     const time = data.time || '';
-    const source = data.source || '';
+    const source = data.source || data.a_source || '';
     const hkSource = data.hk_source || '';
     const aCount = data.a_count || 0;
     const hkCount = data.hk_count || 0;
     const aTime = data.a_time || time;
     const hkTime = data.hk_time || time;
+    // 使用后端返回的成功状态，如果没有则根据数量判断
+    const aSuccess = data.a_success !== undefined ? data.a_success : (aCount > 0);
+    const hkSuccess = data.hk_success !== undefined ? data.hk_success : (hkCount > 0);
     
     // 更新显示
     container.style.display = 'flex';
     container.className = 'spot-collect-result ' + (success ? 'success' : 'failed');
     
-    // A股状态
+    // A股状态（显示时间和数量）
     if (aTextEl) {
-        const aSuccess = aCount > 0;
         aTextEl.textContent = (aSuccess ? '✅ ' : '❌ ') + aCount + '只';
         aTextEl.className = 'spot-result-value ' + (aSuccess ? 'success' : 'failed');
     }
     if (aTimeEl) aTimeEl.textContent = aTime;
     
-    // 港股状态
+    // 港股状态（显示时间和数量）
     if (hkTextEl) {
-        const hkSuccess = hkCount > 0;
         hkTextEl.textContent = (hkSuccess ? '✅ ' : '❌ ') + hkCount + '只';
         hkTextEl.className = 'spot-result-value ' + (hkSuccess ? 'success' : 'failed');
     }

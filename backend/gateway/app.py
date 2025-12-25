@@ -1864,6 +1864,12 @@ async def collect_spot_data_api(
                         spot_collect_progress[task_id]["status"] = "cancelled"
                         spot_collect_stop_flags.pop(task_id, None)
                         return
+                    
+                    # A股采集完成后立即推送结果到顶部状态栏
+                    if a_count > 0:
+                        from market_collector.scheduler import _broadcast_spot_result
+                        a_time_str = datetime.now().strftime("%m-%d %H:%M")
+                        _broadcast_spot_result(a_count, 0, a_time_str, "", data_source, "", True, False)
                 
                 # 采集港股
                 if collect_hk:
@@ -1950,18 +1956,20 @@ async def collect_spot_data_api(
                     }
                 })
                 
-                # 同时广播采集结果（用于顶部状态栏显示）
-                broadcast_message({
-                    "type": "spot_collect_result",
-                    "success": True,
-                    "a_count": a_count,
-                    "hk_count": hk_count,
-                    "source": data_source or "",
-                    "hk_source": hk_source or "",
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "a_time": datetime.now().strftime("%H:%M:%S") if collect_a else "",
-                    "hk_time": datetime.now().strftime("%H:%M:%S") if collect_hk else ""
-                })
+                # 使用统一的广播函数更新顶部状态栏（会自动合并Redis中的历史数据）
+                from market_collector.scheduler import _broadcast_spot_result
+                a_time_str = datetime.now().strftime("%m-%d %H:%M") if collect_a and a_count > 0 else ""
+                hk_time_str = datetime.now().strftime("%m-%d %H:%M") if collect_hk and hk_count > 0 else ""
+                _broadcast_spot_result(
+                    a_count if collect_a else 0,
+                    hk_count if collect_hk else 0,
+                    a_time_str,
+                    hk_time_str,
+                    data_source if collect_a else "",
+                    hk_source if collect_hk else "",
+                    a_count > 0 if collect_a else False,
+                    hk_count > 0 if collect_hk else False
+                )
                 
                 # 更新进度
                 spot_collect_progress[task_id]["status"] = "completed"
