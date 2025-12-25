@@ -167,14 +167,44 @@ def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:
     """获取单个市场的数据（支持分页）"""
     all_results = []
     page = 1
-    page_size = 5000  # 东方财富接口每页最多5000条
+    page_size = 5000  # 请求5000条，实际可能返回更少
+    max_pages = 30  # 最多30页
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "http://quote.eastmoney.com/",
     }
     
-    while True:
+    # 先获取总数
+    try:
+        params = {
+            "pn": 1,
+            "pz": 1,
+            "po": 1,
+            "np": 1,
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f3",
+            "fs": fs,
+            "fields": "f12",
+        }
+        response = requests.get(EASTMONEY_API_URL, params=params, headers=headers, timeout=15)
+        data = response.json()
+        total = data.get("data", {}).get("total", 0)
+        logger.debug(f"[东方财富] {market_name}总数: {total}")
+    except Exception as e:
+        logger.warning(f"[东方财富] {market_name}获取总数失败: {e}")
+        total = 5000  # 默认值
+    
+    if total == 0:
+        return []
+    
+    # 计算需要的页数（假设每页实际返回约100-500条）
+    # 保守估计，按每页100条计算
+    estimated_pages = min((total + 99) // 100, max_pages)
+    
+    while page <= estimated_pages:
         params = {
             "pn": page,
             "pz": page_size,
@@ -197,31 +227,31 @@ def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:
                 break
             
             items = data.get("data", {}).get("diff", [])
-            total = data.get("data", {}).get("total", 0)
             
             if not items:
                 break
             
+            page_results = []
             for item in items:
                 try:
                     result = _parse_eastmoney_item(item, "A")
                     if result:
-                        all_results.append(result)
+                        page_results.append(result)
                 except Exception as e:
                     continue
             
-            logger.debug(f"[东方财富] {market_name}第{page}页获取成功: {len(items)}只, 累计: {len(all_results)}只, 总数: {total}")
+            all_results.extend(page_results)
+            logger.debug(f"[东方财富] {market_name}第{page}页获取成功: {len(page_results)}只, 累计: {len(all_results)}只")
             
-            # 检查是否还有更多数据
-            if len(all_results) >= total or len(items) < page_size:
+            # 如果已经获取到足够数据，退出
+            if len(all_results) >= total:
+                break
+            
+            # 如果本页返回数据很少（小于50），可能已经没有更多数据了
+            if len(items) < 50:
                 break
             
             page += 1
-            
-            # 防止无限循环
-            if page > 10:
-                logger.warning(f"[东方财富] {market_name}分页超过10页，停止获取")
-                break
                 
         except Exception as e:
             logger.warning(f"[东方财富] {market_name}第{page}页请求失败: {e}")
