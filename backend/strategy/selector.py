@@ -204,11 +204,15 @@ def filter_stocks_by_criteria(
     ichimoku_enable = config.get("ichimoku_enable", False)
     ichimoku_condition = config.get("ichimoku_condition", "above_cloud")
     
+    cci_enable = config.get("cci_enable", False)
+    cci_min = config.get("cci_min", -100)
+    cci_max = config.get("cci_max", 100)
+    
     # 如果没有启用任何筛选条件，使用默认的基础筛选
     any_filter_enabled = any([
         volume_ratio_enable, rsi_enable, ma_enable, ema_enable, macd_enable,
         kdj_enable, bias_enable, williams_r_enable, break_high_enable,
-        boll_enable, adx_enable, ichimoku_enable
+        boll_enable, adx_enable, ichimoku_enable, cci_enable
     ])
     
     if not any_filter_enabled:
@@ -438,6 +442,15 @@ def filter_stocks_by_criteria(
                             passed = False
                     else:
                         passed = False
+            else:
+                passed = False
+        
+        # CCI顺势指标筛选
+        if cci_enable and passed:
+            cci = indicators.get("cci")
+            if cci is not None:
+                if cci < cci_min or cci > cci_max:
+                    passed = False
             else:
                 passed = False
         

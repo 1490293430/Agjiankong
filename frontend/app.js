@@ -230,7 +230,8 @@ function resetSelectionConfig() {
         'adx': { enable: false, min: 25 },
         'williams': { enable: false },
         'break-high': { enable: false },
-        'ichimoku': { enable: false, condition: 'above_cloud' }
+        'ichimoku': { enable: false, condition: 'above_cloud' },
+        'cci': { enable: false, min: -100, max: 100 }
     };
     
     // 应用默认配置
@@ -375,6 +376,10 @@ async function saveSelectionConfig() {
             // 一目均衡
             filter_ichimoku_enable: document.getElementById('filter-ichimoku-enable')?.checked || false,
             filter_ichimoku_condition: document.getElementById('filter-ichimoku-condition')?.value || 'above_cloud',
+            // CCI
+            filter_cci_enable: document.getElementById('filter-cci-enable')?.checked || false,
+            filter_cci_min: parseFloat(document.getElementById('filter-cci-min')?.value || '-100'),
+            filter_cci_max: parseFloat(document.getElementById('filter-cci-max')?.value || '100'),
         };
         
         console.log('[选股配置] 保存配置:', config);
@@ -511,6 +516,14 @@ async function loadSelectionConfig() {
         if (ichimokuEnableEl) ichimokuEnableEl.checked = data.filter_ichimoku_enable || false;
         const ichimokuConditionEl = document.getElementById('filter-ichimoku-condition');
         if (ichimokuConditionEl) ichimokuConditionEl.value = data.filter_ichimoku_condition || 'above_cloud';
+        
+        // CCI
+        const cciEnableEl = document.getElementById('filter-cci-enable');
+        if (cciEnableEl) cciEnableEl.checked = data.filter_cci_enable || false;
+        const cciMinEl = document.getElementById('filter-cci-min');
+        if (cciMinEl) cciMinEl.value = data.filter_cci_min ?? -100;
+        const cciMaxEl = document.getElementById('filter-cci-max');
+        if (cciMaxEl) cciMaxEl.value = data.filter_cci_max ?? 100;
         
         // 更新预览显示
         updateFilterPreviews();
@@ -4122,9 +4135,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     if (chart && chart.timeScale() && candleData.length > 0) {
-                        // 默认显示最近60根K线，而不是全部数据
-                        // 这样用户可以缩小查看更多数据，也可以放大查看细节
-                        const visibleBars = Math.min(60, candleData.length);
+                        // 默认显示最近3年数据（约750个交易日），如果数据不足则显示全部
+                        const visibleBars = Math.min(750, candleData.length);
                         const fromIndex = Math.max(0, candleData.length - visibleBars);
                         
                         chart.timeScale().setVisibleLogicalRange({
@@ -7830,6 +7842,10 @@ async function exportBackup() {
             // 一目均衡
             filter_ichimoku_enable: configData.filter_ichimoku_enable || false,
             filter_ichimoku_condition: configData.filter_ichimoku_condition || 'above_cloud',
+            // CCI
+            filter_cci_enable: configData.filter_cci_enable || false,
+            filter_cci_min: configData.filter_cci_min ?? -100,
+            filter_cci_max: configData.filter_cci_max ?? 100,
         };
         
         // 4. 组装备份数据

@@ -3,7 +3,7 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 
 def calculate_trend_direction(current_value: float, previous_value: float, threshold: Optional[float] = None) -> str:
@@ -217,6 +217,142 @@ def adx(df: pd.DataFrame, period: int = 14) -> Dict[str, pd.Series]:
     }
 
 
+def cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """计算CCI顺势指标（Commodity Channel Index）
+    
+    CCI = (TP - MA(TP)) / (0.015 * MD)
+    其中：TP = (High + Low + Close) / 3
+         MD = Mean Deviation（平均绝对偏差）
+    
+    Args:
+        df: 包含high、low、close的DataFrame
+        period: 计算周期（默认20）
+    
+    Returns:
+        CCI指标Series
+        > +100: 超买区域，可能回调
+        < -100: 超卖区域，可能反弹
+        -100 ~ +100: 正常区域
+    """
+    tp = (df["high"] + df["low"] + df["close"]) / 3
+    ma_tp = tp.rolling(window=period, min_periods=1).mean()
+    
+    # 计算平均绝对偏差
+    md = tp.rolling(window=period, min_periods=1).apply(
+        lambda x: np.abs(x - x.mean()).mean(), raw=True
+    )
+    
+    cci_value = (tp - ma_tp) / (0.015 * md + 1e-10)
+    return cci_value
+
+
+def fibonacci_retracement(df: pd.DataFrame, lookback: int = 60) -> Dict[str, Any]:
+    """计算斐波那契回撤位
+    
+    识别近期波段高低点，计算关键回撤位
+    
+    Args:
+        df: 包含high、low、close的DataFrame
+        lookback: 回溯周期（默认60根K线）
+    
+    Returns:
+        {
+            "swing_high": 波段高点,
+            "swing_low": 波段低点,
+            "fib_0": 0%回撤位（波段低点）,
+            "fib_236": 23.6%回撤位,
+            "fib_382": 38.2%回撤位,
+            "fib_500": 50%回撤位,
+            "fib_618": 61.8%回撤位,
+            "fib_786": 78.6%回撤位,
+            "fib_100": 100%回撤位（波段高点）,
+            "trend": "up"（上涨趋势）或 "down"（下跌趋势）,
+            "current_fib_level": 当前价格所处的斐波那契区间
+        }
+    """
+    if len(df) < lookback:
+        lookback = len(df)
+    
+    recent_df = df.tail(lookback)
+    
+    # 找到波段高点和低点的位置
+    high_idx = recent_df["high"].idxmax()
+    low_idx = recent_df["low"].idxmin()
+    
+    swing_high = float(recent_df["high"].max())
+    swing_low = float(recent_df["low"].min())
+    
+    # 判断趋势方向：高点在低点之后为上涨趋势，反之为下跌趋势
+    if high_idx > low_idx:
+        trend = "up"
+        # 上涨趋势：从低点到高点，回撤位从高点往下算
+        fib_range = swing_high - swing_low
+        fib_0 = swing_low  # 0%（起点）
+        fib_236 = swing_high - fib_range * 0.236
+        fib_382 = swing_high - fib_range * 0.382
+        fib_500 = swing_high - fib_range * 0.500
+        fib_618 = swing_high - fib_range * 0.618
+        fib_786 = swing_high - fib_range * 0.786
+        fib_100 = swing_high  # 100%（终点）
+    else:
+        trend = "down"
+        # 下跌趋势：从高点到低点，回撤位从低点往上算
+        fib_range = swing_high - swing_low
+        fib_0 = swing_high  # 0%（起点）
+        fib_236 = swing_low + fib_range * 0.236
+        fib_382 = swing_low + fib_range * 0.382
+        fib_500 = swing_low + fib_range * 0.500
+        fib_618 = swing_low + fib_range * 0.618
+        fib_786 = swing_low + fib_range * 0.786
+        fib_100 = swing_low  # 100%（终点）
+    
+    # 判断当前价格所处的斐波那契区间
+    current_price = float(df["close"].iloc[-1])
+    
+    if trend == "up":
+        # 上涨趋势中，价格从高点回撤
+        if current_price >= fib_236:
+            current_level = "0-23.6%"  # 强势，几乎没回撤
+        elif current_price >= fib_382:
+            current_level = "23.6-38.2%"  # 浅回撤
+        elif current_price >= fib_500:
+            current_level = "38.2-50%"  # 正常回撤
+        elif current_price >= fib_618:
+            current_level = "50-61.8%"  # 深度回撤
+        elif current_price >= fib_786:
+            current_level = "61.8-78.6%"  # 深度回撤
+        else:
+            current_level = "78.6-100%"  # 接近完全回撤
+    else:
+        # 下跌趋势中，价格从低点反弹
+        if current_price <= fib_236:
+            current_level = "0-23.6%"  # 弱反弹
+        elif current_price <= fib_382:
+            current_level = "23.6-38.2%"  # 浅反弹
+        elif current_price <= fib_500:
+            current_level = "38.2-50%"  # 正常反弹
+        elif current_price <= fib_618:
+            current_level = "50-61.8%"  # 强反弹
+        elif current_price <= fib_786:
+            current_level = "61.8-78.6%"  # 强反弹
+        else:
+            current_level = "78.6-100%"  # 接近完全反弹
+    
+    return {
+        "swing_high": swing_high,
+        "swing_low": swing_low,
+        "fib_0": float(fib_0),
+        "fib_236": float(fib_236),
+        "fib_382": float(fib_382),
+        "fib_500": float(fib_500),
+        "fib_618": float(fib_618),
+        "fib_786": float(fib_786),
+        "fib_100": float(fib_100),
+        "trend": trend,
+        "current_fib_level": current_level
+    }
+
+
 def ichimoku(df: pd.DataFrame, tenkan: int = 9, kijun: int = 26, senkou_b: int = 52) -> Dict[str, pd.Series]:
     """计算一目均衡表（Ichimoku Cloud）
     
@@ -308,6 +444,112 @@ def calculate_ma60_only(df: pd.DataFrame) -> Dict[str, Any] | None:
         result["ma60_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
     else:
         result["ma60_trend"] = "未知"
+    
+    return result
+
+
+def calculate_multi_timeframe_indicators(
+    daily_df: pd.DataFrame,
+    hourly_df: Optional[pd.DataFrame] = None
+) -> Dict[str, Any]:
+    """计算多周期指标（日线 + 小时线）
+    
+    多周期分析原则：
+    - 日线确定大趋势方向
+    - 小时线寻找精确入场点
+    
+    Args:
+        daily_df: 日线数据DataFrame
+        hourly_df: 小时线数据DataFrame（可选）
+    
+    Returns:
+        包含多周期指标的字典
+    """
+    result = {}
+    
+    # 1. 计算日线指标（大周期趋势）
+    if daily_df is not None and len(daily_df) >= 20:
+        daily_indicators = calculate_all_indicators(daily_df)
+        # 添加日线前缀
+        for key, value in daily_indicators.items():
+            result[f"daily_{key}"] = value
+        
+        # 日线趋势判断
+        result["daily_trend_direction"] = "未知"
+        ma60 = daily_indicators.get("ma60")
+        ma60_trend = daily_indicators.get("ma60_trend")
+        current_close = daily_indicators.get("current_close")
+        
+        if ma60 and current_close:
+            if current_close > ma60 and ma60_trend == "向上":
+                result["daily_trend_direction"] = "多头"
+            elif current_close < ma60 and ma60_trend == "向下":
+                result["daily_trend_direction"] = "空头"
+            else:
+                result["daily_trend_direction"] = "震荡"
+    
+    # 2. 计算小时线指标（小周期入场）
+    if hourly_df is not None and len(hourly_df) >= 20:
+        hourly_indicators = calculate_all_indicators(hourly_df)
+        # 添加小时线前缀
+        for key, value in hourly_indicators.items():
+            result[f"hourly_{key}"] = value
+        
+        # 小时线趋势判断
+        result["hourly_trend_direction"] = "未知"
+        ma20 = hourly_indicators.get("ma20")
+        ma20_trend = hourly_indicators.get("ma20_trend")
+        current_close = hourly_indicators.get("current_close")
+        
+        if ma20 and current_close:
+            if current_close > ma20 and ma20_trend == "向上":
+                result["hourly_trend_direction"] = "多头"
+            elif current_close < ma20 and ma20_trend == "向下":
+                result["hourly_trend_direction"] = "空头"
+            else:
+                result["hourly_trend_direction"] = "震荡"
+    
+    # 3. 多周期共振判断
+    if "daily_trend_direction" in result and "hourly_trend_direction" in result:
+        daily_trend = result["daily_trend_direction"]
+        hourly_trend = result["hourly_trend_direction"]
+        
+        if daily_trend == "多头" and hourly_trend == "多头":
+            result["multi_tf_signal"] = "强烈看多"
+            result["multi_tf_resonance"] = True
+        elif daily_trend == "空头" and hourly_trend == "空头":
+            result["multi_tf_signal"] = "强烈看空"
+            result["multi_tf_resonance"] = True
+        elif daily_trend == "多头" and hourly_trend in ["震荡", "空头"]:
+            result["multi_tf_signal"] = "等待回调买入"
+            result["multi_tf_resonance"] = False
+        elif daily_trend == "空头" and hourly_trend in ["震荡", "多头"]:
+            result["multi_tf_signal"] = "反弹做空或观望"
+            result["multi_tf_resonance"] = False
+        else:
+            result["multi_tf_signal"] = "观望"
+            result["multi_tf_resonance"] = False
+    
+    # 4. 入场时机判断（基于小时线）
+    if hourly_df is not None and len(hourly_df) >= 20:
+        hourly_rsi = result.get("hourly_rsi")
+        hourly_kdj_j = result.get("hourly_kdj_j")
+        hourly_macd_dif_trend = result.get("hourly_macd_dif_trend")
+        daily_trend = result.get("daily_trend_direction")
+        
+        entry_signals = []
+        
+        # 日线多头 + 小时线超卖 = 买入时机
+        if daily_trend == "多头":
+            if hourly_rsi and hourly_rsi < 30:
+                entry_signals.append("小时线RSI超卖")
+            if hourly_kdj_j and hourly_kdj_j < 20:
+                entry_signals.append("小时线KDJ超卖")
+            if hourly_macd_dif_trend == "向上":
+                entry_signals.append("小时线MACD拐头向上")
+        
+        result["entry_signals"] = entry_signals
+        result["entry_timing"] = "良好" if len(entry_signals) >= 2 else ("一般" if len(entry_signals) == 1 else "等待")
     
     return result
 
@@ -492,6 +734,36 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
             adx_prev = float(adx_data["adx"].iloc[-2])
             result["adx_prev"] = adx_prev
             result["adx_rising"] = bool(result["adx"] > adx_prev)  # ADX上升表示趋势增强
+    
+    # CCI顺势指标
+    if len(df) >= 20:
+        cci_series = cci(df, 20)
+        result["cci"] = float(cci_series.iloc[-1])
+        # CCI状态判断
+        if result["cci"] > 100:
+            result["cci_status"] = "超买"
+        elif result["cci"] < -100:
+            result["cci_status"] = "超卖"
+        else:
+            result["cci_status"] = "正常"
+        # CCI趋势
+        if len(df) >= 21:
+            cci_prev = float(cci_series.iloc[-2])
+            result["cci_prev"] = cci_prev
+            result["cci_rising"] = bool(result["cci"] > cci_prev)
+    
+    # 斐波那契回撤位
+    if len(df) >= 20:
+        fib_data = fibonacci_retracement(df, min(180, len(df)))
+        result["fib_swing_high"] = fib_data["swing_high"]
+        result["fib_swing_low"] = fib_data["swing_low"]
+        result["fib_236"] = fib_data["fib_236"]
+        result["fib_382"] = fib_data["fib_382"]
+        result["fib_500"] = fib_data["fib_500"]
+        result["fib_618"] = fib_data["fib_618"]
+        result["fib_786"] = fib_data["fib_786"]
+        result["fib_trend"] = fib_data["trend"]
+        result["fib_current_level"] = fib_data["current_fib_level"]
     
     # 一目均衡表（Ichimoku Cloud）
     if len(df) >= 52:

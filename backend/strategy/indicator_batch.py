@@ -19,8 +19,8 @@ logger = get_logger(__name__)
 
 # ============ 选股指标所需的最小K线数量 ============
 # 后续添加新指标时，如果需要更多K线，在这里更新
-# 当前最大需求：一目均衡需要52根K线
-MIN_KLINE_REQUIRED = 60  # 保守值，确保所有指标都能计算
+# 当前最大需求：斐波那契回撤需要180根K线
+MIN_KLINE_REQUIRED = 180  # 保守值，确保所有指标都能计算
 
 
 def batch_compute_indicators(market: str = "A", max_count: int = 1000, incremental: bool = True) -> Dict[str, Any]:
@@ -87,10 +87,10 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
                 # 获取K线数据
                 kline_data = get_kline_from_db(code, None, None, "daily")
                 
-                if not kline_data or len(kline_data) < 60:
+                if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
                     # 如果数据库没有数据，尝试从数据源获取
                     kline_data = fetch_kline_func(code, period="daily")
-                    if not kline_data or len(kline_data) < 60:
+                    if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
                         failed_count += 1
                         continue
                 

@@ -120,6 +120,15 @@ class RuntimeConfig(BaseModel):
     filter_ichimoku_condition: str = Field(
         default="above_cloud", description="一目均衡条件：above_cloud/below_cloud/tk_cross"
     )
+    filter_cci_enable: bool = Field(
+        default=False, description="是否启用CCI筛选"
+    )
+    filter_cci_min: float = Field(
+        default=-100, description="CCI最小值"
+    )
+    filter_cci_max: float = Field(
+        default=100, description="CCI最大值"
+    )
 
     # 行情采集相关
     collector_interval_seconds: int = Field(
@@ -279,6 +288,9 @@ class RuntimeConfigUpdate(BaseModel):
     filter_adx_min: Optional[float] = Field(default=None, ge=0, le=100)
     filter_ichimoku_enable: Optional[bool] = None
     filter_ichimoku_condition: Optional[str] = None
+    filter_cci_enable: Optional[bool] = None
+    filter_cci_min: Optional[float] = None
+    filter_cci_max: Optional[float] = None
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
     collect_market: Optional[str] = Field(default=None, description="数据采集市场：ALL、A、HK")
     collect_period: Optional[str] = Field(default=None, description="数据采集周期：daily、1h")

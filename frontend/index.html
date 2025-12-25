@@ -565,6 +565,27 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="tv-filter-tab has-dropdown" data-filter="cci">
+                            <input type="checkbox" id="filter-cci-enable">
+                            <span class="tv-tab-name">CCI</span>
+                            <span class="tv-tab-arrow">▼</span>
+                            <div class="tv-dropdown">
+                                <div class="tv-dropdown-header">
+                                    <span>顺势指标 (CCI)</span>
+                                    <button type="button" onclick="resetFilter('cci', event)">重设</button>
+                                </div>
+                                <div class="tv-dropdown-body">
+                                    <div class="tv-field">
+                                        <label>最小值</label>
+                                        <input type="number" id="filter-cci-min" value="-100" step="10">
+                                    </div>
+                                    <div class="tv-field">
+                                        <label>最大值</label>
+                                        <input type="number" id="filter-cci-max" value="100" step="10">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <div class="tv-filter-tab tv-filter-count">
                             <span class="tv-tab-name">数量</span>
                             <input type="number" id="selection-max-count" min="5" max="200" value="30">
@@ -1078,7 +1099,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251225_23"></script>
+    <script src="/app.js?v=20251225_24"></script>
 </body>
 </html>
 

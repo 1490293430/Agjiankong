@@ -27,7 +27,7 @@ from ai.analyzer import get_system_metrics
 from strategy.selector import select_stocks
 from trading.engine import execute_order, get_account_info, get_positions
 from trading.account import get_account
-from market.indicator.ta import calculate_all_indicators
+from market.indicator.ta import calculate_all_indicators, calculate_multi_timeframe_indicators
 from market_collector.cn import fetch_a_stock_kline
 from common.redis import get_json, set_json, delete
 from common.logger import get_logger
@@ -1095,6 +1095,10 @@ async def analyze_stock_api(
         True,
         description="是否使用AI模型（已固定为True，仅为兼容旧前端保留）",
     ),
+    multi_timeframe: bool = Query(
+        True,
+        description="是否启用多周期分析（日线+小时线），默认启用",
+    ),
 ):
     """分析股票"""
     try:
@@ -1124,7 +1128,27 @@ async def analyze_stock_api(
             return {"code": 1, "data": {}, "message": f"K线数据不足（当前{len(kline_data)}根，需要至少20根）"}
         
         df = pd.DataFrame(kline_data)
-        indicators = calculate_all_indicators(df)
+        
+        # 多周期分析
+        if multi_timeframe:
+            # 获取小时线数据
+            hourly_kline = fetch_a_stock_kline(code, period="1h")
+            hourly_df = None
+            if hourly_kline and len(hourly_kline) >= 20:
+                if len(hourly_kline) > ai_count:
+                    hourly_kline = hourly_kline[-ai_count:]
+                hourly_df = pd.DataFrame(hourly_kline)
+            
+            # 计算多周期指标
+            indicators = calculate_multi_timeframe_indicators(df, hourly_df)
+            
+            # 同时保留单周期指标（兼容现有逻辑）
+            single_indicators = calculate_all_indicators(df)
+            for key, value in single_indicators.items():
+                if key not in indicators:
+                    indicators[key] = value
+        else:
+            indicators = calculate_all_indicators(df)
         
         # 更新动态参数优化器的市场状态
         try:

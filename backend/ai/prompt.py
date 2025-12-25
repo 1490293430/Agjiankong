@@ -49,6 +49,27 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
         boll_upper = indicators.get('boll_upper')
         kdj_j = indicators.get('kdj_j')
         
+        # CCI顺势指标
+        cci = indicators.get('cci')
+        cci_status = indicators.get('cci_status', '未知')
+        
+        # 斐波那契回撤位
+        fib_382 = indicators.get('fib_382')
+        fib_500 = indicators.get('fib_500')
+        fib_618 = indicators.get('fib_618')
+        fib_trend = indicators.get('fib_trend', '未知')
+        fib_current_level = indicators.get('fib_current_level', '未知')
+        fib_swing_high = indicators.get('fib_swing_high')
+        fib_swing_low = indicators.get('fib_swing_low')
+        
+        # 多周期分析数据（如果有）
+        multi_tf_signal = indicators.get('multi_tf_signal')
+        multi_tf_resonance = indicators.get('multi_tf_resonance')
+        daily_trend = indicators.get('daily_trend_direction')
+        hourly_trend = indicators.get('hourly_trend_direction')
+        entry_timing = indicators.get('entry_timing')
+        entry_signals = indicators.get('entry_signals', [])
+        
         prompt = f"""
 你是专业的量化交易分析模型，使用"三重过滤趋势波段系统"进行交易决策。
 
@@ -123,6 +144,34 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 【辅助参考】
 - RSI：{rsi if rsi else 'N/A'}（>80时入场需谨慎，避免超买）
 - 布林带上轨：{boll_upper if boll_upper else 'N/A'}元（观察是否过热）
+- CCI顺势指标：{cci if cci else 'N/A'}（状态：{cci_status}，>100超买，<-100超卖）
+
+【斐波那契回撤分析】
+- 波段高点：{fib_swing_high if fib_swing_high else 'N/A'}元
+- 波段低点：{fib_swing_low if fib_swing_low else 'N/A'}元
+- 波段趋势：{fib_trend}（up=上涨趋势，down=下跌趋势）
+- 当前价格所处回撤区间：{fib_current_level}
+- 38.2%回撤位：{fib_382 if fib_382 else 'N/A'}元（浅回撤支撑/阻力）
+- 50%回撤位：{fib_500 if fib_500 else 'N/A'}元（中度回撤支撑/阻力）
+- 61.8%回撤位：{fib_618 if fib_618 else 'N/A'}元（黄金分割位，重要支撑/阻力）
+
+斐波那契使用说明：
+- 上涨趋势中：价格回撤到38.2%-61.8%区间是较好的买入区域
+- 下跌趋势中：价格反弹到38.2%-61.8%区间是较好的卖出区域
+- 61.8%是黄金分割位，突破此位可能趋势反转
+
+【多周期分析】（如果有小时线数据）
+- 日线趋势方向：{daily_trend if daily_trend else 'N/A'}
+- 小时线趋势方向：{hourly_trend if hourly_trend else 'N/A'}
+- 多周期共振信号：{multi_tf_signal if multi_tf_signal else 'N/A'}
+- 是否共振：{multi_tf_resonance if multi_tf_resonance is not None else 'N/A'}
+- 入场时机评估：{entry_timing if entry_timing else 'N/A'}
+- 入场信号：{', '.join(entry_signals) if entry_signals else 'N/A'}
+
+多周期分析说明：
+- 日线多头 + 小时线多头 = 强烈看多，可积极入场
+- 日线多头 + 小时线回调 = 等待小时线企稳后入场
+- 日线空头 = 观望或回避
 
 【三重过滤系统分析步骤】
 
