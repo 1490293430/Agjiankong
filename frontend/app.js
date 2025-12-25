@@ -3854,8 +3854,9 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             rightOffset: 5, // 右侧留一点空白，方便查看最新数据
             // 确保时间轴文字颜色正确
             tickMarkFormatter: undefined,
-            // 移动端调整时间轴显示
-            minBarSpacing: minBarSpacing, // 最小K线间距
+            // 允许缩小到更小的K线间距
+            minBarSpacing: 1, // 最小K线间距设为1，允许缩得更小
+            barSpacing: isMobile ? 8 : 6, // 初始K线间距
             fixLeftEdge: false, // 允许左右拖动
             fixRightEdge: false, // 允许左右拖动
         },
@@ -4113,22 +4114,28 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             volumeSeries.applyOptions({ visible: isVisible });
         }
         
-        // 先绘制EMA，然后统一调用一次fitContent，避免多次缩放
+        // 先绘制EMA，然后设置初始可见范围
         updateEMA();
         
-        // 等待所有数据（K线、成交量、EMA）都设置完成后，只调用一次fitContent
-        // 使用更长的延迟确保所有EMA数据都已设置完成
+        // 等待所有数据（K线、成交量、EMA）都设置完成后，设置初始视图
         setTimeout(() => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    // 双重requestAnimationFrame确保所有数据都已渲染
-                    if (chart && chart.timeScale()) {
-                        chart.timeScale().fitContent(); // 只调用一次，适应所有内容
+                    if (chart && chart.timeScale() && candleData.length > 0) {
+                        // 默认显示最近60根K线，而不是全部数据
+                        // 这样用户可以缩小查看更多数据，也可以放大查看细节
+                        const visibleBars = Math.min(60, candleData.length);
+                        const fromIndex = Math.max(0, candleData.length - visibleBars);
+                        
+                        chart.timeScale().setVisibleLogicalRange({
+                            from: fromIndex,
+                            to: candleData.length - 1,
+                        });
                     }
-                    console.log('K线数据设置完成，图表应该已显示');
+                    console.log('[K线渲染] K线数据设置完成');
                 });
             });
-        }, 100); // 增加延迟，确保EMA数据完全设置
+        }, 100);
         
         // 监听窗口大小变化，调整图表尺寸
         const handleResize = () => {
