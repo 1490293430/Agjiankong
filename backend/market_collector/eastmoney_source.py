@@ -30,21 +30,24 @@ def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
             
             # A股分为：沪市主板(fs=m:1+t:2)、深市主板(fs=m:0+t:6)、创业板(fs=m:0+t:80)、科创板(fs=m:1+t:23)、北交所(fs=m:0+t:81)
             markets = [
-                ("沪市主板", "m:1+t:2,m:1+t:23"),  # 沪市主板+科创板
-                ("深市", "m:0+t:6,m:0+t:13,m:0+t:80"),  # 深市主板+中小板+创业板
+                ("沪市主板", "m:1+t:2"),  # 沪市主板
+                ("科创板", "m:1+t:23"),  # 科创板
+                ("深市主板", "m:0+t:6"),  # 深市主板
+                ("中小板", "m:0+t:13"),  # 中小板
+                ("创业板", "m:0+t:80"),  # 创业板
                 ("北交所", "m:0+t:81"),  # 北交所
             ]
             
             all_results = []
             
             # 并发请求各市场数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
                 futures = {
                     executor.submit(_fetch_eastmoney_market, name, fs): name 
                     for name, fs in markets
                 }
                 
-                for future in concurrent.futures.as_completed(futures, timeout=60):
+                for future in concurrent.futures.as_completed(futures, timeout=120):
                     market_name = futures[future]
                     try:
                         results = future.result()
@@ -55,8 +58,16 @@ def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
                         logger.warning(f"[东方财富] {market_name}获取失败: {e}")
             
             if all_results:
-                logger.info(f"[东方财富] A股获取完成，共 {len(all_results)} 只股票")
-                return all_results
+                # 去重（按code）
+                seen = set()
+                unique_results = []
+                for item in all_results:
+                    if item['code'] not in seen:
+                        seen.add(item['code'])
+                        unique_results.append(item)
+                
+                logger.info(f"[东方财富] A股获取完成，共 {len(unique_results)} 只股票（去重前: {len(all_results)}）")
+                return unique_results
             else:
                 raise Exception("所有市场数据获取失败")
                 
@@ -87,9 +98,9 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
             logger.info("[东方财富] 开始并发获取港股实时行情...")
             
             # 港股：fs=m:128+t:3（港股主板）
-            # 东方财富港股接口一次最多返回5000条，需要分页
+            # 东方财富港股接口实际每页最多返回约100条，需要多页获取
             all_results = []
-            page_size = 5000
+            page_size = 1000  # 请求1000条，实际可能返回更少
             
             # 先获取总数
             total = _get_eastmoney_hk_total()
@@ -102,12 +113,15 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
                     return first_page, "东方财富(并发)"
                 raise Exception("获取港股总数失败且第一页也为空")
             
-            # 计算需要的页数
-            pages = (total + page_size - 1) // page_size
+            # 由于接口实际返回数量有限制，需要多次请求
+            # 估算需要的页数（假设每页实际返回100条左右）
+            actual_page_size = 100  # 实际每页返回数量
+            pages = (total + actual_page_size - 1) // actual_page_size
+            pages = min(pages, 50)  # 最多50页，避免请求过多
             logger.info(f"[东方财富] 港股总数: {total}，需要 {pages} 页")
             
             # 并发请求各页数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {
                     executor.submit(_fetch_eastmoney_hk_page, page, page_size): page 
                     for page in range(1, pages + 1)
@@ -124,8 +138,16 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
                         logger.warning(f"[东方财富] 港股第{page}页获取失败: {e}")
             
             if all_results:
-                logger.info(f"[东方财富] 港股获取完成，共 {len(all_results)} 只股票")
-                return all_results, "东方财富(并发)"
+                # 去重（按code）
+                seen = set()
+                unique_results = []
+                for item in all_results:
+                    if item['code'] not in seen:
+                        seen.add(item['code'])
+                        unique_results.append(item)
+                
+                logger.info(f"[东方财富] 港股获取完成，共 {len(unique_results)} 只股票（去重前: {len(all_results)}）")
+                return unique_results, "东方财富(并发)"
             else:
                 raise Exception("所有页面数据获取失败")
                 
@@ -142,51 +164,70 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
 
 
 def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:
-    """获取单个市场的数据"""
-    params = {
-        "pn": 1,
-        "pz": 10000,  # 每页数量，设置足够大
-        "po": 1,
-        "np": 1,
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": 2,
-        "invt": 2,
-        "fid": "f3",
-        "fs": fs,
-        "fields": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f62,f115,f128,f140,f141,f152",
-    }
+    """获取单个市场的数据（支持分页）"""
+    all_results = []
+    page = 1
+    page_size = 5000  # 东方财富接口每页最多5000条
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "http://quote.eastmoney.com/",
     }
     
-    try:
-        response = requests.get(EASTMONEY_API_URL, params=params, headers=headers, timeout=30)
-        data = response.json()
+    while True:
+        params = {
+            "pn": page,
+            "pz": page_size,
+            "po": 1,
+            "np": 1,
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f3",
+            "fs": fs,
+            "fields": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f62,f115,f128,f140,f141,f152",
+        }
         
-        if data.get("rc") != 0:
-            logger.warning(f"[东方财富] {market_name}接口返回错误: {data}")
-            return []
-        
-        items = data.get("data", {}).get("diff", [])
-        if not items:
-            return []
-        
-        results = []
-        for item in items:
-            try:
-                result = _parse_eastmoney_item(item, "A")
-                if result:
-                    results.append(result)
-            except Exception as e:
-                continue
-        
-        return results
-        
-    except Exception as e:
-        logger.warning(f"[东方财富] {market_name}请求失败: {e}")
-        return []
+        try:
+            response = requests.get(EASTMONEY_API_URL, params=params, headers=headers, timeout=30)
+            data = response.json()
+            
+            if data.get("rc") != 0:
+                logger.warning(f"[东方财富] {market_name}第{page}页接口返回错误: rc={data.get('rc')}")
+                break
+            
+            items = data.get("data", {}).get("diff", [])
+            total = data.get("data", {}).get("total", 0)
+            
+            if not items:
+                break
+            
+            for item in items:
+                try:
+                    result = _parse_eastmoney_item(item, "A")
+                    if result:
+                        all_results.append(result)
+                except Exception as e:
+                    continue
+            
+            logger.debug(f"[东方财富] {market_name}第{page}页获取成功: {len(items)}只, 累计: {len(all_results)}只, 总数: {total}")
+            
+            # 检查是否还有更多数据
+            if len(all_results) >= total or len(items) < page_size:
+                break
+            
+            page += 1
+            
+            # 防止无限循环
+            if page > 10:
+                logger.warning(f"[东方财富] {market_name}分页超过10页，停止获取")
+                break
+                
+        except Exception as e:
+            logger.warning(f"[东方财富] {market_name}第{page}页请求失败: {e}")
+            break
+    
+    return all_results
 
 
 def _get_eastmoney_hk_total() -> int:

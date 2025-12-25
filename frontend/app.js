@@ -4189,28 +4189,6 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         
         container.addEventListener('wheel', handleWheel, { passive: false });
         
-        // 监听价格轴变化，限制最小值不能低于-300
-        const handleVisibleRangeChange = () => {
-            if (!chart) return;
-            const priceScale = chart.priceScale('right');
-            if (!priceScale) return;
-            
-            const visibleRange = priceScale.getVisibleRange();
-            if (!visibleRange) return;
-            
-            // 如果最小值低于-300，调整回-300
-            if (visibleRange.from < -300) {
-                const adjustment = -300 - visibleRange.from;
-                priceScale.setVisibleRange({
-                    from: -300,
-                    to: visibleRange.to + adjustment,
-                });
-            }
-        };
-        
-        // 订阅价格轴变化事件
-        chart.priceScale('right').subscribeVisiblePriceRangeChange(handleVisibleRangeChange);
-        
         // 保存事件处理器，以便后续清理
         if (!window.chartEventHandlers) {
             window.chartEventHandlers = {};
@@ -4219,8 +4197,10 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             wheel: handleWheel,
             resize: handleResize,
         };
+        
+        console.log('[K线渲染] 渲染完成');
     } catch (err) {
-        console.error('设置K线数据失败:', err);
+        console.error('[K线渲染] 设置K线数据失败:', err);
         container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">K线渲染失败: ${err.message}</div>`;
     }
 }
