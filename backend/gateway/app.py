@@ -759,12 +759,14 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             saved_count = 0
             
             def compute_and_save_indicator(code):
-                """计算并保存单只股票的指标"""
+                """计算并保存单只股票的指标（仅从数据库获取K线，不从网络获取）"""
                 try:
-                    kline_data = fetch_kline_func(code, "daily", "", None, None, False, False)
+                    # 只从数据库获取K线数据，不从网络数据源获取
+                    from common.db import get_kline_from_db
+                    kline_data = get_kline_from_db(code, None, None, "daily")
                     if not kline_data:
-                        logger.debug(f"股票 {code} 无K线数据")
-                        return (code, None, "无K线数据")
+                        logger.debug(f"股票 {code} 数据库无K线数据")
+                        return (code, None, "数据库无K线")
                     if len(kline_data) < 20:
                         logger.debug(f"股票 {code} K线数据不足: {len(kline_data)}条")
                         return (code, None, f"K线不足({len(kline_data)}条)")
