@@ -3942,6 +3942,15 @@ body.light-mode .status-text {
     margin-bottom: 6px;
 }
 
+/* 条件选择行 */
+.tv-condition-row {
+    margin-bottom: 12px;
+}
+
+.tv-condition-inputs {
+    margin-top: 12px;
+}
+
 /* 浅色模式 */
 body.light-mode .tv-filter-tabs {
     background: #f1f5f9;

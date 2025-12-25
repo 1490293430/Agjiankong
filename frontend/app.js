@@ -8,24 +8,27 @@ console.log('[全局] 页面URL:', window.location.href);
 // 当前打开的筛选器
 let currentTvFilter = null;
 
-// 筛选器配置定义
+// 筛选器配置定义（TradingView 风格：条件筛选）
 const tvFilterConfigs = {
     'rsi': {
         title: '相对强弱指标 (RSI)',
+        hasCondition: true,
         fields: [
-            { type: 'range', label: '范围', minId: 'filter-rsi-min', maxId: 'filter-rsi-max', min: 0, max: 100, defaultMin: 30, defaultMax: 75 }
+            { type: 'condition', minId: 'filter-rsi-min', maxId: 'filter-rsi-max', conditionId: 'filter-rsi-condition', defaultMin: 30, defaultMax: 75, defaultCondition: 'between' }
         ]
     },
     'volume-ratio': {
         title: '量比',
+        hasCondition: true,
         fields: [
-            { type: 'range', label: '范围', minId: 'filter-volume-ratio-min', maxId: 'filter-volume-ratio-max', min: 0.1, max: 20, step: 0.1, defaultMin: 0.8, defaultMax: 8 }
+            { type: 'condition', minId: 'filter-volume-ratio-min', maxId: 'filter-volume-ratio-max', conditionId: 'filter-volume-ratio-condition', defaultMin: 0.8, defaultMax: 8, step: 0.1, defaultCondition: 'between' }
         ]
     },
     'macd': {
         title: 'MACD',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '条件', id: 'filter-macd-condition', options: [
+            { type: 'select', id: 'filter-macd-condition', options: [
                 { value: 'golden', text: '金叉' },
                 { value: 'dead', text: '死叉' },
                 { value: 'above_zero', text: '零上' }
@@ -34,8 +37,9 @@ const tvFilterConfigs = {
     },
     'kdj': {
         title: 'KDJ',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '条件', id: 'filter-kdj-condition', options: [
+            { type: 'select', id: 'filter-kdj-condition', options: [
                 { value: 'golden', text: '金叉' },
                 { value: 'dead', text: '死叉' },
                 { value: 'oversold', text: '超卖' }
@@ -44,14 +48,15 @@ const tvFilterConfigs = {
     },
     'ma': {
         title: '移动平均线 (MA)',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '周期', id: 'filter-ma-period', options: [
+            { type: 'select', id: 'filter-ma-period', label: '周期', options: [
                 { value: '5', text: '5' },
                 { value: '10', text: '10' },
                 { value: '20', text: '20' },
                 { value: '60', text: '60' }
             ], default: '20' },
-            { type: 'select', label: '条件', id: 'filter-ma-condition', options: [
+            { type: 'select', id: 'filter-ma-condition', label: '条件', options: [
                 { value: 'above', text: '上穿' },
                 { value: 'below', text: '下穿' }
             ], default: 'above' }
@@ -59,12 +64,13 @@ const tvFilterConfigs = {
     },
     'ema': {
         title: '指数移动平均线 (EMA)',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '周期', id: 'filter-ema-period', options: [
+            { type: 'select', id: 'filter-ema-period', label: '周期', options: [
                 { value: '12', text: '12' },
                 { value: '26', text: '26' }
             ], default: '12' },
-            { type: 'select', label: '条件', id: 'filter-ema-condition', options: [
+            { type: 'select', id: 'filter-ema-condition', label: '条件', options: [
                 { value: 'above', text: '上穿' },
                 { value: 'golden', text: '金叉' }
             ], default: 'above' }
@@ -72,8 +78,9 @@ const tvFilterConfigs = {
     },
     'boll': {
         title: '布林带 (BOLL)',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '条件', id: 'filter-boll-condition', options: [
+            { type: 'select', id: 'filter-boll-condition', label: '条件', options: [
                 { value: 'expanding', text: '扩张' },
                 { value: 'above_mid', text: '上穿中轨' },
                 { value: 'near_lower', text: '近下轨' }
@@ -82,20 +89,23 @@ const tvFilterConfigs = {
     },
     'bias': {
         title: '乖离率 (BIAS)',
+        hasCondition: true,
         fields: [
-            { type: 'range', label: '范围', minId: 'filter-bias-min', maxId: 'filter-bias-max', min: -20, max: 20, step: 0.1, defaultMin: -6, defaultMax: 6 }
+            { type: 'condition', minId: 'filter-bias-min', maxId: 'filter-bias-max', conditionId: 'filter-bias-condition', defaultMin: -6, defaultMax: 6, step: 0.1, defaultCondition: 'between' }
         ]
     },
     'adx': {
         title: '平均趋向指数 (ADX)',
+        hasCondition: true,
         fields: [
-            { type: 'number', label: '最小值', id: 'filter-adx-min', min: 0, max: 100, default: 25 }
+            { type: 'condition', minId: 'filter-adx-min', maxId: 'filter-adx-max', conditionId: 'filter-adx-condition', defaultMin: 25, defaultMax: 100, defaultCondition: 'greater' }
         ]
     },
     'ichimoku': {
         title: '一目均衡表',
+        hasCondition: false,
         fields: [
-            { type: 'select', label: '条件', id: 'filter-ichimoku-condition', options: [
+            { type: 'select', id: 'filter-ichimoku-condition', label: '条件', options: [
                 { value: 'above_cloud', text: '云上' },
                 { value: 'below_cloud', text: '云下' },
                 { value: 'tk_cross', text: '转换上穿' }
@@ -103,6 +113,14 @@ const tvFilterConfigs = {
         ]
     }
 };
+
+// 条件选项
+const conditionOptions = [
+    { value: 'greater', text: '大于' },
+    { value: 'less', text: '小于' },
+    { value: 'equal', text: '等于' },
+    { value: 'between', text: '介于' }
+];
 
 // 初始化 TradingView 风格筛选器
 function initTvFilters() {
@@ -119,17 +137,6 @@ function initTvFilters() {
                 
                 openTvFilterPanel(filterType);
             });
-        }
-    });
-    
-    // 点击外部关闭面板
-    document.addEventListener('click', (e) => {
-        const panel = document.getElementById('tv-filter-panel');
-        const tabs = document.querySelector('.tv-filter-tabs');
-        if (panel && panel.style.display !== 'none') {
-            if (!panel.contains(e.target) && !tabs.contains(e.target)) {
-                closeTvFilterPanel();
-            }
         }
     });
     
@@ -159,42 +166,41 @@ function openTvFilterPanel(filterType) {
     let html = '';
     
     config.fields.forEach(field => {
-        if (field.type === 'select') {
-            const currentValue = document.getElementById(field.id)?.value || field.default;
-            html += `
-                <div class="tv-select-row">
-                    <select class="tv-select" id="${field.id}" onchange="updateTvFilterPreview('${filterType}')">
-                        ${field.options.map(opt => `<option value="${opt.value}" ${opt.value === currentValue ? 'selected' : ''}>${opt.text}</option>`).join('')}
-                    </select>
-                </div>
-            `;
-        } else if (field.type === 'range') {
+        if (field.type === 'condition') {
+            // TradingView 风格的条件筛选
+            const conditionValue = document.getElementById(field.conditionId)?.value || field.defaultCondition;
             const minValue = document.getElementById(field.minId)?.value || field.defaultMin;
             const maxValue = document.getElementById(field.maxId)?.value || field.defaultMax;
+            const step = field.step || 1;
+            
             html += `
-                <div class="tv-input-row">
-                    <div class="tv-input-group">
-                        <label class="tv-input-label">最小值</label>
-                        <input type="number" class="tv-number-input" id="${field.minId}" 
-                            value="${minValue}" min="${field.min}" max="${field.max}" 
-                            step="${field.step || 1}" onchange="updateTvFilterPreview('${filterType}')">
-                    </div>
-                    <div class="tv-input-group">
-                        <label class="tv-input-label">最大值</label>
-                        <input type="number" class="tv-number-input" id="${field.maxId}" 
-                            value="${maxValue}" min="${field.min}" max="${field.max}" 
-                            step="${field.step || 1}" onchange="updateTvFilterPreview('${filterType}')">
+                <div class="tv-condition-row">
+                    <select class="tv-select" id="${field.conditionId}" onchange="toggleConditionInputs('${filterType}')">
+                        ${conditionOptions.map(opt => `<option value="${opt.value}" ${opt.value === conditionValue ? 'selected' : ''}>${opt.text}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="tv-condition-inputs" id="tv-condition-inputs-${filterType}">
+                    <div class="tv-input-row">
+                        <div class="tv-input-group" id="tv-min-group-${filterType}">
+                            <label class="tv-input-label">最小值</label>
+                            <input type="number" class="tv-number-input" id="${field.minId}" value="${minValue}" step="${step}">
+                        </div>
+                        <div class="tv-input-group" id="tv-max-group-${filterType}" style="${conditionValue === 'between' ? '' : 'display:none'}">
+                            <label class="tv-input-label">最大值</label>
+                            <input type="number" class="tv-number-input" id="${field.maxId}" value="${maxValue}" step="${step}">
+                        </div>
                     </div>
                 </div>
             `;
-        } else if (field.type === 'number') {
+        } else if (field.type === 'select') {
             const currentValue = document.getElementById(field.id)?.value || field.default;
+            const label = field.label || '';
             html += `
                 <div class="tv-select-row">
-                    <label class="tv-input-label">${field.label}</label>
-                    <input type="number" class="tv-number-input" id="${field.id}" 
-                        value="${currentValue}" min="${field.min}" max="${field.max}" 
-                        onchange="updateTvFilterPreview('${filterType}')">
+                    ${label ? `<label class="tv-input-label">${label}</label>` : ''}
+                    <select class="tv-select" id="${field.id}">
+                        ${field.options.map(opt => `<option value="${opt.value}" ${opt.value === currentValue ? 'selected' : ''}>${opt.text}</option>`).join('')}
+                    </select>
                 </div>
             `;
         }
@@ -204,8 +210,41 @@ function openTvFilterPanel(filterType) {
     
     // 显示面板
     document.getElementById('tv-filter-panel').style.display = 'block';
+    
+    // 初始化条件输入显示状态
+    toggleConditionInputs(filterType);
 }
 window.openTvFilterPanel = openTvFilterPanel;
+
+// 切换条件输入框显示
+function toggleConditionInputs(filterType) {
+    const config = tvFilterConfigs[filterType];
+    if (!config) return;
+    
+    config.fields.forEach(field => {
+        if (field.type === 'condition') {
+            const conditionEl = document.getElementById(field.conditionId);
+            const minGroup = document.getElementById(`tv-min-group-${filterType}`);
+            const maxGroup = document.getElementById(`tv-max-group-${filterType}`);
+            const minLabel = minGroup?.querySelector('.tv-input-label');
+            
+            if (!conditionEl) return;
+            
+            const condition = conditionEl.value;
+            
+            if (condition === 'between') {
+                // 介于：显示最小值和最大值
+                if (minLabel) minLabel.textContent = '最小值';
+                if (maxGroup) maxGroup.style.display = '';
+            } else {
+                // 大于/小于/等于：只显示一个值
+                if (minLabel) minLabel.textContent = '值';
+                if (maxGroup) maxGroup.style.display = 'none';
+            }
+        }
+    });
+}
+window.toggleConditionInputs = toggleConditionInputs;
 
 // 关闭筛选器配置面板
 function closeTvFilterPanel() {
@@ -225,30 +264,22 @@ function resetTvFilter() {
     if (!config) return;
     
     config.fields.forEach(field => {
-        if (field.type === 'select') {
-            const el = document.getElementById(field.id);
-            if (el) el.value = field.default;
-        } else if (field.type === 'range') {
+        if (field.type === 'condition') {
+            const conditionEl = document.getElementById(field.conditionId);
             const minEl = document.getElementById(field.minId);
             const maxEl = document.getElementById(field.maxId);
+            if (conditionEl) conditionEl.value = field.defaultCondition;
             if (minEl) minEl.value = field.defaultMin;
             if (maxEl) maxEl.value = field.defaultMax;
-        } else if (field.type === 'number') {
+        } else if (field.type === 'select') {
             const el = document.getElementById(field.id);
             if (el) el.value = field.default;
         }
     });
     
-    updateTvFilterPreview(currentTvFilter);
+    toggleConditionInputs(currentTvFilter);
 }
 window.resetTvFilter = resetTvFilter;
-
-// 更新筛选器预览（暂时不需要，因为新设计没有预览文本）
-function updateTvFilterPreview(filterType) {
-    // 可以在这里添加预览更新逻辑
-    console.log('[TV筛选器] 更新预览:', filterType);
-}
-window.updateTvFilterPreview = updateTvFilterPreview;
 
 // 旧的筛选项折叠功能（保留兼容）
 function toggleFilterItem(headerEl) {
