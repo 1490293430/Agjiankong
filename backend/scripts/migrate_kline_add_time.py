@@ -85,11 +85,23 @@ def migrate_kline_table():
                 engine_full = engine_info[0][0]
                 print(f"当前引擎配置: {engine_full}")
                 
-                if 'time' in engine_full.lower() and 'order by' in engine_full.lower():
-                    print("\n✓ ORDER BY已包含time字段，无需迁移")
-                    return True
+                # 检查ORDER BY是否包含time字段
+                # 需要精确匹配，避免误判（比如update_time）
+                import re
+                # 提取ORDER BY子句
+                order_by_match = re.search(r'ORDER BY\s*\(([^)]+)\)', engine_full, re.IGNORECASE)
+                if order_by_match:
+                    order_by_fields = order_by_match.group(1).lower()
+                    # 检查是否有独立的time字段（不是update_time）
+                    fields = [f.strip() for f in order_by_fields.split(',')]
+                    if 'time' in fields:
+                        print("\n✓ ORDER BY已包含time字段，无需迁移")
+                        return True
+                    else:
+                        print(f"\n⚠️ ORDER BY字段: {fields}")
+                        print("⚠️ ORDER BY未包含time字段，需要重建表")
                 else:
-                    print("\n⚠️ ORDER BY未包含time字段，需要重建表")
+                    print("\n⚠️ 无法解析ORDER BY，需要重建表")
         else:
             print("\n⚠️ kline表缺少time字段，需要迁移")
         
