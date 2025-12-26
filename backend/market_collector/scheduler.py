@@ -279,11 +279,12 @@ def hourly_kline_collect_job():
 
 
 def _collect_hourly_kline_for_market(market: str):
-    """采集指定市场的小时K线数据
+    """采集指定市场的小时K线数据（并发版本）
     
     Args:
         market: "A" 或 "HK"
     """
+    import concurrent.futures
     from common.redis import get_json
     from common.db import save_kline_data
     from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
@@ -298,25 +299,33 @@ def _collect_hourly_kline_for_market(market: str):
     
     # 获取所有股票代码
     codes = [item.get("code") for item in spot_data if item.get("code")]
-    logger.info(f"[{market}] 准备采集 {len(codes)} 只股票的小时K线")
+    logger.info(f"[{market}] 准备并发采集 {len(codes)} 只股票的小时K线")
     
-    # 批量采集（限制并发，避免请求过快）
+    start_time = time.time()
+    
+    # 定义单个股票的采集函数
+    def fetch_single(code):
+        try:
+            if market == "A":
+                return fetch_eastmoney_a_kline(code, period="1h", limit=5)
+            else:
+                return fetch_eastmoney_hk_kline(code, period="1h", limit=5)
+        except Exception as e:
+            logger.debug(f"[{market}] {code} 小时K线获取失败: {e}")
+            return None
+    
+    # 并发采集（最多10个线程）
+    all_kline_data = []
     success_count = 0
     fail_count = 0
-    all_kline_data = []
     
-    # 分批处理，每批50只
-    batch_size = 50
-    for i in range(0, len(codes), batch_size):
-        batch_codes = codes[i:i+batch_size]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_code = {executor.submit(fetch_single, code): code for code in codes}
         
-        for code in batch_codes:
+        for future in concurrent.futures.as_completed(future_to_code):
+            code = future_to_code[future]
             try:
-                if market == "A":
-                    kline_data = fetch_eastmoney_a_kline(code, period="1h", limit=5)
-                else:
-                    kline_data = fetch_eastmoney_hk_kline(code, period="1h", limit=5)
-                
+                kline_data = future.result()
                 if kline_data:
                     all_kline_data.extend(kline_data)
                     success_count += 1
@@ -324,17 +333,15 @@ def _collect_hourly_kline_for_market(market: str):
                     fail_count += 1
             except Exception as e:
                 fail_count += 1
-                logger.debug(f"[{market}] {code} 小时K线获取失败: {e}")
-        
-        # 每批之间稍微等待，避免请求过快
-        if i + batch_size < len(codes):
-            time.sleep(0.5)
+                logger.debug(f"[{market}] {code} 采集异常: {e}")
+    
+    elapsed = time.time() - start_time
     
     # 批量保存到数据库
     if all_kline_data:
         try:
             save_kline_data(all_kline_data, period="1h")
-            logger.info(f"[{market}] 小时K线采集完成: 成功={success_count}, 失败={fail_count}, 总数据={len(all_kline_data)}条")
+            logger.info(f"[{market}] 小时K线采集完成: 成功={success_count}, 失败={fail_count}, 总数据={len(all_kline_data)}条, 耗时={elapsed:.1f}秒")
         except Exception as e:
             logger.error(f"[{market}] 小时K线保存失败: {e}", exc_info=True)
     else:
