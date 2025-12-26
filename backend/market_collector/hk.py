@@ -288,6 +288,13 @@ def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
     set_json("market:hk:spot", result, ex=30 * 24 * 3600)
     get_redis().set("market:hk:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
     
+    # 保存快照到ClickHouse数据库（持久化存储）
+    try:
+        from common.db import save_snapshot_data
+        save_snapshot_data(result, "HK")
+    except Exception as e:
+        logger.warning(f"保存港股快照到数据库失败（不影响Redis缓存）: {e}")
+    
     # 写入差分数据
     diff_payload = {
         "timestamp": datetime.now().isoformat(),
@@ -572,6 +579,7 @@ def fetch_hk_stock_kline(
     force_full_refresh: bool = False,
     skip_db: bool = False,  # 是否跳过数据库操作
     return_source: bool = False,  # 是否返回数据源名称
+    stop_check: callable = None,  # 停止检查回调函数，返回True表示应该停止
 ) -> List[Dict[str, Any]] | tuple:
     """获取港股K线数据（使用Yahoo Finance，国外VPS稳定）
     
@@ -586,6 +594,7 @@ def fetch_hk_stock_kline(
         force_full_refresh: 是否强制全量刷新
         skip_db: 是否跳过数据库操作
         return_source: 是否返回数据源名称
+        stop_check: 可选的停止检查回调函数，返回True表示应该停止采集
     
     Returns:
         K线数据列表，或 (数据列表, 数据源名称) 元组（当 return_source=True）
@@ -600,7 +609,7 @@ def fetch_hk_stock_kline(
     is_hourly = period in ['1h', 'hourly', '60']
     if is_hourly:
         logger.info(f"检测到小时K线请求 {code}, period={period}，使用小时数据处理逻辑")
-        result = _fetch_hk_stock_kline_hourly(code, start_date, end_date, force_full_refresh)
+        result = _fetch_hk_stock_kline_hourly(code, start_date, end_date, force_full_refresh, stop_check)
         return (result, "Yahoo Finance(小时)") if return_source else result
     
     # 转换代码格式：确保是5位数字格式（如3690 -> 03690）
@@ -702,6 +711,7 @@ def _fetch_hk_stock_kline_hourly(
     start_date: str | None = None,
     end_date: str | None = None,
     force_full_refresh: bool = False,
+    stop_check: callable = None,  # 停止检查回调函数，返回True表示应该停止
 ) -> List[Dict[str, Any]]:
     """获取港股小时K线数据
     
@@ -713,6 +723,7 @@ def _fetch_hk_stock_kline_hourly(
         start_date: 开始日期 YYYYMMDD（可选）
         end_date: 结束日期 YYYYMMDD（默认今天）
         force_full_refresh: 是否强制全量刷新
+        stop_check: 可选的停止检查回调函数，返回True表示应该停止采集
     
     Returns:
         小时K线数据列表
@@ -720,6 +731,11 @@ def _fetch_hk_stock_kline_hourly(
     from common.db import save_kline_data, get_kline_from_db
     
     logger.info(f"开始获取港股小时K线数据 {code}")
+    
+    # 检查是否应该停止采集
+    if stop_check and stop_check():
+        logger.info(f"港股小时K线采集被中断 {code}（用户停止）")
+        return []
     
     try:
         # 设置时间范围（小时数据通常只能获取最近的数据，默认获取最近3个月）
@@ -750,29 +766,45 @@ def _fetch_hk_stock_kline_hourly(
         
         logger.info(f"港股小时K线数据时间范围 {code}: {start_str} 到 {end_str}")
         
-        # 优先尝试Yahoo Finance数据源
+        # 优先尝试东方财富数据源
         new_kline_data = []
+        
+        # 检查是否应该停止采集
+        if stop_check and stop_check():
+            logger.info(f"港股小时K线采集被中断 {code}（用户停止）")
+            return []
+        
         try:
-            result = _fetch_hk_kline_yahoo(code, "1h", start_str_ymd, end_str_ymd)
+            from market_collector.eastmoney_source import fetch_eastmoney_hk_kline
+            result = fetch_eastmoney_hk_kline(code, "1h", "", start_str_ymd, end_str_ymd, limit=1000)
             if result and len(result) > 0:
                 new_kline_data = result
-                logger.info(f"Yahoo Finance港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
+                logger.info(f"东方财富港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
         except Exception as e:
-            logger.warning(f"Yahoo Finance获取港股小时K线数据失败 {code}: {e}，尝试备用数据源")
+            logger.warning(f"东方财富获取港股小时K线数据失败 {code}: {e}，尝试Yahoo Finance数据源")
         
-        # 如果Yahoo Finance失败，尝试东方财富数据源
+        # 如果东方财富失败，尝试Yahoo Finance数据源
         if not new_kline_data:
+            # 检查是否应该停止采集
+            if stop_check and stop_check():
+                logger.info(f"港股小时K线采集被中断 {code}（用户停止）")
+                return []
+            
             try:
-                from market_collector.eastmoney_source import fetch_eastmoney_hk_kline
-                result = fetch_eastmoney_hk_kline(code, "1h", "", start_str_ymd, end_str_ymd, limit=1000)
+                result = _fetch_hk_kline_yahoo(code, "1h", start_str_ymd, end_str_ymd)
                 if result and len(result) > 0:
                     new_kline_data = result
-                    logger.info(f"东方财富港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
+                    logger.info(f"Yahoo Finance港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
             except Exception as e:
-                logger.warning(f"东方财富获取港股小时K线数据失败 {code}: {e}，尝试AKShare数据源")
+                logger.warning(f"Yahoo Finance获取港股小时K线数据失败 {code}: {e}，尝试AKShare数据源")
         
-        # 如果东方财富也失败，尝试AKShare数据源
+        # 如果Yahoo Finance也失败，尝试AKShare数据源
         if not new_kline_data:
+            # 检查是否应该停止采集
+            if stop_check and stop_check():
+                logger.info(f"港股小时K线采集被中断 {code}（用户停止）")
+                return []
+            
             try:
                 df = ak.stock_hk_hist_min_em(
                     symbol=code,

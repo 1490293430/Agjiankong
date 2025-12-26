@@ -553,9 +553,12 @@ def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "",
                 continue
             
             try:
+                # 原始日期/时间字符串
+                original_datetime = parts[0]
+                
                 item = {
                     "code": code,
-                    "date": parts[0],  # 日期或时间
+                    "date": original_datetime,  # 保留原始格式，后续处理
                     "open": float(parts[1]),
                     "close": float(parts[2]),
                     "high": float(parts[3]),
@@ -566,9 +569,15 @@ def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "",
                 
                 # 对于分钟/小时数据，日期格式是 "2024-01-01 09:30"
                 # 对于日线数据，日期格式是 "2024-01-01"
-                # 统一转换为 YYYYMMDD 格式（取日期部分）
-                date_str = parts[0].split(" ")[0].replace("-", "")
-                item["date"] = date_str
+                if " " in original_datetime:
+                    # 小时/分钟数据，保留完整时间信息
+                    date_part = original_datetime.split(" ")[0].replace("-", "")
+                    time_part = original_datetime.split(" ")[1]
+                    item["date"] = original_datetime  # 保留完整的日期时间字符串
+                else:
+                    # 日线数据
+                    date_part = original_datetime.replace("-", "")
+                    item["date"] = date_part
                 
                 # 添加周期标识
                 if klt == "60":
@@ -689,10 +698,11 @@ def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
                 continue
             
             try:
-                date_str = parts[0].split(" ")[0].replace("-", "")
+                # 原始日期/时间字符串
+                original_datetime = parts[0]
+                
                 item = {
                     "code": code,
-                    "date": date_str,
                     "open": float(parts[1]),
                     "close": float(parts[2]),
                     "high": float(parts[3]),
@@ -700,6 +710,16 @@ def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
                     "volume": float(parts[5]),
                     "amount": float(parts[6]) if len(parts) > 6 else 0,
                 }
+                
+                # 对于分钟/小时数据，日期格式是 "2024-01-01 09:30"
+                # 对于日线数据，日期格式是 "2024-01-01"
+                if " " in original_datetime:
+                    # 小时/分钟数据，保留完整时间信息
+                    item["date"] = original_datetime  # 保留完整的日期时间字符串
+                else:
+                    # 日线数据
+                    date_str = original_datetime.replace("-", "")
+                    item["date"] = date_str
                 
                 if klt == "60":
                     item["period"] = "1h"

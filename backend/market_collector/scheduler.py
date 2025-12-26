@@ -219,7 +219,7 @@ def news_collect_job():
 
 
 def batch_compute_indicators_job(market: str = "A"):
-    """批量计算指标任务（收盘后自动执行）
+    """批量计算指标任务（收盘后自动执行，计算所有股票的日线和小时线指标）
     
     Args:
         market: 市场类型（A或HK）
@@ -243,15 +243,26 @@ def batch_compute_indicators_job(market: str = "A"):
             logger.debug(f"{market}股指标今天已批量计算过，跳过")
             return
         
-        logger.info(f"开始收盘后批量计算{market}股技术指标（增量更新模式）...")
         from strategy.indicator_batch import batch_compute_indicators
         
-        result = batch_compute_indicators(market, max_count=1000, incremental=True)
+        # 计算日线指标
+        logger.info(f"开始收盘后批量计算{market}股日线技术指标（增量更新模式，计算所有股票）...")
+        result_daily = batch_compute_indicators(market, max_count=None, incremental=True, period="daily")
+        logger.info(f"{market}股日线指标计算完成：成功={result_daily.get('success')}，跳过={result_daily.get('skipped')}，失败={result_daily.get('failed')}")
         
-        if result.get("success", 0) > 0 or result.get("skipped", 0) > 0:
+        # 计算小时线指标
+        logger.info(f"开始收盘后批量计算{market}股小时线技术指标（增量更新模式，计算所有股票）...")
+        result_hourly = batch_compute_indicators(market, max_count=None, incremental=True, period="1h")
+        logger.info(f"{market}股小时线指标计算完成：成功={result_hourly.get('success')}，跳过={result_hourly.get('skipped')}，失败={result_hourly.get('failed')}")
+        
+        # 只要有一个周期计算成功，就标记为已完成
+        total_success = result_daily.get("success", 0) + result_hourly.get("success", 0)
+        total_skipped = result_daily.get("skipped", 0) + result_hourly.get("skipped", 0)
+        
+        if total_success > 0 or total_skipped > 0:
             _last_batch_compute_market.add(market_key)
             _last_batch_compute_date = today
-            logger.info(f"{market}股指标批量计算完成：成功={result.get('success')}，跳过={result.get('skipped')}（已是最新），失败={result.get('failed')}")
+            logger.info(f"{market}股指标批量计算全部完成（日线+小时线）")
         else:
             logger.warning(f"{market}股指标批量计算失败或无数据")
             
@@ -321,22 +332,56 @@ def main():
             news_collect_job()
             
             # 不在交易时间内，检查是否需要执行收盘后批量计算指标
-            # 策略：
-            # 1. 港股收盘时（16:30-17:00）：如果港股今天有交易，一起计算A股和港股
-            # 2. A股收盘时（15:30-16:00）：如果港股今天休市，只计算A股
+            # 16:30 准时开始计算（通过 _last_batch_compute_market 防止重复执行）
             
-            # 判断港股今天是否有交易（检查今天是否有数据更新）
-            hk_has_traded_today = False
-            try:
-                from common.redis import get_redis
-                from common.trading_hours import TZ_HONGKONG
+            if current_hour == 16 and current_minute >= 30:
+                # 先执行快照转K线
+                snapshot_to_kline_job()
                 
-                redis_client = get_redis()
-                hk_time_key = "market:hk:time"
-                update_time_str = redis_client.get(hk_time_key)
+                # 判断A股今天是否有交易
+                a_has_traded_today = False
+                try:
+                    from common.redis import get_redis
+                    from common.trading_hours import TZ_SHANGHAI
+                    
+                    redis_client = get_redis()
+                    a_time_key = "market:a:time"
+                    a_update_time_str = redis_client.get(a_time_key)
+                    
+                    if a_update_time_str:
+                        if isinstance(a_update_time_str, bytes):
+                            a_update_time_str = a_update_time_str.decode('utf-8')
+                        
+                        if isinstance(a_update_time_str, str):
+                            if 'T' in a_update_time_str:
+                                a_update_time = datetime.fromisoformat(a_update_time_str.replace('Z', '+00:00'))
+                            else:
+                                a_update_time = datetime.fromisoformat(a_update_time_str)
+                        else:
+                            a_update_time = a_update_time_str
+                        
+                        if a_update_time.tzinfo is None:
+                            a_update_time = TZ_SHANGHAI.localize(a_update_time)
+                        else:
+                            a_update_time = a_update_time.astimezone(TZ_SHANGHAI)
+                        
+                        now_sh = datetime.now(TZ_SHANGHAI)
+                        today_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0)
+                        
+                        if a_update_time >= today_start:
+                            a_has_traded_today = True
+                except Exception as e:
+                    logger.debug(f"检查A股今日交易状态失败: {e}")
                 
-                if update_time_str:
-                    try:
+                # 判断港股今天是否有交易
+                hk_has_traded_today = False
+                try:
+                    from common.trading_hours import TZ_HONGKONG
+                    
+                    hk_time_key = "market:hk:time"
+                    update_time_str = redis_client.get(hk_time_key)
+                    
+                    if update_time_str:
                         if isinstance(update_time_str, bytes):
                             update_time_str = update_time_str.decode('utf-8')
                         
@@ -356,37 +401,17 @@ def main():
                         now_hk = datetime.now(TZ_HONGKONG)
                         today_start = now_hk.replace(hour=0, minute=0, second=0, microsecond=0)
                         
-                        # 如果今天有数据更新，说明港股今天有交易
                         if update_time >= today_start:
                             hk_has_traded_today = True
-                            logger.debug(f"检测到港股今日有交易（最后更新时间: {update_time.strftime('%Y-%m-%d %H:%M:%S')}）")
-                    except Exception as e:
-                        logger.debug(f"解析港股更新时间失败: {e}")
-            except Exception as e:
-                logger.debug(f"检查港股今日交易状态失败: {e}")
-            
-            # A股收盘后（15:12-16:22）：如果港股今天休市，只计算A股
-            if not is_a_trading:
-                if (current_hour == 15 and current_minute >= 12) or (current_hour == 16 and current_minute < 22):
-                    # 先执行快照转K线（A股）
-                    snapshot_to_kline_job()
-                    
-                    # 如果港股今天休市，只计算A股
-                    if not hk_has_traded_today:
-                        logger.info("A股收盘，港股今日休市，开始批量计算A股指标...")
-                        batch_compute_indicators_job("A")
-            
-            # 港股收盘后（16:22-17:30）：如果港股今天有交易，一起计算A股和港股
-            if not is_hk_trading:
-                if (current_hour == 16 and current_minute >= 22) or (current_hour == 17 and current_minute < 30):
-                    # 先执行快照转K线（港股）
-                    snapshot_to_kline_job()
-                    
-                    # 如果港股今天有交易，一起计算A股和港股
-                    if hk_has_traded_today:
-                        logger.info("港股收盘，开始批量计算A股和港股指标...")
-                        batch_compute_indicators_job("A")
-                        batch_compute_indicators_job("HK")
+                except Exception as e:
+                    logger.debug(f"检查港股今日交易状态失败: {e}")
+                
+                # 计算指标（batch_compute_indicators_job 内部会检查是否已计算过，防止重复）
+                if a_has_traded_today:
+                    batch_compute_indicators_job("A")
+                
+                if hk_has_traded_today:
+                    batch_compute_indicators_job("HK")
             
             # 不在交易时间内，不采集数据，延长等待时间
             # 估算下一个可能的交易开始时间

@@ -232,7 +232,7 @@
         <!-- 自选股面板 -->
         <section id="watchlist-tab" class="tab-content">
             <div class="watchlist-controls">
-                <div style="color: #94a3b8; font-size: 14px;">自选股列表（单击股票查看K线和详情）</div>
+                <div style="color: #94a3b8; font-size: 14px;">自选股列表（<span id="watchlist-count">0</span>只）</div>
             </div>
             <div id="watchlist-container" class="watchlist-container">
                 <div class="watchlist-placeholder">
@@ -630,8 +630,20 @@
                     </div>
                     <!-- 右侧：操作按钮 -->
                     <div style="display: flex; gap: 12px; flex-shrink: 0; margin-left: auto;">
+                        <button id="compute-daily-btn" class="secondary-btn" title="计算所有股票的日线技术指标">📈 计算日线</button>
+                        <button id="compute-hourly-btn" class="secondary-btn" title="计算所有股票的小时线技术指标">⏰ 计算小时线</button>
                         <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>
                         <button id="select-btn" class="primary-btn">🎯 开始选股</button>
+                    </div>
+                </div>
+                <!-- 指标计算进度显示 -->
+                <div id="indicator-progress-container" class="selection-progress-container" style="display: none;">
+                    <div class="selection-progress-bar-wrapper">
+                        <div id="indicator-progress-bar" class="selection-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="selection-progress-info">
+                        <span id="indicator-status" class="selection-status">准备中...</span>
+                        <span id="indicator-progress-text" class="selection-progress-text">0%</span>
                     </div>
                 </div>
                 <!-- 选股进度显示 -->

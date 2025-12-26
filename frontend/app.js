@@ -974,6 +974,11 @@ function handleSSEMessage(message) {
             console.log(`[SSE处理] 处理选股进度: task_id=${message.task_id}, data=`, message.data);
             handleSelectionProgress(message.task_id, message.data);
             break;
+        case 'indicator_progress':
+            // 指标计算进度（始终处理）
+            console.log(`[SSE处理] 处理指标计算进度: task_id=${message.task_id}, data=`, message.data);
+            handleIndicatorProgress(message.task_id, message.data);
+            break;
         default:
             console.warn(`[SSE处理] 未知消息类型: ${messageType}`, message);
     }
@@ -1254,6 +1259,12 @@ function _doWatchlistSync(data) {
 // 从SSE数据直接渲染自选股列表（不需要重新请求服务器，支持无限滚动）
 async function renderWatchlistStocksFromSSE(watchlistData) {
     console.log('[SSE] 从SSE数据直接渲染自选股列表，数量:', watchlistData.length);
+    
+    // 更新自选股数量显示
+    const countEl = document.getElementById('watchlist-count');
+    if (countEl) {
+        countEl.textContent = watchlistData ? watchlistData.length : 0;
+    }
     
     // 保存当前滚动位置
     const container = document.getElementById('watchlist-container');
@@ -1782,6 +1793,184 @@ function handleSelectionProgress(taskId, progressData) {
     }
 }
 
+// 处理指标计算进度（SSE推送）
+function handleIndicatorProgress(taskId, progressData) {
+    console.log('[SSE] 指标计算进度:', taskId, progressData);
+    
+    // 显示进度容器
+    const progressContainer = document.getElementById('indicator-progress-container');
+    if (progressContainer && progressContainer.style.display === 'none') {
+        progressContainer.style.display = 'block';
+    }
+    
+    // 更新进度显示
+    const statusEl = document.getElementById('indicator-status');
+    const progressBar = document.getElementById('indicator-progress-bar');
+    const progressText = document.getElementById('indicator-progress-text');
+    
+    if (!progressData) return;
+    
+    const { status, stage, message, progress, total, processed, success, failed, skipped, elapsed_time } = progressData;
+    
+    // 更新状态文本
+    if (statusEl) {
+        let displayMessage = message || '计算中...';
+        // 移除股票代码，只显示状态信息
+        // 例如 "正在计算日线指标... 920116700" -> "正在计算日线指标..."
+        displayMessage = displayMessage.replace(/\.\.\.\s*\d+$/, '...');
+        // 添加状态图标
+        if (status === 'completed') {
+            displayMessage = '✅ ' + displayMessage;
+        } else if (status === 'failed') {
+            displayMessage = '❌ ' + displayMessage;
+        } else {
+            displayMessage = '📊 ' + displayMessage;
+        }
+        statusEl.textContent = displayMessage;
+        statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' ? 'error' : 'running'));
+    }
+    
+    // 更新进度条
+    if (progressBar) {
+        const targetWidth = progress || 0;
+        progressBar.style.width = `${targetWidth}%`;
+        
+        // 根据状态添加颜色变化
+        if (status === 'completed') {
+            progressBar.className = 'selection-progress-fill success';
+            progressBar.style.background = '';
+        } else if (status === 'failed') {
+            progressBar.className = 'selection-progress-fill error';
+            progressBar.style.background = '';
+        } else {
+            progressBar.className = 'selection-progress-fill';
+            // 动态颜色
+            if (targetWidth < 30) {
+                progressBar.style.background = 'linear-gradient(90deg, #3b82f6 0%, #6366f1 100%)';
+            } else if (targetWidth < 70) {
+                progressBar.style.background = 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, #8b5cf6 0%, #a855f7 100%)';
+            }
+        }
+    }
+    
+    // 更新进度文本
+    if (progressText) {
+        let text = '';
+        if (processed !== undefined && total) {
+            text = `${processed}/${total}`;
+        }
+        if (success !== undefined) {
+            text += ` 成功: ${success}`;
+        }
+        if (skipped !== undefined && skipped > 0) {
+            text += ` 跳过: ${skipped}`;
+        }
+        if (elapsed_time !== undefined) {
+            text += ` - ${typeof elapsed_time === 'number' ? elapsed_time.toFixed(1) : elapsed_time}秒`;
+        }
+        if (!text) {
+            text = status === 'completed' ? '完成' : '处理中...';
+        }
+        progressText.textContent = text;
+    }
+    
+    // 恢复按钮状态
+    if (status === 'completed' || status === 'failed') {
+        const computeDailyBtn = document.getElementById('compute-daily-btn');
+        const computeHourlyBtn = document.getElementById('compute-hourly-btn');
+        if (computeDailyBtn) {
+            computeDailyBtn.disabled = false;
+            computeDailyBtn.textContent = '📈 计算日线';
+        }
+        if (computeHourlyBtn) {
+            computeHourlyBtn.disabled = false;
+            computeHourlyBtn.textContent = '⏰ 计算小时线';
+        }
+        
+        // 如果完成，刷新指标统计
+        if (status === 'completed') {
+            loadIndicatorStats();
+        }
+        
+        // 3秒后隐藏进度条
+        setTimeout(() => {
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+        }, 3000);
+    }
+}
+
+// 计算指标（日线或小时线）
+async function computeIndicators(period) {
+    const periodName = period === 'daily' ? '日线' : '小时线';
+    const computeDailyBtn = document.getElementById('compute-daily-btn');
+    const computeHourlyBtn = document.getElementById('compute-hourly-btn');
+    const progressContainer = document.getElementById('indicator-progress-container');
+    
+    // 禁用按钮
+    if (computeDailyBtn) {
+        computeDailyBtn.disabled = true;
+        if (period === 'daily') {
+            computeDailyBtn.textContent = '📈 计算中...';
+        }
+    }
+    if (computeHourlyBtn) {
+        computeHourlyBtn.disabled = true;
+        if (period === '1h') {
+            computeHourlyBtn.textContent = '⏰ 计算中...';
+        }
+    }
+    
+    // 显示进度容器并重置
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        const progressBar = document.getElementById('indicator-progress-bar');
+        const statusEl = document.getElementById('indicator-status');
+        const progressText = document.getElementById('indicator-progress-text');
+        if (progressBar) progressBar.style.width = '0%';
+        if (statusEl) {
+            statusEl.textContent = `正在初始化${periodName}指标计算...`;
+            statusEl.className = 'selection-status running';
+        }
+        if (progressText) progressText.textContent = '0%';
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/strategy/compute-indicators-async?market=A&period=${period}`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        
+        if (result.code === 0) {
+            console.log(`[指标计算] ${periodName}指标计算任务已启动:`, result.data.task_id);
+            showToast(`${periodName}指标计算任务已启动`, 'success');
+        } else {
+            throw new Error(result.message || '启动失败');
+        }
+    } catch (error) {
+        console.error(`[指标计算] ${periodName}指标计算失败:`, error);
+        showToast(`${periodName}指标计算失败: ${error.message}`, 'error');
+        
+        // 恢复按钮状态
+        if (computeDailyBtn) {
+            computeDailyBtn.disabled = false;
+            computeDailyBtn.textContent = '📈 计算日线';
+        }
+        if (computeHourlyBtn) {
+            computeHourlyBtn.disabled = false;
+            computeHourlyBtn.textContent = '⏰ 计算小时线';
+        }
+        
+        // 隐藏进度条
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
+    }
+}
+
 // 页面卸载时关闭SSE连接
 window.addEventListener('beforeunload', closeSSEConnection);
 window.addEventListener('pagehide', closeSSEConnection);
@@ -2176,11 +2365,13 @@ function switchToTab(targetTab, addHistory = true) {
         if (targetTab === 'ai') {
             console.log('[AI] 切换到AI分析页');
             // 检查是否已有数据，如果没有则从服务器加载
+            // 但如果显示的是错误信息，则不自动加载历史
             const container = document.getElementById('ai-analysis-result');
             if (container) {
                 const hasData = container.querySelector('.ai-analysis-table') || 
                                container.querySelector('.ai-analysis-content');
-                if (!hasData) {
+                const hasError = container.querySelector('.ai-error');
+                if (!hasData && !hasError) {
                     loadAIAnalysisHistory();
                 }
             }
@@ -4775,6 +4966,12 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
     
     watchlistAllStocks = watchlistStocks;
     
+    // 更新自选股数量显示
+    const countEl = document.getElementById('watchlist-count');
+    if (countEl) {
+        countEl.textContent = watchlistStocks.length;
+    }
+    
     if (!container) return;
     
     if (watchlistStocks.length === 0) {
@@ -5556,6 +5753,18 @@ function initStrategy() {
     }
     if (loadSelectedBtn) {
         loadSelectedBtn.addEventListener('click', loadSelectedStocks);
+    }
+    
+    // 计算日线指标按钮
+    const computeDailyBtn = document.getElementById('compute-daily-btn');
+    if (computeDailyBtn) {
+        computeDailyBtn.addEventListener('click', () => computeIndicators('daily'));
+    }
+    
+    // 计算小时线指标按钮
+    const computeHourlyBtn = document.getElementById('compute-hourly-btn');
+    if (computeHourlyBtn) {
+        computeHourlyBtn.addEventListener('click', () => computeIndicators('1h'));
     }
     
     // 初始化选股页（不再使用滚动监听，改用"加载更多"按钮）
@@ -6980,7 +7189,7 @@ async function renderAIAnalysis(data, code, name) {
     container.innerHTML = buildAIAnalysisHtml(data, code, name, null, stats);
 }
 
-async function renderAIAnalysisBatch(items) {
+async function renderAIAnalysisBatch(items, pagination = null) {
     const container = document.getElementById('ai-analysis-result');
     
     if (!items || items.length === 0) {
@@ -7133,6 +7342,34 @@ async function renderAIAnalysisBatch(items) {
         `
         : '';
 
+    // 生成分页按钮HTML
+    const currentPage = pagination?.current_page || aiAnalysisCurrentPage || 1;
+    const totalPages = pagination?.total_pages || aiAnalysisTotalPages || 0;
+    const batchTime = pagination?.batch_time ? new Date(pagination.batch_time).toLocaleString('zh-CN') : '';
+    
+    const paginationHtml = totalPages > 1 ? `
+        <div style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px; background: rgba(30, 41, 59, 0.5); border-radius: 8px;">
+            <button 
+                id="ai-prev-page-btn"
+                style="padding: 8px 16px; background: ${currentPage > 1 ? '#3b82f6' : '#334155'}; color: ${currentPage > 1 ? '#fff' : '#64748b'}; border: none; border-radius: 6px; cursor: ${currentPage > 1 ? 'pointer' : 'not-allowed'}; font-size: 14px;"
+                ${currentPage <= 1 ? 'disabled' : ''}
+            >
+                ← 上一页
+            </button>
+            <span style="color: #94a3b8; font-size: 14px;">
+                第 ${currentPage} / ${totalPages} 页
+                ${batchTime ? `<span style="color: #64748b; margin-left: 8px;">(${batchTime})</span>` : ''}
+            </span>
+            <button 
+                id="ai-next-page-btn"
+                style="padding: 8px 16px; background: ${currentPage < totalPages ? '#3b82f6' : '#334155'}; color: ${currentPage < totalPages ? '#fff' : '#64748b'}; border: none; border-radius: 6px; cursor: ${currentPage < totalPages ? 'pointer' : 'not-allowed'}; font-size: 14px;"
+                ${currentPage >= totalPages ? 'disabled' : ''}
+            >
+                下一页 →
+            </button>
+        </div>
+    ` : '';
+
     container.innerHTML = `
         <div class="ai-analysis-container">
             <div class="ai-analysis-header">
@@ -7160,20 +7397,46 @@ async function renderAIAnalysisBatch(items) {
                     </tbody>
                 </table>
             </div>
+            ${paginationHtml}
         </div>
     `;
+    
+    // 绑定分页按钮事件
+    const prevBtn = document.getElementById('ai-prev-page-btn');
+    const nextBtn = document.getElementById('ai-next-page-btn');
+    
+    if (prevBtn && currentPage > 1) {
+        prevBtn.addEventListener('click', () => {
+            loadAIAnalysisHistory(currentPage - 1);
+        });
+    }
+    
+    if (nextBtn && currentPage < totalPages) {
+        nextBtn.addEventListener('click', () => {
+            loadAIAnalysisHistory(currentPage + 1);
+        });
+    }
 }
 
 // 从服务端加载历史AI分析结果
-async function loadAIAnalysisHistory() {
+// AI分析当前页码
+let aiAnalysisCurrentPage = 1;
+let aiAnalysisTotalPages = 0;
+
+async function loadAIAnalysisHistory(page = 1) {
     const container = document.getElementById('ai-analysis-result');
     if (!container) return;
     try {
-        const res = await apiFetch(`${API_BASE}/api/ai/analysis`);
+        const res = await apiFetch(`${API_BASE}/api/ai/analysis?page=${page}`);
         if (!res.ok) return;
         const data = await res.json();
         if (data.code === 0 && Array.isArray(data.data) && data.data.length > 0) {
-            await renderAIAnalysisBatch(data.data);
+            // 更新分页信息
+            if (data.pagination) {
+                aiAnalysisCurrentPage = data.pagination.current_page || 1;
+                aiAnalysisTotalPages = data.pagination.total_pages || 0;
+            }
+            await renderAIAnalysisBatch(data.data, data.pagination);
         }
     } catch (e) {
         console.warn('加载历史AI分析结果失败:', e);

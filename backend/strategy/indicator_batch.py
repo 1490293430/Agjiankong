@@ -23,12 +23,12 @@ logger = get_logger(__name__)
 MIN_KLINE_REQUIRED = 180  # 保守值，确保所有指标都能计算
 
 
-def batch_compute_indicators(market: str = "A", max_count: int = 1000, incremental: bool = True, period: str = "daily") -> Dict[str, Any]:
+def batch_compute_indicators(market: str = "A", max_count: int = None, incremental: bool = True, period: str = "daily") -> Dict[str, Any]:
     """批量计算并缓存技术指标（支持增量更新）
     
     Args:
         market: 市场类型（A或HK）
-        max_count: 最多计算的股票数量（默认1000）
+        max_count: 最多计算的股票数量（None表示计算所有股票）
         incremental: 是否增量更新（只计算当日数据有变化的股票，默认True）
         period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
@@ -51,6 +51,12 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
         # 按成交额排序，优先计算活跃股票
         sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0), reverse=True)
         
+        # 如果指定了max_count，则只取前N只；否则计算所有
+        if max_count is not None:
+            target_stocks = sorted_stocks[:max_count]
+        else:
+            target_stocks = sorted_stocks
+        
         today = datetime.now().strftime("%Y-%m-%d")
         today_ymd = datetime.now().strftime("%Y%m%d")
         success_count = 0
@@ -58,13 +64,13 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
         skipped_count = 0
         
         period_name = "日线" if period == "daily" else "小时线"
-        logger.info(f"开始批量计算{period_name}指标：市场={market}，目标股票数={min(max_count, len(sorted_stocks))}，增量更新={incremental}")
+        logger.info(f"开始批量计算{period_name}指标：市场={market}，目标股票数={len(target_stocks)}，增量更新={incremental}")
         
-        for i, stock in enumerate(sorted_stocks[:max_count]):
+        for i, stock in enumerate(target_stocks):
             code = str(stock.get("code", ""))
             
             if (i + 1) % 100 == 0:
-                logger.info(f"批量计算{period_name}进度：{i+1}/{min(max_count, len(sorted_stocks))}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
+                logger.info(f"批量计算{period_name}进度：{i+1}/{len(target_stocks)}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
             
             try:
                 # 增量更新：检查是否需要计算

@@ -91,12 +91,15 @@ def init_tables():
         client = _create_clickhouse_client()
         
         # K线表（使用ReplacingMergeTree自动去重，避免频繁DELETE导致mutation堆积）
+        # 注意：time字段用于存储完整时间戳，对于小时线数据尤为重要
+        # ORDER BY 包含 time 字段，确保同一天的多条小时线数据不会被去重
         client.execute("""
         CREATE TABLE IF NOT EXISTS kline
         (
             code String,
             period String,
             date Date,
+            time DateTime DEFAULT toDateTime(date),
             open Float64,
             high Float64,
             low Float64,
@@ -106,7 +109,7 @@ def init_tables():
             update_time DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(update_time)
-        ORDER BY (code, period, date)
+        ORDER BY (code, period, date, time)
         """)
         
         # 检查表结构，确保使用ReplacingMergeTree引擎
@@ -148,6 +151,19 @@ def init_tables():
                     logger.info("✓ period字段添加成功")
                 except Exception as e:
                     logger.warning(f"添加period字段失败: {e}")
+            
+            # 检查是否有time字段（用于存储完整时间戳，支持小时线数据）
+            if "time" not in column_names:
+                logger.info("检测到kline表缺少time字段，正在添加...")
+                logger.warning("⚠️ 重要：添加time字段后，需要重建表的ORDER BY才能正确支持小时线数据去重")
+                logger.warning("⚠️ 建议执行迁移脚本: python -m scripts.migrate_kline_add_time")
+                try:
+                    client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS time DateTime DEFAULT toDateTime(date)")
+                    logger.info("✓ time字段添加成功")
+                    logger.warning("⚠️ 注意：仅添加字段不会改变ORDER BY，小时线数据仍可能被去重")
+                    logger.warning("⚠️ 如需完整支持小时线，请执行迁移脚本重建表结构")
+                except Exception as e:
+                    logger.warning(f"添加time字段失败: {e}")
         except Exception as e:
             logger.debug(f"表结构检查可能失败（表可能不存在）: {e}")
         
@@ -366,6 +382,35 @@ def init_tables():
         ORDER BY (code, created_at)
         """)
         
+        # 实时快照表（保存每只股票最新快照数据，每只股票只保留一条）
+        client.execute("""
+        CREATE TABLE IF NOT EXISTS snapshot
+        (
+            code String,
+            name String,
+            market String,
+            price Float64,
+            pct Float64,
+            change Float64,
+            volume Float64,
+            amount Float64,
+            open Float64,
+            high Float64,
+            low Float64,
+            pre_close Float64,
+            volume_ratio Float64,
+            turnover Float64,
+            pe Float64,
+            market_cap Float64,
+            circulating_market_cap Float64,
+            amplitude Float64,
+            sec_type String DEFAULT 'stock',
+            update_time DateTime DEFAULT now()
+        )
+        ENGINE = ReplacingMergeTree(update_time)
+        ORDER BY (code, market)
+        """)
+        
         logger.info("数据表初始化完成")
     finally:
         if client:
@@ -575,10 +620,62 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
             except Exception:
                 continue  # 日期格式错误，跳过这条数据
             
+            # 处理时间字段（对于小时线数据，需要完整的时间戳）
+            # 从原始数据中获取时间信息
+            time_obj = None
+            original_date = item.get("date", "")
+            original_time = item.get("time", "")  # 可能有单独的time字段
+            
+            if period_normalized == '1h':
+                # 小时线数据需要完整时间戳
+                from datetime import datetime as dt
+                
+                # 尝试从原始date字段解析时间（格式可能是 "2024-01-01 09:30" 或 "2024-01-01 09:30:00"）
+                if isinstance(original_date, str) and " " in original_date:
+                    try:
+                        # 尝试解析带时间的日期字符串
+                        if len(original_date.split(" ")[1]) == 5:  # HH:MM
+                            time_obj = dt.strptime(original_date, "%Y-%m-%d %H:%M")
+                        else:  # HH:MM:SS
+                            time_obj = dt.strptime(original_date, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+                
+                # 如果有单独的time字段
+                if time_obj is None and original_time:
+                    try:
+                        if isinstance(original_time, str):
+                            # 尝试解析时间字符串
+                            if len(original_time) == 5:  # HH:MM
+                                time_obj = dt.combine(date_obj, dt.strptime(original_time, "%H:%M").time())
+                            elif len(original_time) == 8:  # HH:MM:SS
+                                time_obj = dt.combine(date_obj, dt.strptime(original_time, "%H:%M:%S").time())
+                        elif hasattr(original_time, 'hour'):  # datetime.time 对象
+                            time_obj = dt.combine(date_obj, original_time)
+                    except Exception:
+                        pass
+                
+                # 如果还是没有时间，使用日期的00:00:00（但这会导致去重问题）
+                if time_obj is None:
+                    # 尝试从item中获取hour字段
+                    hour = item.get("hour", 0)
+                    if hour:
+                        try:
+                            time_obj = dt.combine(date_obj, dt.strptime(f"{hour:02d}:00", "%H:%M").time())
+                        except Exception:
+                            time_obj = dt.combine(date_obj, dt.min.time())
+                    else:
+                        time_obj = dt.combine(date_obj, dt.min.time())
+            else:
+                # 日线/周线/月线数据，时间设为当天00:00:00
+                from datetime import datetime as dt
+                time_obj = dt.combine(date_obj, dt.min.time())
+            
             data_to_insert.append((
                 code,
                 period_normalized,  # 添加period字段
                 date_obj,  # 使用date对象而不是字符串
+                time_obj,  # 添加time字段（DateTime类型）
                 float(item.get("open", 0) or 0),
                 float(item.get("high", 0) or 0),
                 float(item.get("low", 0) or 0),
@@ -595,20 +692,32 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
         # ClickHouse driver的execute方法支持直接传入数据列表
         try:
             client.execute(
-                "INSERT INTO kline (code, period, date, open, high, low, close, volume, amount) VALUES",
+                "INSERT INTO kline (code, period, date, time, open, high, low, close, volume, amount) VALUES",
                 data_to_insert
             )
             logger.info(f"K线数据保存成功: {len(data_to_insert)}条（周期: {period_normalized}），涉及{len(codes)}只股票")
         except Exception as insert_error:
-            # 如果表还没有period字段（旧表），尝试兼容插入
+            # 如果表还没有time字段（旧表），尝试兼容插入
             error_msg = str(insert_error)
-            logger.error(f"保存K线数据失败: {error_msg}", exc_info=True)
-            if "period" in error_msg.lower() or "column" in error_msg.lower():
+            if "time" in error_msg.lower() and "column" in error_msg.lower():
+                logger.warning(f"表结构可能未更新（缺少time字段），尝试兼容模式插入")
+                # 移除time字段，使用旧格式插入
+                data_without_time = [(d[0], d[1], d[2], d[4], d[5], d[6], d[7], d[8], d[9]) for d in data_to_insert]
+                try:
+                    client.execute(
+                        "INSERT INTO kline (code, period, date, open, high, low, close, volume, amount) VALUES",
+                        data_without_time
+                    )
+                    logger.info(f"K线数据保存成功（兼容模式）: {len(data_without_time)}条（周期: {period_normalized}）")
+                    logger.warning("⚠️ 小时线数据可能因缺少time字段而被去重，建议执行迁移脚本")
+                except Exception as compat_error:
+                    logger.error(f"兼容模式插入也失败: {compat_error}", exc_info=True)
+                    raise
+            elif "period" in error_msg.lower() or "column" in error_msg.lower():
                 logger.warning(f"表结构可能未更新，尝试兼容模式插入: {error_msg}")
-                # 尝试使用旧格式插入（如果period字段不存在，会自动使用默认值）
-                # 但这样不安全，应该先迁移表结构
                 raise
             else:
+                logger.error(f"保存K线数据失败: {error_msg}", exc_info=True)
                 raise
         
         # 注意：不再在每次保存时清理旧数据，避免产生大量mutation
@@ -775,38 +884,69 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
             where_conditions.append("date <= %(end_date)s")
             params['end_date'] = end_date_str
         
-        # 尝试查询（包含period字段）
+        # 尝试查询（包含period和time字段）
         # 使用FINAL确保ReplacingMergeTree去重后的结果（注意：FINAL有性能开销，但能保证数据一致性）
         try:
+            # 先尝试查询包含time字段的新表结构
             query = f"""
-                SELECT code, period, date, open, high, low, close, volume, amount
+                SELECT code, period, date, time, open, high, low, close, volume, amount
                 FROM kline FINAL
                 WHERE {' AND '.join(where_conditions)}
-                ORDER BY date ASC
+                ORDER BY date ASC, time ASC
             """
             result = client.execute(query, params)
             has_period = True
-        except Exception:
-            # 如果period字段不存在，使用兼容查询
-            logger.debug(f"使用兼容模式查询（可能表结构未更新）: {code}")
-            if use_period:
-                # 移除period条件
-                where_conditions = [c for c in where_conditions if 'period' not in c]
-                params.pop('period', None)
-            query = f"""
-                SELECT code, date, open, high, low, close, volume, amount
-                FROM kline FINAL
-                WHERE {' AND '.join(where_conditions)}
-                ORDER BY date ASC
-            """
-            result = client.execute(query, params)
-            has_period = False
+            has_time = True
+        except Exception as e:
+            # 如果time字段不存在，尝试不带time的查询
+            try:
+                query = f"""
+                    SELECT code, period, date, open, high, low, close, volume, amount
+                    FROM kline FINAL
+                    WHERE {' AND '.join(where_conditions)}
+                    ORDER BY date ASC
+                """
+                result = client.execute(query, params)
+                has_period = True
+                has_time = False
+            except Exception:
+                # 如果period字段也不存在，使用兼容查询
+                logger.debug(f"使用兼容模式查询（可能表结构未更新）: {code}")
+                if use_period:
+                    # 移除period条件
+                    where_conditions = [c for c in where_conditions if 'period' not in c]
+                    params.pop('period', None)
+                query = f"""
+                    SELECT code, date, open, high, low, close, volume, amount
+                    FROM kline FINAL
+                    WHERE {' AND '.join(where_conditions)}
+                    ORDER BY date ASC
+                """
+                result = client.execute(query, params)
+                has_period = False
+                has_time = False
         
         # 转换为字典列表
         kline_data = []
         for row in result:
-            if has_period:
-                # 新格式：包含period字段
+            if has_period and has_time:
+                # 新格式：包含period和time字段
+                date_str = row[2].strftime("%Y-%m-%d") if hasattr(row[2], 'strftime') else str(row[2])
+                time_str = row[3].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[3], 'strftime') else str(row[3])
+                kline_dict = {
+                    "code": row[0],
+                    "period": row[1],
+                    "date": date_str,
+                    "time": time_str,  # 完整时间戳
+                    "open": float(row[4]),
+                    "high": float(row[5]),
+                    "low": float(row[6]),
+                    "close": float(row[7]),
+                    "volume": float(row[8]),
+                    "amount": float(row[9]),
+                }
+            elif has_period:
+                # 中间格式：包含period但不包含time字段
                 date_str = row[2].strftime("%Y-%m-%d") if hasattr(row[2], 'strftime') else str(row[2])
                 kline_dict = {
                     "code": row[0],
@@ -1685,6 +1825,139 @@ def get_stock_name_map(market: str = "A") -> Dict[str, str]:
     except Exception as e:
         logger.error(f"获取股票名称映射失败: {e}")
         return {}
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
+def save_snapshot_data(snapshot_data: List[Dict[str, Any]], market: str = "A") -> bool:
+    """将实时快照数据保存到ClickHouse数据库（每只股票只保留最新一条）
+    
+    Args:
+        snapshot_data: 快照数据列表，每个元素包含 code, name, price, pct, volume 等字段
+        market: 市场类型（A或HK）
+    
+    Returns:
+        是否保存成功
+    """
+    if not snapshot_data:
+        return True
+    
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        # 准备批量插入的数据
+        data_to_insert = []
+        for item in snapshot_data:
+            code = str(item.get("code", ""))
+            if not code:
+                continue
+            
+            # 跳过价格为0或无效的数据
+            price = item.get("price")
+            if price is None or price == 0:
+                continue
+            
+            data_to_insert.append((
+                code,
+                str(item.get("name", ""))[:50],  # 限制名称长度
+                market.upper(),
+                float(item.get("price", 0) or 0),
+                float(item.get("pct", 0) or 0),
+                float(item.get("change", 0) or 0),
+                float(item.get("volume", 0) or 0),
+                float(item.get("amount", 0) or 0),
+                float(item.get("open", 0) or 0),
+                float(item.get("high", 0) or 0),
+                float(item.get("low", 0) or 0),
+                float(item.get("pre_close", 0) or 0),
+                float(item.get("volume_ratio", 0) or 0),
+                float(item.get("turnover", 0) or 0),
+                float(item.get("pe", 0) or 0),
+                float(item.get("market_cap", 0) or 0),
+                float(item.get("circulating_market_cap", 0) or 0),
+                float(item.get("amplitude", 0) or 0),
+                str(item.get("sec_type", "stock") or "stock"),
+            ))
+        
+        if not data_to_insert:
+            return True
+        
+        # 批量插入（ReplacingMergeTree会按code+market自动去重，只保留最新）
+        client.execute(
+            """INSERT INTO snapshot 
+            (code, name, market, price, pct, change, volume, amount, 
+             open, high, low, pre_close, volume_ratio, turnover, pe, 
+             market_cap, circulating_market_cap, amplitude, sec_type) 
+            VALUES""",
+            data_to_insert
+        )
+        
+        logger.info(f"快照数据保存成功: {market}股 {len(data_to_insert)}条")
+        return True
+        
+    except Exception as e:
+        logger.error(f"保存快照数据失败: {e}", exc_info=True)
+        return False
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
+def get_snapshot_from_db(code: str = None, market: str = "A") -> List[Dict[str, Any]]:
+    """从数据库获取快照数据
+    
+    Args:
+        code: 股票代码（可选，不传则获取全部）
+        market: 市场类型（A或HK）
+    
+    Returns:
+        快照数据列表
+    """
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        if code:
+            result = client.execute(
+                """
+                SELECT code, name, market, price, pct, change, volume, amount,
+                       open, high, low, pre_close, volume_ratio, turnover, pe,
+                       market_cap, circulating_market_cap, amplitude, sec_type, update_time
+                FROM snapshot FINAL
+                WHERE code = %(code)s AND market = %(market)s
+                """,
+                {"code": code, "market": market}
+            )
+        else:
+            result = client.execute(
+                """
+                SELECT code, name, market, price, pct, change, volume, amount,
+                       open, high, low, pre_close, volume_ratio, turnover, pe,
+                       market_cap, circulating_market_cap, amplitude, sec_type, update_time
+                FROM snapshot FINAL
+                WHERE market = %(market)s
+                """,
+                {"market": market}
+            )
+        
+        columns = ["code", "name", "market", "price", "pct", "change", 
+                   "volume", "amount", "open", "high", "low", "pre_close",
+                   "volume_ratio", "turnover", "pe", "market_cap", 
+                   "circulating_market_cap", "amplitude", "sec_type", "update_time"]
+        
+        return [dict(zip(columns, row)) for row in result]
+        
+    except Exception as e:
+        logger.error(f"获取快照数据失败: {e}")
+        return []
     finally:
         if client:
             try:

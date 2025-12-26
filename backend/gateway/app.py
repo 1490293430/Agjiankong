@@ -49,6 +49,8 @@ from notify.dispatcher import notify as notify_message
 logger = get_logger(__name__)
 
 AI_ANALYSIS_KEY = "ai:analysis"
+AI_ANALYSIS_BATCHES_KEY = "ai:analysis:batches"  # 存储批次列表
+AI_ANALYSIS_CURRENT_BATCH_KEY = "ai:analysis:current_batch"  # 当前批次ID
 
 app = FastAPI(
     title="量化交易终端API",
@@ -1290,6 +1292,221 @@ async def batch_compute_indicators_api(
         return {"code": 1, "data": {}, "message": str(e)}
 
 
+# 指标计算进度字典
+indicator_compute_progress = {}
+
+
+def _broadcast_indicator_progress(task_id: str, progress_data: dict):
+    """广播指标计算进度到SSE"""
+    from market.service.sse import broadcast_message
+    
+    # 更新进度字典
+    indicator_compute_progress[task_id] = progress_data
+    
+    # 调试日志
+    logger.info(f"[指标进度] task_id={task_id}, processed={progress_data.get('processed')}, total={progress_data.get('total')}, success={progress_data.get('success')}, failed={progress_data.get('failed')}, skipped={progress_data.get('skipped')}")
+    
+    # 广播到所有SSE连接
+    try:
+        broadcast_message({
+            "type": "indicator_progress",
+            "task_id": task_id,
+            "data": progress_data
+        })
+    except Exception as e:
+        logger.debug(f"广播指标计算进度失败: {e}")
+
+
+def _run_indicator_compute_task(task_id: str, market: str, period: str):
+    """执行指标计算任务（带进度推送）"""
+    import time
+    from common.db import save_indicator, get_kline_from_db, get_indicator_date, get_kline_latest_date
+    from market.indicator.ta import calculate_all_indicators
+    from datetime import datetime
+    
+    start_time = time.time()
+    period_name = "日线" if period == "daily" else "小时线"
+    
+    try:
+        # 获取股票列表
+        if market.upper() == "HK":
+            all_stocks = get_json("market:hk:spot") or []
+        else:
+            all_stocks = get_json("market:a:spot") or []
+        
+        if not all_stocks:
+            _broadcast_indicator_progress(task_id, {
+                "status": "failed",
+                "stage": "error",
+                "message": f"未获取到{market}股行情数据",
+                "progress": 0,
+                "elapsed_time": time.time() - start_time
+            })
+            return
+        
+        # 按成交额排序，优先计算活跃股票
+        sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0), reverse=True)
+        total = len(sorted_stocks)
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_ymd = datetime.now().strftime("%Y%m%d")
+        
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        _broadcast_indicator_progress(task_id, {
+            "status": "running",
+            "stage": "computing",
+            "message": f"开始计算{period_name}指标...",
+            "progress": 0,
+            "total": total,
+            "processed": 0,
+            "success": 0,
+            "failed": 0,
+            "skipped": 0,
+            "elapsed_time": 0
+        })
+        
+        for i, stock in enumerate(sorted_stocks):
+            code = str(stock.get("code", ""))
+            should_skip = False
+            
+            try:
+                # 增量更新：检查是否需要计算
+                indicator_date = get_indicator_date(code, market.upper(), period)
+                kline_latest_date = get_kline_latest_date(code, period)
+                
+                # 如果指标日期是今天，且K线最新日期也是今天（或更早），跳过
+                if indicator_date == today and kline_latest_date:
+                    indicator_date_ymd = indicator_date.replace("-", "") if indicator_date else None
+                    if indicator_date_ymd == today_ymd and kline_latest_date <= today_ymd:
+                        skipped_count += 1
+                        should_skip = True
+                
+                if not should_skip:
+                    # 获取K线数据
+                    kline_data = get_kline_from_db(code, None, None, period)
+                    kline_count = len(kline_data) if kline_data else 0
+                    
+                    # 小时线数据量较少，降低要求；日线需要60条
+                    min_kline_count = 30 if period == "1h" else 60
+                    
+                    if not kline_data or kline_count < min_kline_count:
+                        failed_count += 1
+                        if failed_count <= 5:  # 只记录前5个失败的
+                            logger.info(f"[指标计算] {code} K线数据不足: {kline_count}条 (period={period}, 需要>={min_kline_count})")
+                    else:
+                        # 计算指标
+                        df = pd.DataFrame(kline_data)
+                        indicators = calculate_all_indicators(df)
+                        
+                        # 小时线数据少，检查ma20而不是ma60
+                        check_indicator = "ma20" if period == "1h" else "ma60"
+                        if indicators and indicators.get(check_indicator):
+                            if save_indicator(code, market.upper(), today, indicators, period):
+                                success_count += 1
+                                if success_count <= 3:
+                                    logger.info(f"[指标计算] {code} 保存成功")
+                            else:
+                                failed_count += 1
+                                if failed_count <= 5:
+                                    logger.info(f"[指标计算] {code} 保存指标失败")
+                        else:
+                            failed_count += 1
+                            if failed_count <= 5:
+                                logger.info(f"[指标计算] {code} 指标计算结果无效: {check_indicator}={indicators.get(check_indicator) if indicators else None}")
+                    
+            except Exception as e:
+                logger.debug(f"计算指标失败 {code}: {e}")
+                failed_count += 1
+            
+            # 每处理50只更新一次进度
+            processed = i + 1
+            if processed % 50 == 0 or processed == total:
+                elapsed = time.time() - start_time
+                progress = int((processed / total) * 100)
+                _broadcast_indicator_progress(task_id, {
+                    "status": "running",
+                    "stage": "computing",
+                    "message": f"正在计算{period_name}指标...",
+                    "progress": progress,
+                    "total": total,
+                    "processed": processed,
+                    "success": success_count,
+                    "failed": failed_count,
+                    "skipped": skipped_count,
+                    "elapsed_time": round(elapsed, 1)
+                })
+        
+        # 完成
+        elapsed = time.time() - start_time
+        _broadcast_indicator_progress(task_id, {
+            "status": "completed",
+            "stage": "completed",
+            "message": f"{period_name}指标计算完成！成功: {success_count}, 跳过: {skipped_count}, 失败: {failed_count}",
+            "progress": 100,
+            "total": total,
+            "processed": total,
+            "success": success_count,
+            "failed": failed_count,
+            "skipped": skipped_count,
+            "elapsed_time": round(elapsed, 1)
+        })
+        
+    except Exception as e:
+        logger.error(f"指标计算任务失败: {e}", exc_info=True)
+        _broadcast_indicator_progress(task_id, {
+            "status": "failed",
+            "stage": "error",
+            "message": f"计算失败: {str(e)[:50]}",
+            "progress": 0,
+            "elapsed_time": time.time() - start_time
+        })
+
+
+@api_router.post("/strategy/compute-indicators-async")
+async def compute_indicators_async_api(
+    background_tasks: BackgroundTasks,
+    market: str = Query("A", description="市场类型：A（A股）或HK（港股）"),
+    period: str = Query("daily", description="K线周期：daily（日线）或 1h（小时线）"),
+    task_id: str | None = Query(None, description="任务ID，用于进度追踪"),
+):
+    """异步计算指标（通过SSE推送进度）
+    
+    用于前端触发指标计算，实时显示进度
+    """
+    import uuid
+    
+    if not task_id:
+        task_id = str(uuid.uuid4())
+    
+    period_name = "日线" if period == "daily" else "小时线"
+    
+    # 初始化进度
+    indicator_compute_progress[task_id] = {
+        "status": "running",
+        "stage": "init",
+        "message": f"正在初始化{period_name}指标计算...",
+        "progress": 0,
+        "elapsed_time": 0
+    }
+    
+    # 在后台线程执行计算任务
+    import threading
+    thread = threading.Thread(
+        target=_run_indicator_compute_task,
+        args=(task_id, market, period),
+        daemon=True
+    )
+    thread.start()
+    
+    return {
+        "code": 0,
+        "data": {"task_id": task_id},
+        "message": f"{period_name}指标计算任务已启动"
+    }
+
+
 @api_router.get("/config", response_model=RuntimeConfig, dependencies=admin_dependencies)
 async def get_config_api():
     """获取系统运行时配置"""
@@ -1330,7 +1547,6 @@ async def analyze_stock_api(
         # 兼容旧配置（字符串）
         if isinstance(ai_periods, str):
             ai_periods = [ai_periods]
-        ai_count = config.ai_data_count or 500
         
         # 获取股票行情
         a_stocks = get_json("market:a:spot") or []
@@ -1339,31 +1555,24 @@ async def analyze_stock_api(
         if not stock:
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
-        # 根据配置获取K线数据（优先使用日线，如果配置了多周期则同时获取）
-        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
-        kline_data = fetch_a_stock_kline(code, period=primary_period)
-        if not kline_data:
-            return {"code": 1, "data": {}, "message": "K线数据不足"}
+        # 从数据库获取日线指标
+        from common.db import get_indicator
+        daily_indicators = get_indicator(code, "A", None, "daily")
         
-        # 限制数据数量为配置的根数（取最新的N根）
-        if len(kline_data) > ai_count:
-            kline_data = kline_data[-ai_count:]
+        if not daily_indicators:
+            return {"code": 1, "data": {}, "message": "日线指标数据不存在，请先运行指标计算任务"}
         
-        if len(kline_data) < 20:
-            return {"code": 1, "data": {}, "message": f"K线数据不足（当前{len(kline_data)}根，需要至少20根）"}
-        
-        df = pd.DataFrame(kline_data)
+        # 使用日线指标作为基础
+        indicators = {k: v for k, v in daily_indicators.items() 
+                     if k not in ["code", "market", "date", "period", "update_time"]}
         
         # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
         use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
         if use_multi_timeframe:
-            # 优先从数据库获取小时线指标
-            from common.db import get_indicator
+            # 从数据库获取小时线指标
             hourly_indicators = get_indicator(code, "A", None, "1h")
             
             if hourly_indicators:
-                # 数据库有小时线指标，直接使用
-                indicators = calculate_all_indicators(df)
                 # 添加小时线指标（带 hourly_ 前缀）
                 for key, value in hourly_indicators.items():
                     if key not in ["code", "market", "date", "period", "update_time"]:
@@ -1407,30 +1616,14 @@ async def analyze_stock_api(
                     indicators["multi_tf_signal"] = "观望"
                     indicators["multi_tf_resonance"] = False
             else:
-                # 数据库没有小时线指标，实时计算
-                hourly_kline = fetch_a_stock_kline(code, period="1h")
-                hourly_df = None
-                if hourly_kline and len(hourly_kline) >= 20:
-                    if len(hourly_kline) > ai_count:
-                        hourly_kline = hourly_kline[-ai_count:]
-                    hourly_df = pd.DataFrame(hourly_kline)
-                
-                # 计算多周期指标
-                indicators = calculate_multi_timeframe_indicators(df, hourly_df)
-                
-                # 同时保留单周期指标（兼容现有逻辑）
-                single_indicators = calculate_all_indicators(df)
-                for key, value in single_indicators.items():
-                    if key not in indicators:
-                        indicators[key] = value
-        else:
-            indicators = calculate_all_indicators(df)
+                # 数据库没有小时线指标，记录警告但继续使用日线指标
+                logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
         
         # 更新动态参数优化器的市场状态
         try:
             from ai.parameter_optimizer import get_parameter_optimizer
             optimizer = get_parameter_optimizer()
-            optimizer.update_market_status(indicators, df)
+            optimizer.update_market_status(indicators, None)
         except Exception as e:
             logger.debug(f"更新市场状态失败: {e}")
         
@@ -1455,16 +1648,43 @@ async def analyze_stock_api(
             except Exception as e:
                 logger.warning(f"创建交易计划失败 {code}: {e}")
 
-        # 持久化单只AI分析结果
+        # 持久化单只AI分析结果（保存到当前批次或创建新批次）
         from datetime import datetime
+        import uuid
 
         now = datetime.now().isoformat()
         try:
-            existing = get_json(AI_ANALYSIS_KEY)
+            # 获取当前批次ID
+            from common.redis import get_redis
+            current_batch_id = get_redis().get(AI_ANALYSIS_CURRENT_BATCH_KEY)
+            if current_batch_id and isinstance(current_batch_id, bytes):
+                current_batch_id = current_batch_id.decode('utf-8')
+            
+            # 如果没有当前批次，创建一个新批次
+            if not current_batch_id:
+                current_batch_id = str(uuid.uuid4())[:8]
+                get_redis().set(AI_ANALYSIS_CURRENT_BATCH_KEY, current_batch_id)
+                
+                # 添加到批次列表
+                batches = get_json(AI_ANALYSIS_BATCHES_KEY) or []
+                if not isinstance(batches, list):
+                    batches = []
+                batches.insert(0, {
+                    "batch_id": current_batch_id,
+                    "created_at": now,
+                    "count": 0
+                })
+                set_json(AI_ANALYSIS_BATCHES_KEY, batches)
+            
+            # 获取当前批次数据
+            batch_data_key = f"ai:analysis:batch:{current_batch_id}"
+            existing = get_json(batch_data_key)
             if not isinstance(existing, dict):
                 existing = {}
         except Exception:
             existing = {}
+            current_batch_id = str(uuid.uuid4())[:8]
+            batch_data_key = f"ai:analysis:batch:{current_batch_id}"
 
         existing[code] = {
             "code": code,
@@ -1472,7 +1692,18 @@ async def analyze_stock_api(
             "analysis": analysis,
             "updated_at": now,
         }
-        set_json(AI_ANALYSIS_KEY, existing)
+        set_json(batch_data_key, existing)
+        
+        # 更新批次列表中的计数
+        try:
+            batches = get_json(AI_ANALYSIS_BATCHES_KEY) or []
+            for batch in batches:
+                if batch.get("batch_id") == current_batch_id:
+                    batch["count"] = len(existing)
+                    break
+            set_json(AI_ANALYSIS_BATCHES_KEY, batches)
+        except Exception:
+            pass
 
         return {"code": 0, "data": analysis, "message": "success"}
     except Exception as e:
@@ -1496,6 +1727,7 @@ async def preview_ai_data_api(
         from ai.prompt import build_stock_analysis_prompt
         from ai.parameter_optimizer import get_dynamic_parameters
         from datetime import datetime
+        from common.db import get_indicator
         
         # 获取配置
         from common.runtime_config import get_runtime_config
@@ -1504,7 +1736,6 @@ async def preview_ai_data_api(
         # 兼容旧配置（字符串）
         if isinstance(ai_periods, str):
             ai_periods = [ai_periods]
-        ai_count = config.ai_data_count or 500
         
         # 获取股票行情
         a_stocks = get_json("market:a:spot") or []
@@ -1513,39 +1744,25 @@ async def preview_ai_data_api(
         if not stock:
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
-        # 根据配置获取K线数据（优先使用日线）
-        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
-        kline_data = fetch_a_stock_kline(code, period=primary_period)
-        if not kline_data:
-            return {"code": 1, "data": {}, "message": "K线数据不足"}
+        # 从数据库获取日线指标
+        daily_indicators = get_indicator(code, "A", None, "daily")
         
-        # 记录原始K线数量
-        original_kline_count = len(kline_data)
+        if not daily_indicators:
+            return {"code": 1, "data": {}, "message": "日线指标数据不存在，请先运行指标计算任务"}
         
-        # 限制数据数量为配置的根数（取最新的N根）
-        if len(kline_data) > ai_count:
-            kline_data = kline_data[-ai_count:]
-        
-        actual_kline_count = len(kline_data)
-        
-        if actual_kline_count < 20:
-            return {"code": 1, "data": {}, "message": f"K线数据不足（当前{actual_kline_count}根，需要至少20根）"}
-        
-        df = pd.DataFrame(kline_data)
+        # 使用日线指标作为基础
+        indicators = {k: v for k, v in daily_indicators.items() 
+                     if k not in ["code", "market", "date", "period", "update_time"]}
         
         # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
         use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
-        hourly_kline_count = 0
         hourly_from_db = False
         if use_multi_timeframe:
-            # 优先从数据库获取小时线指标
-            from common.db import get_indicator
+            # 从数据库获取小时线指标
             hourly_indicators = get_indicator(code, "A", None, "1h")
             
             if hourly_indicators:
-                # 数据库有小时线指标，直接使用
                 hourly_from_db = True
-                indicators = calculate_all_indicators(df)
                 # 添加小时线指标（带 hourly_ 前缀）
                 for key, value in hourly_indicators.items():
                     if key not in ["code", "market", "date", "period", "update_time"]:
@@ -1589,22 +1806,8 @@ async def preview_ai_data_api(
                     indicators["multi_tf_signal"] = "观望"
                     indicators["multi_tf_resonance"] = False
             else:
-                # 数据库没有小时线指标，实时计算
-                hourly_kline = fetch_a_stock_kline(code, period="1h")
-                hourly_df = None
-                if hourly_kline and len(hourly_kline) >= 20:
-                    hourly_kline_count = len(hourly_kline)
-                    if len(hourly_kline) > ai_count:
-                        hourly_kline = hourly_kline[-ai_count:]
-                    hourly_df = pd.DataFrame(hourly_kline)
-                
-                indicators = calculate_multi_timeframe_indicators(df, hourly_df)
-                single_indicators = calculate_all_indicators(df)
-                for key, value in single_indicators.items():
-                    if key not in indicators:
-                        indicators[key] = value
-        else:
-            indicators = calculate_all_indicators(df)
+                # 数据库没有小时线指标，记录警告
+                logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
         
         # 获取动态参数
         dynamic_params = get_dynamic_parameters(indicators)
@@ -1621,18 +1824,12 @@ async def preview_ai_data_api(
             "generated_at": datetime.now().isoformat(),
             "config": {
                 "ai_data_period": ai_periods,
-                "ai_data_count": ai_count,
                 "multi_timeframe": use_multi_timeframe,
             },
-            "kline_info": {
-                "original_count": original_kline_count,
-                "actual_count": actual_kline_count,
-                "hourly_count": hourly_kline_count,
-                "period": primary_period,
-                "date_range": {
-                    "start": kline_data[0].get("date") if kline_data else None,
-                    "end": kline_data[-1].get("date") if kline_data else None,
-                }
+            "indicator_info": {
+                "daily_from_db": True,
+                "hourly_from_db": hourly_from_db,
+                "daily_date": daily_indicators.get("date"),
             },
             "stock": stock,
             "indicators": indicators,
@@ -1776,16 +1973,14 @@ async def analyze_stock_batch_api(
         # 兼容旧配置（字符串）
         if isinstance(ai_periods, str):
             ai_periods = [ai_periods]
-        ai_count = config.ai_data_count or 500
         ai_batch_size = config.ai_batch_size or 5
         
-        # 根据配置确定主周期
-        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
+        # 根据配置确定是否使用多周期分析
         use_multi_timeframe = len(ai_periods) > 1 and "1h" in ai_periods
         
         # 第一步：收集所有股票的数据
         stocks_data_list: List[Tuple[dict, dict, list]] = []  # (stock, indicators, news)
-        stocks_info_map: Dict[str, Dict[str, Any]] = {}  # code -> {stock, kline_data}
+        stocks_info_map: Dict[str, Dict[str, Any]] = {}  # code -> {stock}
         
         for code in codes:
             stock = stock_map.get(code)
@@ -1800,43 +1995,29 @@ async def analyze_stock_batch_api(
                 continue
 
             try:
-                # 获取K线数据
-                kline_data = fetch_a_stock_kline(code, period=primary_period)
-                if not kline_data:
+                # 从数据库获取日线指标
+                from common.db import get_indicator
+                daily_indicators = get_indicator(code, "A", None, "daily")
+                
+                if not daily_indicators:
                     results.append({
                         "code": code,
                         "name": stock.get("name"),
                         "success": False,
-                        "message": "K线数据不足",
+                        "message": "日线指标数据不存在，请先运行指标计算任务",
                         "analysis": None,
                     })
                     continue
                 
-                # 限制数据数量
-                if len(kline_data) > ai_count:
-                    kline_data = kline_data[-ai_count:]
+                # 使用日线指标作为基础
+                indicators = {k: v for k, v in daily_indicators.items() 
+                             if k not in ["code", "market", "date", "period", "update_time"]}
                 
-                if len(kline_data) < 20:
-                    results.append({
-                        "code": code,
-                        "name": stock.get("name"),
-                        "success": False,
-                        "message": f"K线数据不足（当前{len(kline_data)}根，需要至少20根）",
-                        "analysis": None,
-                    })
-                    continue
-
-                df = pd.DataFrame(kline_data)
-                
-                # 多周期分析
+                # 多周期分析：从数据库获取小时线指标
                 if use_multi_timeframe:
-                    # 优先从数据库获取小时线指标
-                    from common.db import get_indicator
                     hourly_indicators = get_indicator(code, "A", None, "1h")
                     
                     if hourly_indicators:
-                        # 数据库有小时线指标，直接使用
-                        indicators = calculate_all_indicators(df)
                         # 添加小时线指标（带 hourly_ 前缀）
                         for key, value in hourly_indicators.items():
                             if key not in ["code", "market", "date", "period", "update_time"]:
@@ -1880,28 +2061,15 @@ async def analyze_stock_batch_api(
                             indicators["multi_tf_signal"] = "观望"
                             indicators["multi_tf_resonance"] = False
                     else:
-                        # 数据库没有小时线指标，实时计算
-                        hourly_kline = fetch_a_stock_kline(code, period="1h")
-                        hourly_df = None
-                        if hourly_kline and len(hourly_kline) >= 20:
-                            if len(hourly_kline) > ai_count:
-                                hourly_kline = hourly_kline[-ai_count:]
-                            hourly_df = pd.DataFrame(hourly_kline)
-                        
-                        indicators = calculate_multi_timeframe_indicators(df, hourly_df)
-                        single_indicators = calculate_all_indicators(df)
-                        for key, value in single_indicators.items():
-                            if key not in indicators:
-                                indicators[key] = value
-                else:
-                    indicators = calculate_all_indicators(df)
+                        # 数据库没有小时线指标，记录警告但继续使用日线指标
+                        logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
                 
                 # 更新动态参数优化器的市场状态（使用第一只股票的数据）
                 if len(stocks_data_list) == 0:
                     try:
                         from ai.parameter_optimizer import get_parameter_optimizer
                         optimizer = get_parameter_optimizer()
-                        optimizer.update_market_status(indicators, df)
+                        optimizer.update_market_status(indicators, None)
                     except Exception as e:
                         logger.debug(f"更新市场状态失败: {e}")
                 
@@ -1909,7 +2077,6 @@ async def analyze_stock_batch_api(
                 stocks_data_list.append((stock, indicators, None))  # news暂时为None
                 stocks_info_map[code] = {
                     "stock": stock,
-                    "kline_data": kline_data,
                 }
                 
             except Exception as e:
@@ -1995,29 +2162,65 @@ async def analyze_stock_batch_api(
                         "analysis": None,
                     })
 
-        # 持久化成功的AI分析结果
+        # 持久化成功的AI分析结果（按批次存储）
         try:
             from datetime import datetime
+            import uuid
 
             now = datetime.now().isoformat()
-            existing = get_json(AI_ANALYSIS_KEY)
-            if not isinstance(existing, dict):
-                existing = {}
-
+            
+            # 生成新的批次ID
+            batch_id = str(uuid.uuid4())[:8]
+            
+            # 构建本批次的分析结果
+            batch_data = {}
             for item in results:
                 if not item.get("success") or not item.get("analysis"):
                     continue
                 code = str(item.get("code") or "").strip()
                 if not code:
                     continue
-                existing[code] = {
+                batch_data[code] = {
                     "code": code,
                     "name": item.get("name"),
                     "analysis": item.get("analysis"),
                     "updated_at": now,
                 }
-
-            set_json(AI_ANALYSIS_KEY, existing)
+            
+            # 只有有成功结果时才创建批次
+            if batch_data:
+                # 保存批次数据
+                batch_data_key = f"ai:analysis:batch:{batch_id}"
+                set_json(batch_data_key, batch_data)
+                
+                # 更新批次列表
+                batches = get_json(AI_ANALYSIS_BATCHES_KEY) or []
+                if not isinstance(batches, list):
+                    batches = []
+                
+                # 添加新批次到列表开头
+                batches.insert(0, {
+                    "batch_id": batch_id,
+                    "created_at": now,
+                    "count": len(batch_data)
+                })
+                
+                # 只保留最近50个批次
+                if len(batches) > 50:
+                    # 删除旧批次的数据
+                    for old_batch in batches[50:]:
+                        old_batch_id = old_batch.get("batch_id")
+                        if old_batch_id:
+                            delete(f"ai:analysis:batch:{old_batch_id}")
+                    batches = batches[:50]
+                
+                set_json(AI_ANALYSIS_BATCHES_KEY, batches)
+                
+                # 更新当前批次ID
+                from common.redis import get_redis
+                get_redis().set(AI_ANALYSIS_CURRENT_BATCH_KEY, batch_id)
+                
+                logger.info(f"AI分析结果已保存到批次 {batch_id}，共 {len(batch_data)} 只股票")
         except Exception as e:
             logger.error(f"保存AI分析结果到Redis失败: {e}", exc_info=True)
 
@@ -2089,10 +2292,65 @@ async def analyze_stock_batch_api(
 
 
 @api_router.get("/ai/analysis")
-async def get_ai_analysis_history():
-    """获取已持久化的AI分析结果列表"""
+async def get_ai_analysis_history(
+    batch_id: str = Query(None, description="批次ID，不传则返回最新批次"),
+    page: int = Query(1, ge=1, description="页码（批次页码）")
+):
+    """获取AI分析结果（按批次分页）
+    
+    Args:
+        batch_id: 指定批次ID，不传则返回最新批次
+        page: 批次页码，1表示最新批次，2表示上一批次，以此类推
+    """
     try:
-        data = get_json(AI_ANALYSIS_KEY) or {}
+        # 获取批次列表（按时间倒序）
+        batches = get_json(AI_ANALYSIS_BATCHES_KEY) or []
+        if not isinstance(batches, list):
+            batches = []
+        
+        # 按时间倒序排序
+        batches.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        total_batches = len(batches)
+        
+        if total_batches == 0:
+            return {
+                "code": 0, 
+                "data": [], 
+                "message": "success",
+                "pagination": {
+                    "current_page": 1,
+                    "total_pages": 0,
+                    "batch_id": None,
+                    "batch_time": None
+                }
+            }
+        
+        # 确定要返回的批次
+        if batch_id:
+            # 查找指定批次
+            target_batch = None
+            current_page = 1
+            for i, b in enumerate(batches):
+                if b.get("batch_id") == batch_id:
+                    target_batch = b
+                    current_page = i + 1
+                    break
+            if not target_batch:
+                return {"code": 1, "data": [], "message": "批次不存在"}
+        else:
+            # 使用页码获取批次
+            if page > total_batches:
+                page = total_batches
+            current_page = page
+            target_batch = batches[page - 1]
+        
+        target_batch_id = target_batch.get("batch_id")
+        batch_time = target_batch.get("created_at")
+        
+        # 获取该批次的分析结果
+        batch_data_key = f"ai:analysis:batch:{target_batch_id}"
+        data = get_json(batch_data_key) or {}
         if not isinstance(data, dict):
             data = {}
 
@@ -2114,7 +2372,17 @@ async def get_ai_analysis_history():
         # 按更新时间降序
         items.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
 
-        return {"code": 0, "data": items, "message": "success"}
+        return {
+            "code": 0, 
+            "data": items, 
+            "message": "success",
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_batches,
+                "batch_id": target_batch_id,
+                "batch_time": batch_time
+            }
+        }
     except Exception as e:
         logger.error(f"获取AI分析历史失败: {e}", exc_info=True)
         return {"code": 1, "data": [], "message": str(e)}
@@ -2124,7 +2392,18 @@ async def get_ai_analysis_history():
 async def clear_ai_analysis_history():
     """清除所有已持久化的AI分析结果"""
     try:
-        delete(AI_ANALYSIS_KEY)
+        # 获取所有批次并删除
+        batches = get_json(AI_ANALYSIS_BATCHES_KEY) or []
+        for batch in batches:
+            batch_id = batch.get("batch_id")
+            if batch_id:
+                delete(f"ai:analysis:batch:{batch_id}")
+        
+        # 删除批次列表和当前批次
+        delete(AI_ANALYSIS_BATCHES_KEY)
+        delete(AI_ANALYSIS_CURRENT_BATCH_KEY)
+        delete(AI_ANALYSIS_KEY)  # 兼容旧数据
+        
         return {"code": 0, "data": {}, "message": "AI分析结果已清除"}
     except Exception as e:
         logger.error(f"清除AI分析历史失败: {e}", exc_info=True)
