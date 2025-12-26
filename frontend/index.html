@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="/style.css?v=20251226_03">
+    <link rel="stylesheet" href="/style.css?v=20251226_05">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -1048,11 +1048,11 @@
                     </div>
                     <div class="config-item">
                         <label style="margin-right: 16px;">
-                            <input type="radio" name="cfg-ai-data-period" id="cfg-ai-data-period-daily" value="daily" checked>
+                            <input type="checkbox" id="cfg-ai-data-period-daily" value="daily" checked>
                             <span style="margin-left: 4px;">日线</span>
                         </label>
                         <label style="margin-right: 16px;">
-                            <input type="radio" name="cfg-ai-data-period" id="cfg-ai-data-period-hourly" value="1h">
+                            <input type="checkbox" id="cfg-ai-data-period-hourly" value="1h">
                             <span style="margin-left: 4px;">小时线</span>
                         </label>
                         <label>
@@ -1124,7 +1124,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251226_01"></script>
+    <script src="/app.js?v=20251226_05"></script>
 </body>
 </html>
 

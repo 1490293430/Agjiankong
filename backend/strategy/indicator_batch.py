@@ -23,13 +23,14 @@ logger = get_logger(__name__)
 MIN_KLINE_REQUIRED = 180  # 保守值，确保所有指标都能计算
 
 
-def batch_compute_indicators(market: str = "A", max_count: int = 1000, incremental: bool = True) -> Dict[str, Any]:
+def batch_compute_indicators(market: str = "A", max_count: int = 1000, incremental: bool = True, period: str = "daily") -> Dict[str, Any]:
     """批量计算并缓存技术指标（支持增量更新）
     
     Args:
         market: 市场类型（A或HK）
         max_count: 最多计算的股票数量（默认1000）
         incremental: 是否增量更新（只计算当日数据有变化的股票，默认True）
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
     Returns:
         统计信息字典
@@ -56,21 +57,22 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
         failed_count = 0
         skipped_count = 0
         
-        logger.info(f"开始批量计算指标：市场={market}，目标股票数={min(max_count, len(sorted_stocks))}，增量更新={incremental}")
+        period_name = "日线" if period == "daily" else "小时线"
+        logger.info(f"开始批量计算{period_name}指标：市场={market}，目标股票数={min(max_count, len(sorted_stocks))}，增量更新={incremental}")
         
         for i, stock in enumerate(sorted_stocks[:max_count]):
             code = str(stock.get("code", ""))
             
             if (i + 1) % 100 == 0:
-                logger.info(f"批量计算进度：{i+1}/{min(max_count, len(sorted_stocks))}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
+                logger.info(f"批量计算{period_name}进度：{i+1}/{min(max_count, len(sorted_stocks))}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
             
             try:
                 # 增量更新：检查是否需要计算
                 if incremental:
-                    # 检查指标表的最新日期
-                    indicator_date = get_indicator_date(code, market.upper())
+                    # 检查指标表的最新日期（带周期参数）
+                    indicator_date = get_indicator_date(code, market.upper(), period)
                     # 检查K线数据的最新日期
-                    kline_latest_date = get_kline_latest_date(code, "daily")
+                    kline_latest_date = get_kline_latest_date(code, period)
                     
                     # 如果指标日期是今天，且K线最新日期也是今天（或更早），说明已经是最新的，跳过
                     if indicator_date == today and kline_latest_date:
@@ -81,7 +83,7 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
                             continue
                 
                 # 获取K线数据（只从数据库获取）
-                kline_data = get_kline_from_db(code, None, None, "daily")
+                kline_data = get_kline_from_db(code, None, None, period)
                 
                 if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
                     failed_count += 1
@@ -92,8 +94,8 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
                 indicators = calculate_all_indicators(df)
                 
                 if indicators and indicators.get("ma60"):
-                    # 保存到数据库
-                    if save_indicator(code, market.upper(), today, indicators):
+                    # 保存到数据库（带周期参数）
+                    if save_indicator(code, market.upper(), today, indicators, period):
                         success_count += 1
                     else:
                         failed_count += 1
@@ -105,27 +107,29 @@ def batch_compute_indicators(market: str = "A", max_count: int = 1000, increment
                 failed_count += 1
                 continue
         
-        logger.info(f"批量计算完成：成功={success_count}，跳过={skipped_count}，失败={failed_count}，总计={success_count + skipped_count + failed_count}")
+        logger.info(f"批量计算{period_name}完成：成功={success_count}，跳过={skipped_count}，失败={failed_count}，总计={success_count + skipped_count + failed_count}")
         
         return {
             "success": success_count,
             "failed": failed_count,
             "skipped": skipped_count,
-            "total": success_count + skipped_count + failed_count
+            "total": success_count + skipped_count + failed_count,
+            "period": period
         }
         
     except Exception as e:
-        logger.error(f"批量计算指标失败: {e}", exc_info=True)
-        return {"success": 0, "failed": 0, "total": 0, "skipped": 0, "error": str(e)}
+        logger.error(f"批量计算{period_name}指标失败: {e}", exc_info=True)
+        return {"success": 0, "failed": 0, "total": 0, "skipped": 0, "error": str(e), "period": period}
 
 
-def compute_indicator_async(code: str, market: str, kline_data: List[Dict[str, Any]]) -> None:
+def compute_indicator_async(code: str, market: str, kline_data: List[Dict[str, Any]], period: str = "daily") -> None:
     """异步计算并保存指标（不阻塞主流程）
     
     Args:
         code: 股票代码
         market: 市场类型（A或HK）
         kline_data: K线数据列表
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
     """
     try:
         if not kline_data or len(kline_data) < 60:
@@ -136,8 +140,8 @@ def compute_indicator_async(code: str, market: str, kline_data: List[Dict[str, A
         indicators = calculate_all_indicators(df)
         
         if indicators and indicators.get("ma60"):
-            save_indicator(code, market.upper(), today, indicators)
-            logger.debug(f"异步计算指标完成并保存: {code}")
+            save_indicator(code, market.upper(), today, indicators, period)
+            logger.debug(f"异步计算{period}指标完成并保存: {code}")
     except Exception as e:
-        logger.debug(f"异步计算指标失败 {code}: {e}")
+        logger.debug(f"异步计算{period}指标失败 {code}: {e}")
 

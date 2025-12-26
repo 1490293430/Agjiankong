@@ -8310,7 +8310,11 @@ async function loadConfig() {
         const aiNotifyEmail = data.ai_notify_email === true;
         const aiNotifyWechat = data.ai_notify_wechat === true;
         const aiAutoTime = data.ai_auto_analyze_time || '';
-        const aiDataPeriod = data.ai_data_period || 'daily';
+        // ai_data_period 现在支持数组（多选）或字符串（兼容旧配置）
+        let aiDataPeriods = data.ai_data_period || ['daily'];
+        if (typeof aiDataPeriods === 'string') {
+            aiDataPeriods = [aiDataPeriods];
+        }
         const aiDataCount = data.ai_data_count || 500;
         const aiBatchSize = data.ai_batch_size || 5;
 
@@ -8327,8 +8331,8 @@ async function loadConfig() {
         if (aiNotifyEmailEl) aiNotifyEmailEl.checked = aiNotifyEmail;
         if (aiNotifyWechatEl) aiNotifyWechatEl.checked = aiNotifyWechat;
         if (aiAutoTimeEl) aiAutoTimeEl.value = aiAutoTime;
-        if (aiDataPeriodDailyEl) aiDataPeriodDailyEl.checked = aiDataPeriod === 'daily';
-        if (aiDataPeriodHourlyEl) aiDataPeriodHourlyEl.checked = aiDataPeriod === '1h';
+        if (aiDataPeriodDailyEl) aiDataPeriodDailyEl.checked = aiDataPeriods.includes('daily');
+        if (aiDataPeriodHourlyEl) aiDataPeriodHourlyEl.checked = aiDataPeriods.includes('1h');
         if (aiDataCountEl) aiDataCountEl.value = aiDataCount;
         if (aiBatchSizeEl) aiBatchSizeEl.value = aiBatchSize;
 
@@ -8418,7 +8422,12 @@ async function saveConfig() {
                 openai_api_base: document.getElementById('cfg-ai-api-base')?.value?.trim() || null,
                 openai_model: document.getElementById('cfg-ai-model')?.value?.trim() || null,
                 ai_auto_analyze_time: document.getElementById('cfg-ai-auto-analyze-time')?.value?.trim() || null,
-                ai_data_period: document.querySelector('input[name="cfg-ai-data-period"]:checked')?.value || 'daily',
+                ai_data_period: (() => {
+                    const periods = [];
+                    if (document.getElementById('cfg-ai-data-period-daily')?.checked) periods.push('daily');
+                    if (document.getElementById('cfg-ai-data-period-hourly')?.checked) periods.push('1h');
+                    return periods.length > 0 ? periods : ['daily'];
+                })(),
                 ai_data_count: Math.max(50, parseInt(document.getElementById('cfg-ai-data-count')?.value || '500')),
                 ai_batch_size: Math.max(1, parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5')),
                 ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram')?.checked ?? false,
@@ -8728,6 +8737,40 @@ function initMarketStatus() {
 // 市场状态更新锁，防止重复更新
 let isUpdatingMarketStatus = false;
 
+// 市场状态缓存（localStorage）
+const MARKET_STATUS_CACHE_KEY = 'market_status_cache';
+const MARKET_STATUS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24小时
+
+function getMarketStatusCache() {
+    try {
+        const cached = localStorage.getItem(MARKET_STATUS_CACHE_KEY);
+        if (cached) {
+            const data = JSON.parse(cached);
+            const now = Date.now();
+            // 检查缓存是否过期（24小时内有效）
+            if (data.timestamp && (now - data.timestamp) < MARKET_STATUS_CACHE_DURATION) {
+                return data;
+            }
+        }
+    } catch (e) {
+        console.warn('[市场状态] 读取缓存失败:', e);
+    }
+    return null;
+}
+
+function setMarketStatusCache(aStatus, hkStatus) {
+    try {
+        const data = {
+            timestamp: Date.now(),
+            aStatus: aStatus,
+            hkStatus: hkStatus
+        };
+        localStorage.setItem(MARKET_STATUS_CACHE_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn('[市场状态] 保存缓存失败:', e);
+    }
+}
+
 async function updateMarketStatus() {
     console.log('[市场状态] ========== updateMarketStatus: 函数被调用 ==========');
     
@@ -8773,14 +8816,42 @@ async function updateMarketStatus() {
     // 重置重试计数
     updateMarketStatus.retryCount = 0;
     
-    // 如果元素存在但内容为空，显示"加载中..."
-    if (!aStatusEl.textContent || aStatusEl.textContent === '') {
-        aStatusEl.textContent = '加载中...';
-        aStatusEl.className = 'market-status-value closed';
-    }
-    if (!hkStatusEl.textContent || hkStatusEl.textContent === '') {
-        hkStatusEl.textContent = '加载中...';
-        hkStatusEl.className = 'market-status-value closed';
+    // 先尝试使用缓存立即显示
+    const cached = getMarketStatusCache();
+    if (cached) {
+        console.log('[市场状态] 使用缓存数据立即显示');
+        const aStatus = cached.aStatus;
+        const hkStatus = cached.hkStatus;
+        
+        if (aStatus) {
+            let aStatusText = aStatus.status || '未知';
+            if (!aStatus.is_trading && aStatus.next_open) {
+                aStatusText += ` (${aStatus.next_open}开)`;
+            }
+            aStatusEl.textContent = aStatusText;
+            aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
+            aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
+        }
+        
+        if (hkStatus) {
+            let hkStatusText = hkStatus.status || '未知';
+            if (!hkStatus.is_trading && hkStatus.next_open) {
+                hkStatusText += ` (${hkStatus.next_open}开)`;
+            }
+            hkStatusEl.textContent = hkStatusText;
+            hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
+            hkStatusEl.title = hkStatus.next_open_full ? `下次开盘: ${hkStatus.next_open_full}` : '';
+        }
+    } else {
+        // 如果没有缓存，显示"加载中..."
+        if (!aStatusEl.textContent || aStatusEl.textContent === '') {
+            aStatusEl.textContent = '加载中...';
+            aStatusEl.className = 'market-status-value closed';
+        }
+        if (!hkStatusEl.textContent || hkStatusEl.textContent === '') {
+            hkStatusEl.textContent = '加载中...';
+            hkStatusEl.className = 'market-status-value closed';
+        }
     }
     
     isUpdatingMarketStatus = true;
@@ -8850,6 +8921,9 @@ async function updateMarketStatus() {
                 aStatusText: aStatus.status,
                 hkStatusText: hkStatus.status
             });
+            
+            // 保存到缓存
+            setMarketStatusCache(aStatus, hkStatus);
             
             // 更新A股状态（包含下一个开盘时间）
             let aStatusText = aStatus.status || '未知';

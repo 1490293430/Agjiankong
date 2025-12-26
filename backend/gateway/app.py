@@ -1273,15 +1273,17 @@ async def get_selected_stocks_api():
 async def batch_compute_indicators_api(
     market: str = Query("A", description="市场类型：A（A股）或HK（港股）"),
     max_count: int = Query(1000, description="最多计算的股票数量"),
-    incremental: bool = Query(True, description="是否增量更新（只计算当日数据有变化的股票）")
+    incremental: bool = Query(True, description="是否增量更新（只计算当日数据有变化的股票）"),
+    period: str = Query("daily", description="K线周期：daily（日线）或 1h（小时线）")
 ):
     """批量计算并缓存技术指标（用于收盘后预计算，减少盘中计算压力）
     
     支持增量更新：只计算当日数据有变化的股票，大幅减少计算量
+    支持多周期：可以分别计算日线和小时线指标
     """
     try:
         from strategy.indicator_batch import batch_compute_indicators
-        result = batch_compute_indicators(market, max_count, incremental)
+        result = batch_compute_indicators(market, max_count, incremental, period)
         return {"code": 0, "data": result, "message": "success"}
     except Exception as e:
         logger.error(f"批量计算指标失败: {e}", exc_info=True)
@@ -1324,7 +1326,10 @@ async def analyze_stock_api(
         # 获取配置
         from common.runtime_config import get_runtime_config
         config = get_runtime_config()
-        ai_period = config.ai_data_period or "daily"
+        ai_periods = config.ai_data_period or ["daily"]
+        # 兼容旧配置（字符串）
+        if isinstance(ai_periods, str):
+            ai_periods = [ai_periods]
         ai_count = config.ai_data_count or 500
         
         # 获取股票行情
@@ -1334,8 +1339,9 @@ async def analyze_stock_api(
         if not stock:
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
-        # 根据配置获取K线数据
-        kline_data = fetch_a_stock_kline(code, period=ai_period)
+        # 根据配置获取K线数据（优先使用日线，如果配置了多周期则同时获取）
+        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
+        kline_data = fetch_a_stock_kline(code, period=primary_period)
         if not kline_data:
             return {"code": 1, "data": {}, "message": "K线数据不足"}
         
@@ -1348,24 +1354,75 @@ async def analyze_stock_api(
         
         df = pd.DataFrame(kline_data)
         
-        # 多周期分析
-        if multi_timeframe:
-            # 获取小时线数据
-            hourly_kline = fetch_a_stock_kline(code, period="1h")
-            hourly_df = None
-            if hourly_kline and len(hourly_kline) >= 20:
-                if len(hourly_kline) > ai_count:
-                    hourly_kline = hourly_kline[-ai_count:]
-                hourly_df = pd.DataFrame(hourly_kline)
+        # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
+        use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
+        if use_multi_timeframe:
+            # 优先从数据库获取小时线指标
+            from common.db import get_indicator
+            hourly_indicators = get_indicator(code, "A", None, "1h")
             
-            # 计算多周期指标
-            indicators = calculate_multi_timeframe_indicators(df, hourly_df)
-            
-            # 同时保留单周期指标（兼容现有逻辑）
-            single_indicators = calculate_all_indicators(df)
-            for key, value in single_indicators.items():
-                if key not in indicators:
-                    indicators[key] = value
+            if hourly_indicators:
+                # 数据库有小时线指标，直接使用
+                indicators = calculate_all_indicators(df)
+                # 添加小时线指标（带 hourly_ 前缀）
+                for key, value in hourly_indicators.items():
+                    if key not in ["code", "market", "date", "period", "update_time"]:
+                        indicators[f"hourly_{key}"] = value
+                
+                # 添加趋势判断
+                indicators["daily_trend_direction"] = "未知"
+                ma60 = indicators.get("ma60")
+                ma60_trend = indicators.get("ma60_trend")
+                current_close = indicators.get("current_close")
+                if ma60 and current_close:
+                    if current_close > ma60 and ma60_trend == "向上":
+                        indicators["daily_trend_direction"] = "多头"
+                    elif current_close < ma60 and ma60_trend == "向下":
+                        indicators["daily_trend_direction"] = "空头"
+                    else:
+                        indicators["daily_trend_direction"] = "震荡"
+                
+                indicators["hourly_trend_direction"] = "未知"
+                hourly_ma20 = hourly_indicators.get("ma20")
+                hourly_ma20_trend = hourly_indicators.get("ma20_trend")
+                hourly_close = hourly_indicators.get("current_close")
+                if hourly_ma20 and hourly_close:
+                    if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
+                        indicators["hourly_trend_direction"] = "多头"
+                    elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
+                        indicators["hourly_trend_direction"] = "空头"
+                    else:
+                        indicators["hourly_trend_direction"] = "震荡"
+                
+                # 多周期共振判断
+                daily_trend = indicators.get("daily_trend_direction", "未知")
+                hourly_trend = indicators.get("hourly_trend_direction", "未知")
+                if daily_trend == "多头" and hourly_trend == "多头":
+                    indicators["multi_tf_signal"] = "强烈看多"
+                    indicators["multi_tf_resonance"] = True
+                elif daily_trend == "空头" and hourly_trend == "空头":
+                    indicators["multi_tf_signal"] = "强烈看空"
+                    indicators["multi_tf_resonance"] = True
+                else:
+                    indicators["multi_tf_signal"] = "观望"
+                    indicators["multi_tf_resonance"] = False
+            else:
+                # 数据库没有小时线指标，实时计算
+                hourly_kline = fetch_a_stock_kline(code, period="1h")
+                hourly_df = None
+                if hourly_kline and len(hourly_kline) >= 20:
+                    if len(hourly_kline) > ai_count:
+                        hourly_kline = hourly_kline[-ai_count:]
+                    hourly_df = pd.DataFrame(hourly_kline)
+                
+                # 计算多周期指标
+                indicators = calculate_multi_timeframe_indicators(df, hourly_df)
+                
+                # 同时保留单周期指标（兼容现有逻辑）
+                single_indicators = calculate_all_indicators(df)
+                for key, value in single_indicators.items():
+                    if key not in indicators:
+                        indicators[key] = value
         else:
             indicators = calculate_all_indicators(df)
         
@@ -1443,7 +1500,10 @@ async def preview_ai_data_api(
         # 获取配置
         from common.runtime_config import get_runtime_config
         config = get_runtime_config()
-        ai_period = config.ai_data_period or "daily"
+        ai_periods = config.ai_data_period or ["daily"]
+        # 兼容旧配置（字符串）
+        if isinstance(ai_periods, str):
+            ai_periods = [ai_periods]
         ai_count = config.ai_data_count or 500
         
         # 获取股票行情
@@ -1453,8 +1513,9 @@ async def preview_ai_data_api(
         if not stock:
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
-        # 获取K线数据
-        kline_data = fetch_a_stock_kline(code, period=ai_period)
+        # 根据配置获取K线数据（优先使用日线）
+        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
+        kline_data = fetch_a_stock_kline(code, period=primary_period)
         if not kline_data:
             return {"code": 1, "data": {}, "message": "K线数据不足"}
         
@@ -1472,22 +1533,76 @@ async def preview_ai_data_api(
         
         df = pd.DataFrame(kline_data)
         
-        # 多周期分析
+        # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
+        use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
         hourly_kline_count = 0
-        if multi_timeframe:
-            hourly_kline = fetch_a_stock_kline(code, period="1h")
-            hourly_df = None
-            if hourly_kline and len(hourly_kline) >= 20:
-                hourly_kline_count = len(hourly_kline)
-                if len(hourly_kline) > ai_count:
-                    hourly_kline = hourly_kline[-ai_count:]
-                hourly_df = pd.DataFrame(hourly_kline)
+        hourly_from_db = False
+        if use_multi_timeframe:
+            # 优先从数据库获取小时线指标
+            from common.db import get_indicator
+            hourly_indicators = get_indicator(code, "A", None, "1h")
             
-            indicators = calculate_multi_timeframe_indicators(df, hourly_df)
-            single_indicators = calculate_all_indicators(df)
-            for key, value in single_indicators.items():
-                if key not in indicators:
-                    indicators[key] = value
+            if hourly_indicators:
+                # 数据库有小时线指标，直接使用
+                hourly_from_db = True
+                indicators = calculate_all_indicators(df)
+                # 添加小时线指标（带 hourly_ 前缀）
+                for key, value in hourly_indicators.items():
+                    if key not in ["code", "market", "date", "period", "update_time"]:
+                        indicators[f"hourly_{key}"] = value
+                
+                # 添加趋势判断
+                indicators["daily_trend_direction"] = "未知"
+                ma60 = indicators.get("ma60")
+                ma60_trend = indicators.get("ma60_trend")
+                current_close = indicators.get("current_close")
+                if ma60 and current_close:
+                    if current_close > ma60 and ma60_trend == "向上":
+                        indicators["daily_trend_direction"] = "多头"
+                    elif current_close < ma60 and ma60_trend == "向下":
+                        indicators["daily_trend_direction"] = "空头"
+                    else:
+                        indicators["daily_trend_direction"] = "震荡"
+                
+                indicators["hourly_trend_direction"] = "未知"
+                hourly_ma20 = hourly_indicators.get("ma20")
+                hourly_ma20_trend = hourly_indicators.get("ma20_trend")
+                hourly_close = hourly_indicators.get("current_close")
+                if hourly_ma20 and hourly_close:
+                    if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
+                        indicators["hourly_trend_direction"] = "多头"
+                    elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
+                        indicators["hourly_trend_direction"] = "空头"
+                    else:
+                        indicators["hourly_trend_direction"] = "震荡"
+                
+                # 多周期共振判断
+                daily_trend = indicators.get("daily_trend_direction", "未知")
+                hourly_trend = indicators.get("hourly_trend_direction", "未知")
+                if daily_trend == "多头" and hourly_trend == "多头":
+                    indicators["multi_tf_signal"] = "强烈看多"
+                    indicators["multi_tf_resonance"] = True
+                elif daily_trend == "空头" and hourly_trend == "空头":
+                    indicators["multi_tf_signal"] = "强烈看空"
+                    indicators["multi_tf_resonance"] = True
+                else:
+                    indicators["multi_tf_signal"] = "观望"
+                    indicators["multi_tf_resonance"] = False
+            else:
+                # 数据库没有小时线指标，实时计算
+                hourly_kline = fetch_a_stock_kline(code, period="1h")
+                hourly_df = None
+                if hourly_kline and len(hourly_kline) >= 20:
+                    hourly_kline_count = len(hourly_kline)
+                    if len(hourly_kline) > ai_count:
+                        hourly_kline = hourly_kline[-ai_count:]
+                    hourly_df = pd.DataFrame(hourly_kline)
+                
+                indicators = calculate_multi_timeframe_indicators(df, hourly_df)
+                single_indicators = calculate_all_indicators(df)
+                for key, value in single_indicators.items():
+                    if key not in indicators:
+                        indicators[key] = value
         else:
             indicators = calculate_all_indicators(df)
         
@@ -1505,15 +1620,15 @@ async def preview_ai_data_api(
         result = {
             "generated_at": datetime.now().isoformat(),
             "config": {
-                "ai_data_period": ai_period,
+                "ai_data_period": ai_periods,
                 "ai_data_count": ai_count,
-                "multi_timeframe": multi_timeframe,
+                "multi_timeframe": use_multi_timeframe,
             },
             "kline_info": {
                 "original_count": original_kline_count,
                 "actual_count": actual_kline_count,
                 "hourly_count": hourly_kline_count,
-                "period": ai_period,
+                "period": primary_period,
                 "date_range": {
                     "start": kline_data[0].get("date") if kline_data else None,
                     "end": kline_data[-1].get("date") if kline_data else None,
@@ -1657,9 +1772,16 @@ async def analyze_stock_batch_api(
         # 获取配置
         from common.runtime_config import get_runtime_config
         config = get_runtime_config()
-        ai_period = config.ai_data_period or "daily"
+        ai_periods = config.ai_data_period or ["daily"]
+        # 兼容旧配置（字符串）
+        if isinstance(ai_periods, str):
+            ai_periods = [ai_periods]
         ai_count = config.ai_data_count or 500
         ai_batch_size = config.ai_batch_size or 5
+        
+        # 根据配置确定主周期
+        primary_period = "daily" if "daily" in ai_periods else ai_periods[0]
+        use_multi_timeframe = len(ai_periods) > 1 and "1h" in ai_periods
         
         # 第一步：收集所有股票的数据
         stocks_data_list: List[Tuple[dict, dict, list]] = []  # (stock, indicators, news)
@@ -1679,7 +1801,7 @@ async def analyze_stock_batch_api(
 
             try:
                 # 获取K线数据
-                kline_data = fetch_a_stock_kline(code, period=ai_period)
+                kline_data = fetch_a_stock_kline(code, period=primary_period)
                 if not kline_data:
                     results.append({
                         "code": code,
@@ -1705,7 +1827,74 @@ async def analyze_stock_batch_api(
                     continue
 
                 df = pd.DataFrame(kline_data)
-                indicators = calculate_all_indicators(df)
+                
+                # 多周期分析
+                if use_multi_timeframe:
+                    # 优先从数据库获取小时线指标
+                    from common.db import get_indicator
+                    hourly_indicators = get_indicator(code, "A", None, "1h")
+                    
+                    if hourly_indicators:
+                        # 数据库有小时线指标，直接使用
+                        indicators = calculate_all_indicators(df)
+                        # 添加小时线指标（带 hourly_ 前缀）
+                        for key, value in hourly_indicators.items():
+                            if key not in ["code", "market", "date", "period", "update_time"]:
+                                indicators[f"hourly_{key}"] = value
+                        
+                        # 添加趋势判断
+                        indicators["daily_trend_direction"] = "未知"
+                        ma60 = indicators.get("ma60")
+                        ma60_trend = indicators.get("ma60_trend")
+                        current_close = indicators.get("current_close")
+                        if ma60 and current_close:
+                            if current_close > ma60 and ma60_trend == "向上":
+                                indicators["daily_trend_direction"] = "多头"
+                            elif current_close < ma60 and ma60_trend == "向下":
+                                indicators["daily_trend_direction"] = "空头"
+                            else:
+                                indicators["daily_trend_direction"] = "震荡"
+                        
+                        indicators["hourly_trend_direction"] = "未知"
+                        hourly_ma20 = hourly_indicators.get("ma20")
+                        hourly_ma20_trend = hourly_indicators.get("ma20_trend")
+                        hourly_close = hourly_indicators.get("current_close")
+                        if hourly_ma20 and hourly_close:
+                            if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
+                                indicators["hourly_trend_direction"] = "多头"
+                            elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
+                                indicators["hourly_trend_direction"] = "空头"
+                            else:
+                                indicators["hourly_trend_direction"] = "震荡"
+                        
+                        # 多周期共振判断
+                        daily_trend = indicators.get("daily_trend_direction", "未知")
+                        hourly_trend = indicators.get("hourly_trend_direction", "未知")
+                        if daily_trend == "多头" and hourly_trend == "多头":
+                            indicators["multi_tf_signal"] = "强烈看多"
+                            indicators["multi_tf_resonance"] = True
+                        elif daily_trend == "空头" and hourly_trend == "空头":
+                            indicators["multi_tf_signal"] = "强烈看空"
+                            indicators["multi_tf_resonance"] = True
+                        else:
+                            indicators["multi_tf_signal"] = "观望"
+                            indicators["multi_tf_resonance"] = False
+                    else:
+                        # 数据库没有小时线指标，实时计算
+                        hourly_kline = fetch_a_stock_kline(code, period="1h")
+                        hourly_df = None
+                        if hourly_kline and len(hourly_kline) >= 20:
+                            if len(hourly_kline) > ai_count:
+                                hourly_kline = hourly_kline[-ai_count:]
+                            hourly_df = pd.DataFrame(hourly_kline)
+                        
+                        indicators = calculate_multi_timeframe_indicators(df, hourly_df)
+                        single_indicators = calculate_all_indicators(df)
+                        for key, value in single_indicators.items():
+                            if key not in indicators:
+                                indicators[key] = value
+                else:
+                    indicators = calculate_all_indicators(df)
                 
                 # 更新动态参数优化器的市场状态（使用第一只股票的数据）
                 if len(stocks_data_list) == 0:

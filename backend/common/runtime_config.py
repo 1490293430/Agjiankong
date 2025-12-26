@@ -3,7 +3,7 @@
 
 通过 Redis 持久化，可在前端动态修改。
 """
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -206,9 +206,9 @@ class RuntimeConfig(BaseModel):
     )
     
     # AI 分析使用的K线数据配置
-    ai_data_period: str = Field(
-        default="daily",
-        description="AI分析使用的K线周期：daily（日线）或 1h（小时线）"
+    ai_data_period: Any = Field(
+        default=["daily"],
+        description="AI分析使用的K线周期：可以是字符串或数组，支持 daily（日线）和 1h（小时线）"
     )
     ai_data_count: int = Field(
         default=500,
@@ -320,7 +320,7 @@ class RuntimeConfigUpdate(BaseModel):
     openai_api_base: Optional[str] = None
     openai_model: Optional[str] = None
     ai_auto_analyze_time: Optional[str] = None
-    ai_data_period: Optional[str] = Field(default=None, description="AI分析使用的K线周期：daily 或 1h")
+    ai_data_period: Optional[Any] = Field(default=None, description="AI分析使用的K线周期：可以是字符串或数组")
     ai_data_count: Optional[int] = Field(default=None, ge=50, le=1000)
     ai_batch_size: Optional[int] = Field(default=None, ge=1, le=1000)
     ai_notify_telegram: Optional[bool] = None

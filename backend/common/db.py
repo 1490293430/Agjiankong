@@ -158,6 +158,7 @@ def init_tables():
             code String,
             market String,
             date Date,
+            period String DEFAULT 'daily',  -- K线周期：daily（日线）、1h（小时线）
             -- 均线
             ma5 Float64,
             ma10 Float64,
@@ -244,7 +245,7 @@ def init_tables():
             update_time DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(update_time)
-        ORDER BY (code, market, date)
+        ORDER BY (code, market, date, period)
         """)
         
         # 股票基本信息表
@@ -853,7 +854,7 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
                 pass
 
 
-def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]) -> bool:
+def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any], period: str = "daily") -> bool:
     """保存技术指标到数据库
     
     Args:
@@ -861,6 +862,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
         market: 市场类型（A或HK）
         date: 日期 YYYY-MM-DD格式
         indicators: 指标字典
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
     Returns:
         是否成功
@@ -898,6 +900,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "code": code,
             "market": market.upper(),
             "date": date_obj,  # 使用date对象而不是字符串
+            "period": period,  # K线周期
             # 均线
             "ma5": to_float(indicators.get("ma5")),
             "ma10": to_float(indicators.get("ma10")),
@@ -987,7 +990,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
         client.execute(
             """
             INSERT INTO indicators 
-            (code, market, date, 
+            (code, market, date, period,
              ma5, ma10, ma20, ma60, ma5_trend, ma10_trend, ma20_trend, ma60_trend,
              ema12, ema26,
              macd_dif, macd_dea, macd, macd_dif_trend, macd_prev, rsi,
@@ -1004,7 +1007,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             VALUES
             """,
             [[
-                insert_data["code"], insert_data["market"], insert_data["date"],
+                insert_data["code"], insert_data["market"], insert_data["date"], insert_data["period"],
                 insert_data["ma5"], insert_data["ma10"], insert_data["ma20"], insert_data["ma60"],
                 insert_data["ma5_trend"], insert_data["ma10_trend"], insert_data["ma20_trend"], insert_data["ma60_trend"],
                 insert_data["ema12"], insert_data["ema26"],
@@ -1042,12 +1045,13 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
                 pass
 
 
-def get_indicator_date(code: str, market: str) -> str | None:
+def get_indicator_date(code: str, market: str, period: str = "daily") -> str | None:
     """获取指标表中某只股票的最新日期
     
     Args:
         code: 股票代码
         market: 市场类型（A或HK）
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
     Returns:
         最新日期的字符串（YYYY-MM-DD格式），如果不存在则返回None
@@ -1057,9 +1061,9 @@ def get_indicator_date(code: str, market: str) -> str | None:
         client = _create_clickhouse_client()
         query = """
             SELECT max(date) as max_date FROM indicators
-            WHERE code = %(code)s AND market = %(market)s
+            WHERE code = %(code)s AND market = %(market)s AND period = %(period)s
         """
-        result = client.execute(query, {'code': code, 'market': market.upper()})
+        result = client.execute(query, {'code': code, 'market': market.upper(), 'period': period})
         
         if result and len(result) > 0 and result[0][0]:
             max_date = result[0][0]
@@ -1079,13 +1083,14 @@ def get_indicator_date(code: str, market: str) -> str | None:
                 pass
 
 
-def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, Any] | None:
+def get_indicator(code: str, market: str, date: str | None = None, period: str = "daily") -> Dict[str, Any] | None:
     """从数据库获取技术指标（获取最新日期的指标）
     
     Args:
         code: 股票代码
         market: 市场类型（A或HK）
         date: 日期 YYYY-MM-DD格式，如果为None则获取最新的
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
     Returns:
         指标字典，如果不存在返回None
@@ -1102,20 +1107,20 @@ def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, 
                 date_str = date
             query = """
                 SELECT * FROM indicators
-                WHERE code = %(code)s AND market = %(market)s AND date = %(date)s
+                WHERE code = %(code)s AND market = %(market)s AND date = %(date)s AND period = %(period)s
                 ORDER BY update_time DESC
                 LIMIT 1
             """
-            result = client.execute(query, {'code': code, 'market': market.upper(), 'date': date_str})
+            result = client.execute(query, {'code': code, 'market': market.upper(), 'date': date_str, 'period': period})
         else:
             # 获取最新的指标
             query = """
                 SELECT * FROM indicators
-                WHERE code = %(code)s AND market = %(market)s
+                WHERE code = %(code)s AND market = %(market)s AND period = %(period)s
                 ORDER BY date DESC, update_time DESC
                 LIMIT 1
             """
-            result = client.execute(query, {'code': code, 'market': market.upper()})
+            result = client.execute(query, {'code': code, 'market': market.upper(), 'period': period})
         
         if not result:
             return None
@@ -1123,7 +1128,7 @@ def get_indicator(code: str, market: str, date: str | None = None) -> Dict[str, 
         row = result[0]
         # 转换为字典（根据表结构，包含高级指标）
         columns = [
-            "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
+            "code", "market", "date", "period", "ma5", "ma10", "ma20", "ma60",
             "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
             "ema12", "ema26",
             "macd_dif", "macd_dea", "macd", "macd_dif_trend", "macd_prev", "rsi",
