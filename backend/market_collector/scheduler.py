@@ -87,87 +87,104 @@ def collect_job():
     - 每次推送会从Redis读取另一个市场的最新状态，确保即使一个市场采集失败也不影响另一个
     - 采集完成后自动检查交易计划
     - 采集结果会通过SSE广播到前端顶部状态栏
+    - 只在交易时间内采集对应市场的数据
     """
     try:
-        logger.info("开始采集行情数据...")
+        # 检查各市场是否在交易时间
+        is_a_trading = is_a_stock_trading_time()
+        is_hk_trading = is_hk_stock_trading_time()
         
-        # ========== 采集A股（使用多数据源）==========
+        if not is_a_trading and not is_hk_trading:
+            logger.debug("A股和港股都不在交易时间，跳过采集")
+            return
+        
+        logger.info(f"开始采集行情数据... (A股交易中={is_a_trading}, 港股交易中={is_hk_trading})")
+        
+        # ========== 采集A股（仅在A股交易时间）==========
         a_count = 0
         a_source = ""
         a_success = False
         a_time = ""
         
-        try:
-            from market_collector.cn import fetch_a_stock_spot_with_source
-            from common.runtime_config import get_runtime_config
-            
-            config = get_runtime_config()
-            a_spot_source = config.spot_data_source or "auto"
-            
-            a_result, a_source = fetch_a_stock_spot_with_source(a_spot_source, 2)
-            a_count = len(a_result) if a_result else 0
-            a_success = a_count > 0
-            if a_success:
-                a_time = datetime.now().strftime("%m-%d %H:%M")
-            logger.info(f"A股采集完成: {a_count}只，数据源: {a_source}（配置: {a_spot_source}），时间: {a_time}")
-            
-        except Exception as e:
-            logger.error(f"A股采集失败: {e}", exc_info=True)
-            # 回退到原始方法
+        if is_a_trading:
             try:
-                a_result = fetch_a_stock_spot()
+                from market_collector.cn import fetch_a_stock_spot_with_source
+                from common.runtime_config import get_runtime_config
+                
+                config = get_runtime_config()
+                a_spot_source = config.spot_data_source or "auto"
+                
+                a_result, a_source = fetch_a_stock_spot_with_source(a_spot_source, 2)
                 a_count = len(a_result) if a_result else 0
-                a_source = "AKShare"
                 a_success = a_count > 0
                 if a_success:
                     a_time = datetime.now().strftime("%m-%d %H:%M")
-            except Exception as e2:
-                logger.error(f"A股采集回退也失败: {e2}")
+                logger.info(f"A股采集完成: {a_count}只，数据源: {a_source}（配置: {a_spot_source}），时间: {a_time}")
+                
+            except Exception as e:
+                logger.error(f"A股采集失败: {e}", exc_info=True)
+                # 回退到原始方法
+                try:
+                    a_result = fetch_a_stock_spot()
+                    a_count = len(a_result) if a_result else 0
+                    a_source = "AKShare"
+                    a_success = a_count > 0
+                    if a_success:
+                        a_time = datetime.now().strftime("%m-%d %H:%M")
+                except Exception as e2:
+                    logger.error(f"A股采集回退也失败: {e2}")
+            
+            # A股采集完成后立即推送结果（港股数据从Redis读取上次的）
+            _broadcast_spot_result(a_count, 0, a_time, "", a_source, "", a_success, False)
+        else:
+            logger.debug("A股不在交易时间，跳过采集")
         
-        # A股采集完成后立即推送结果（港股数据从Redis读取上次的）
-        _broadcast_spot_result(a_count, 0, a_time, "", a_source, "", a_success, False)
-        
-        # ========== 采集港股 ==========
+        # ========== 采集港股（仅在港股交易时间）==========
         hk_count = 0
         hk_source = ""
         hk_success = False
         hk_time = ""
         
-        try:
-            # 港股使用独立的数据源配置
-            from common.runtime_config import get_runtime_config
-            config = get_runtime_config()
-            hk_spot_source = config.hk_spot_data_source or "auto"
+        if is_hk_trading:
+            try:
+                # 港股使用独立的数据源配置
+                from common.runtime_config import get_runtime_config
+                config = get_runtime_config()
+                hk_spot_source = config.hk_spot_data_source or "auto"
+                
+                result_tuple = fetch_hk_stock_spot(source=hk_spot_source)
+                # 新的返回格式：(result, source_name)
+                if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
+                    hk_result, hk_source = result_tuple
+                else:
+                    hk_result = result_tuple
+                    hk_source = "AKShare(东方财富)"
+                hk_count = len(hk_result) if hk_result else 0
+                hk_success = hk_count > 0
+                if hk_success:
+                    hk_time = datetime.now().strftime("%m-%d %H:%M")
+                logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]（配置: {hk_spot_source}），时间: {hk_time}")
+                
+            except Exception as e:
+                logger.error(f"港股采集失败: {e}", exc_info=True)
             
-            result_tuple = fetch_hk_stock_spot(source=hk_spot_source)
-            # 新的返回格式：(result, source_name)
-            if isinstance(result_tuple, tuple) and len(result_tuple) == 2:
-                hk_result, hk_source = result_tuple
-            else:
-                hk_result = result_tuple
-                hk_source = "AKShare(东方财富)"
-            hk_count = len(hk_result) if hk_result else 0
-            hk_success = hk_count > 0
-            if hk_success:
-                hk_time = datetime.now().strftime("%m-%d %H:%M")
-            logger.info(f"港股采集完成: {hk_count}只 [{hk_source}]（配置: {hk_spot_source}），时间: {hk_time}")
-            
-        except Exception as e:
-            logger.error(f"港股采集失败: {e}", exc_info=True)
+            # 港股采集完成后推送结果（A股数据从Redis读取上次的）
+            _broadcast_spot_result(0, hk_count, "", hk_time, "", hk_source, False, hk_success)
+        else:
+            logger.debug("港股不在交易时间，跳过采集")
         
-        # 港股采集完成后推送结果（A股数据从Redis读取上次的）
-        _broadcast_spot_result(0, hk_count, "", hk_time, "", hk_source, False, hk_success)
+        if is_a_trading or is_hk_trading:
+            logger.info("行情数据采集完成")
         
-        logger.info("行情数据采集完成")
-        
-        # 采集完成后，自动检查交易计划
-        try:
-            from trading.plan import check_trade_plans_by_spot_price
-            result = check_trade_plans_by_spot_price()
-            if result.get("checked", 0) > 0:
-                logger.info(f"交易计划检查完成：检查{result.get('checked')}个，买入{result.get('bought')}个，盈利{result.get('win')}个，亏损{result.get('loss')}个")
-        except Exception as e:
-            logger.warning(f"自动检查交易计划失败: {e}", exc_info=True)
+        # 采集完成后，自动检查交易计划（只在有采集时检查）
+        if a_success or hk_success:
+            try:
+                from trading.plan import check_trade_plans_by_spot_price
+                result = check_trade_plans_by_spot_price()
+                if result.get("checked", 0) > 0:
+                    logger.info(f"交易计划检查完成：检查{result.get('checked')}个，买入{result.get('bought')}个，盈利{result.get('win')}个，亏损{result.get('loss')}个")
+            except Exception as e:
+                logger.warning(f"自动检查交易计划失败: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"采集任务执行失败: {e}", exc_info=True)
 

@@ -356,9 +356,19 @@ def _parse_eastmoney_item(item: dict, market: str) -> Dict[str, Any]:
     if not code:
         return None
     
-    # 注意：不再过滤 price == "-" 的数据
-    # 港股在非交易时间可能返回 "-" 作为价格，但这些仍然是有效的股票
-    # 只过滤完全没有代码的数据
+    name = item.get("f14", "")
+    
+    # 过滤退市和清退股票
+    if name:
+        # 带"退"字的股票（退市、清退等）
+        if "退" in name:
+            return None
+        # PT股票（已退市的特别转让股票）
+        if name.startswith("PT"):
+            return None
+        # ST股票中已经退市的
+        if name.startswith("*ST") and ("退" in name or "清" in name):
+            return None
     
     def safe_float(val):
         if val == "-" or val is None:
@@ -368,10 +378,21 @@ def _parse_eastmoney_item(item: dict, market: str) -> Dict[str, Any]:
         except:
             return 0.0
     
+    price = safe_float(item.get("f2"))
+    market_cap = safe_float(item.get("f20"))
+    
+    # 过滤无效数据：价格为0且市值为0的股票（可能已退市或停牌很久）
+    # 但保留价格为0但市值不为0的股票（可能是临时停牌）
+    if price == 0 and market_cap == 0:
+        # 检查是否有成交量，有成交量说明还在交易
+        volume = safe_float(item.get("f5"))
+        if volume == 0:
+            return None
+    
     result = {
         "code": code,
-        "name": item.get("f14", ""),
-        "price": safe_float(item.get("f2")),
+        "name": name,
+        "price": price,
         "pct": safe_float(item.get("f3")),
         "change": safe_float(item.get("f4")),
         "volume": safe_float(item.get("f5")),
@@ -384,7 +405,7 @@ def _parse_eastmoney_item(item: dict, market: str) -> Dict[str, Any]:
         "low": safe_float(item.get("f16")),
         "open": safe_float(item.get("f17")),
         "pre_close": safe_float(item.get("f18")),
-        "market_cap": safe_float(item.get("f20")),
+        "market_cap": market_cap,
         "circulating_market_cap": safe_float(item.get("f21")),
         "update_time": datetime.now().isoformat(),
         "market": market,

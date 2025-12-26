@@ -249,6 +249,32 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             
             # 合并：ETF + 指数 + 过滤后的股票
             result: List[Dict[str, Any]] = etf_list + index_list + filtered_stock_list
+            
+            # ============ 过滤退市和清退股票 ============
+            def is_valid_stock(item):
+                """检查股票是否有效（非退市/清退）"""
+                name = item.get('name', '')
+                if not name:
+                    return True  # 没有名称的保留
+                # 过滤带"退"字的股票（退市、清退等）
+                if '退' in name:
+                    return False
+                # 过滤PT股票（已退市的特别转让股票）
+                if name.startswith('PT'):
+                    return False
+                # 过滤价格和市值都为0的股票（可能已退市）
+                price = item.get('price', 0) or 0
+                market_cap = item.get('market_cap', 0) or 0
+                volume = item.get('volume', 0) or 0
+                if price == 0 and market_cap == 0 and volume == 0:
+                    return False
+                return True
+            
+            before_filter = len(result)
+            result = [item for item in result if is_valid_stock(item)]
+            filtered_count = before_filter - len(result)
+            if filtered_count > 0:
+                logger.info(f"过滤退市/清退股票: {filtered_count}只")
 
             # ---------------- 差分更新逻辑 ----------------
             # 1. 读取旧快照（如果存在），作为基准数据

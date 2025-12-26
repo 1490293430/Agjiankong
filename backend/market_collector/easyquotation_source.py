@@ -35,26 +35,45 @@ def fetch_easyquotation_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]
                 raise Exception("获取行情数据为空")
             
             results = []
+            filtered_count = 0
             for code, data in all_data.items():
                 try:
                     # 提取纯代码（去掉sh/sz前缀）
                     pure_code = code[2:] if code.startswith(('sh', 'sz')) else code
+                    name = data.get("name", "")
+                    
+                    # 过滤退市和清退股票
+                    if name and '退' in name:
+                        filtered_count += 1
+                        continue
+                    # 过滤PT股票（已退市的特别转让股票）
+                    if name and name.startswith('PT'):
+                        filtered_count += 1
+                        continue
+                    
+                    price = _safe_float(data.get("now", 0))
+                    volume = _safe_float(data.get("volume", 0))
+                    
+                    # 过滤价格和成交量都为0的股票（可能已退市）
+                    if price == 0 and volume == 0:
+                        filtered_count += 1
+                        continue
                     
                     result = {
                         "code": pure_code,
-                        "name": data.get("name", ""),
-                        "price": _safe_float(data.get("now", 0)),
+                        "name": name,
+                        "price": price,
                         "open": _safe_float(data.get("open", 0)),
                         "pre_close": _safe_float(data.get("close", 0)),
                         "high": _safe_float(data.get("high", 0)),
                         "low": _safe_float(data.get("low", 0)),
-                        "volume": _safe_float(data.get("volume", 0)) / 100,  # 转换为手
+                        "volume": volume / 100,  # 转换为手
                         "amount": _safe_float(data.get("turnover", 0)),
                         "pct": _safe_float(data.get("涨跌(%)", 0)),
                         "change": _safe_float(data.get("涨跌", 0)),
                         "update_time": datetime.now().isoformat(),
                         "market": "A",
-                        "sec_type": _classify_security(pure_code, data.get("name", ""))
+                        "sec_type": _classify_security(pure_code, name)
                     }
                     
                     # 如果没有涨跌幅，手动计算
@@ -68,6 +87,8 @@ def fetch_easyquotation_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]
                     logger.debug(f"[Easyquotation] 解析股票数据失败: {code}, {e}")
                     continue
             
+            if filtered_count > 0:
+                logger.info(f"[Easyquotation] 过滤退市/清退股票: {filtered_count}只")
             logger.info(f"[Easyquotation] 获取完成，共 {len(results)} 只股票")
             return results
             
