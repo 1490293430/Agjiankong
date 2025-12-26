@@ -444,3 +444,284 @@ def _classify_a_stock(code: str, name: str) -> str:
                 return "index"
     
     return "stock"
+
+
+# ============ 东方财富K线数据接口 ============
+
+# 东方财富K线接口
+EASTMONEY_KLINE_URL = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+
+
+def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "", 
+                            start_date: str = None, end_date: str = None,
+                            limit: int = 500) -> List[Dict[str, Any]]:
+    """
+    从东方财富获取A股K线数据
+    
+    Args:
+        code: 股票代码（如：600519）
+        period: 周期（daily, weekly, monthly, 1h/60）
+        adjust: 复权类型（"": 不复权, "qfq": 前复权, "hfq": 后复权）
+        start_date: 开始日期 YYYYMMDD（可选）
+        end_date: 结束日期 YYYYMMDD（可选）
+        limit: 获取数量限制
+    
+    Returns:
+        K线数据列表
+    """
+    try:
+        code = str(code).strip().zfill(6)
+        
+        # 确定市场代码
+        # 沪市：600、601、603、605、688开头 -> secid=1.code
+        # 深市：000、001、002、003、300开头 -> secid=0.code
+        # 北交所：4、8开头 -> secid=0.code
+        if code.startswith(('6',)):
+            secid = f"1.{code}"
+        else:
+            secid = f"0.{code}"
+        
+        # 周期映射
+        # 东方财富 klt 参数：1=1分钟, 5=5分钟, 15=15分钟, 30=30分钟, 60=60分钟, 101=日, 102=周, 103=月
+        period_map = {
+            "daily": "101",
+            "d": "101",
+            "day": "101",
+            "weekly": "102",
+            "w": "102",
+            "week": "102",
+            "monthly": "103",
+            "m": "103",
+            "month": "103",
+            "1h": "60",
+            "hourly": "60",
+            "60": "60",
+            "30m": "30",
+            "15m": "15",
+            "5m": "5",
+            "1m": "1",
+        }
+        klt = period_map.get(period.lower(), "101")
+        
+        # 复权类型映射
+        # fqt: 0=不复权, 1=前复权, 2=后复权
+        fqt_map = {
+            "": "0",
+            "qfq": "1",
+            "hfq": "2",
+        }
+        fqt = fqt_map.get(adjust, "0")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "http://quote.eastmoney.com/",
+        }
+        
+        params = {
+            "secid": secid,
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": klt,
+            "fqt": fqt,
+            "lmt": limit,
+            "end": "20500101",  # 结束日期设置为未来，获取最新数据
+            "_": int(datetime.now().timestamp() * 1000),
+        }
+        
+        # 如果指定了结束日期
+        if end_date:
+            params["end"] = end_date
+        
+        response = requests.get(EASTMONEY_KLINE_URL, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get("rc") != 0:
+            logger.warning(f"[东方财富K线] {code} 接口返回错误: rc={data.get('rc')}")
+            return []
+        
+        klines = data.get("data", {}).get("klines", [])
+        if not klines:
+            logger.debug(f"[东方财富K线] {code} 无K线数据")
+            return []
+        
+        result = []
+        for kline in klines:
+            # 格式: "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
+            parts = kline.split(",")
+            if len(parts) < 7:
+                continue
+            
+            try:
+                item = {
+                    "code": code,
+                    "date": parts[0],  # 日期或时间
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "high": float(parts[3]),
+                    "low": float(parts[4]),
+                    "volume": float(parts[5]),
+                    "amount": float(parts[6]) if len(parts) > 6 else 0,
+                }
+                
+                # 对于分钟/小时数据，日期格式是 "2024-01-01 09:30"
+                # 对于日线数据，日期格式是 "2024-01-01"
+                # 统一转换为 YYYYMMDD 格式（取日期部分）
+                date_str = parts[0].split(" ")[0].replace("-", "")
+                item["date"] = date_str
+                
+                # 添加周期标识
+                if klt == "60":
+                    item["period"] = "1h"
+                elif klt in ["1", "5", "15", "30"]:
+                    item["period"] = f"{klt}m"
+                else:
+                    item["period"] = "daily"
+                
+                result.append(item)
+            except Exception as e:
+                continue
+        
+        # 按日期过滤
+        if start_date:
+            start_date_str = start_date.replace("-", "")
+            result = [r for r in result if r["date"] >= start_date_str]
+        if end_date:
+            end_date_str = end_date.replace("-", "")
+            result = [r for r in result if r["date"] <= end_date_str]
+        
+        logger.info(f"[东方财富K线] {code} 获取成功: {len(result)}条 (周期={period})")
+        return result
+        
+    except Exception as e:
+        logger.warning(f"[东方财富K线] {code} 获取失败: {e}")
+        return []
+
+
+def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
+                             start_date: str = None, end_date: str = None,
+                             limit: int = 500) -> List[Dict[str, Any]]:
+    """
+    从东方财富获取港股K线数据
+    
+    Args:
+        code: 股票代码（如：00700, 03690）
+        period: 周期（daily, weekly, monthly, 1h/60）
+        adjust: 复权类型（"": 不复权, "qfq": 前复权, "hfq": 后复权）
+        start_date: 开始日期 YYYYMMDD（可选）
+        end_date: 结束日期 YYYYMMDD（可选）
+        limit: 获取数量限制
+    
+    Returns:
+        K线数据列表
+    """
+    try:
+        code = str(code).strip().zfill(5)
+        
+        # 港股 secid: 116.code
+        secid = f"116.{code}"
+        
+        # 周期映射（同A股）
+        period_map = {
+            "daily": "101",
+            "d": "101",
+            "day": "101",
+            "weekly": "102",
+            "w": "102",
+            "week": "102",
+            "monthly": "103",
+            "m": "103",
+            "month": "103",
+            "1h": "60",
+            "hourly": "60",
+            "60": "60",
+            "30m": "30",
+            "15m": "15",
+            "5m": "5",
+            "1m": "1",
+        }
+        klt = period_map.get(period.lower(), "101")
+        
+        # 复权类型映射
+        fqt_map = {
+            "": "0",
+            "qfq": "1",
+            "hfq": "2",
+        }
+        fqt = fqt_map.get(adjust, "0")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "http://quote.eastmoney.com/",
+        }
+        
+        params = {
+            "secid": secid,
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": klt,
+            "fqt": fqt,
+            "lmt": limit,
+            "end": "20500101",
+            "_": int(datetime.now().timestamp() * 1000),
+        }
+        
+        if end_date:
+            params["end"] = end_date
+        
+        response = requests.get(EASTMONEY_KLINE_URL, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get("rc") != 0:
+            logger.warning(f"[东方财富港股K线] {code} 接口返回错误: rc={data.get('rc')}")
+            return []
+        
+        klines = data.get("data", {}).get("klines", [])
+        if not klines:
+            logger.debug(f"[东方财富港股K线] {code} 无K线数据")
+            return []
+        
+        result = []
+        for kline in klines:
+            parts = kline.split(",")
+            if len(parts) < 7:
+                continue
+            
+            try:
+                date_str = parts[0].split(" ")[0].replace("-", "")
+                item = {
+                    "code": code,
+                    "date": date_str,
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "high": float(parts[3]),
+                    "low": float(parts[4]),
+                    "volume": float(parts[5]),
+                    "amount": float(parts[6]) if len(parts) > 6 else 0,
+                }
+                
+                if klt == "60":
+                    item["period"] = "1h"
+                elif klt in ["1", "5", "15", "30"]:
+                    item["period"] = f"{klt}m"
+                else:
+                    item["period"] = "daily"
+                
+                result.append(item)
+            except Exception as e:
+                continue
+        
+        if start_date:
+            start_date_str = start_date.replace("-", "")
+            result = [r for r in result if r["date"] >= start_date_str]
+        if end_date:
+            end_date_str = end_date.replace("-", "")
+            result = [r for r in result if r["date"] <= end_date_str]
+        
+        logger.info(f"[东方财富港股K线] {code} 获取成功: {len(result)}条 (周期={period})")
+        return result
+        
+    except Exception as e:
+        logger.warning(f"[东方财富港股K线] {code} 获取失败: {e}")
+        return []

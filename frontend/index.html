@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="/style.css?v=20251226_05">
+    <link rel="stylesheet" href="/style.css?v=20251226_07">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -732,14 +732,15 @@
                                 K线数据源：
                                 <select id="cfg-kline-data-source" class="config-select">
                                     <option value="auto">自动切换（推荐）</option>
+                                    <option value="eastmoney">仅 东方财富</option>
                                     <option value="akshare">仅 AKShare</option>
-                                    <option value="tushare">仅 Tushare</option>
                                     <option value="sina">仅 新浪财经</option>
+                                    <option value="tushare">仅 Tushare</option>
                                     <option value="easyquotation">仅 Easyquotation</option>
                                 </select>
                             </label>
                             <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-                                自动切换：优先使用 AKShare，失败时依次尝试 Tushare、新浪财经、Easyquotation
+                                自动切换：优先使用 东方财富，失败时依次尝试 AKShare、新浪财经、Tushare、Easyquotation
                             </div>
                         </div>
                         
@@ -749,14 +750,14 @@
                                 A股实时行情数据源：
                                 <select id="cfg-spot-data-source" class="config-select">
                                     <option value="auto">自动切换（推荐）</option>
-                                    <option value="easyquotation">仅 Easyquotation</option>
                                     <option value="eastmoney">仅 东方财富(并发)</option>
+                                    <option value="easyquotation">仅 Easyquotation</option>
                                     <option value="sina">仅 新浪财经</option>
                                     <option value="akshare">仅 AKShare</option>
                                 </select>
                             </label>
                             <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-                                自动切换：Easyquotation → 东方财富 → 新浪 → AKShare
+                                自动切换：东方财富 → Easyquotation → 新浪 → AKShare
                             </div>
                         </div>
                         
@@ -1124,7 +1125,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251226_05"></script>
+    <script src="/app.js?v=20251226_07"></script>
 </body>
 </html>
 

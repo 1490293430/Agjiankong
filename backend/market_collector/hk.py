@@ -760,7 +760,18 @@ def _fetch_hk_stock_kline_hourly(
         except Exception as e:
             logger.warning(f"Yahoo Finance获取港股小时K线数据失败 {code}: {e}，尝试备用数据源")
         
-        # 如果Yahoo Finance失败，尝试AKShare数据源
+        # 如果Yahoo Finance失败，尝试东方财富数据源
+        if not new_kline_data:
+            try:
+                from market_collector.eastmoney_source import fetch_eastmoney_hk_kline
+                result = fetch_eastmoney_hk_kline(code, "1h", "", start_str_ymd, end_str_ymd, limit=1000)
+                if result and len(result) > 0:
+                    new_kline_data = result
+                    logger.info(f"东方财富港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
+            except Exception as e:
+                logger.warning(f"东方财富获取港股小时K线数据失败 {code}: {e}，尝试AKShare数据源")
+        
+        # 如果东方财富也失败，尝试AKShare数据源
         if not new_kline_data:
             try:
                 df = ak.stock_hk_hist_min_em(

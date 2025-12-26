@@ -2665,9 +2665,10 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
     preferred_source = config.kline_data_source or "auto"
     source_name_map = {
         "auto": "自动切换",
+        "eastmoney": "东方财富",
         "akshare": "AKShare",
-        "tushare": "Tushare",
         "sina": "新浪财经",
+        "tushare": "Tushare",
         "easyquotation": "Easyquotation"
     }
     default_source_name = source_name_map.get(preferred_source, "自动切换")
@@ -3637,9 +3638,10 @@ async def collect_kline_data_api(
         preferred_source = config.kline_data_source or "auto"
         source_name_map = {
             "auto": "自动切换",
+            "eastmoney": "东方财富",
             "akshare": "AKShare",
-            "tushare": "Tushare",
             "sina": "新浪财经",
+            "tushare": "Tushare",
             "easyquotation": "Easyquotation"
         }
         default_source_name = source_name_map.get(preferred_source, "自动切换")

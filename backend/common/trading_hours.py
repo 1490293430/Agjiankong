@@ -442,9 +442,10 @@ def _get_next_trading_datetime_fast(market: str) -> Optional[datetime]:
         # 上午休市期间
         elif windows[0][1] < current_time < afternoon_start:
             return tz.localize(datetime.combine(current_date, afternoon_start))
-        # 还在交易时间内
+        # 还在交易时间内（上午或下午）
         elif current_time <= afternoon_end:
             return None  # 正在交易中
+        # 已收盘（当前时间超过下午收盘时间），查找下一个交易日
     
     # 查找下一个交易日（最多查找10天，快速返回）
     check_date = current_date + timedelta(days=1)

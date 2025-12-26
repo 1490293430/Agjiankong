@@ -120,20 +120,20 @@ async def create_sse_stream(
                 logger.debug(f"[SSE推送] [{client_id}] 资讯标题示例: {titles}")
             yield f"data: {news_json}\n\n"
             
-            # 4. 推送市场状态（首次连接时）
+            # 4. 推送市场状态（首次连接时，包含下次开盘时间）
             try:
-                from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
-                is_a_trading = is_a_stock_trading_time()
-                is_hk_trading = is_hk_stock_trading_time()
+                from common.trading_hours import get_market_status_with_next
+                a_status = get_market_status_with_next("A")
+                hk_status = get_market_status_with_next("HK")
                 status_data = {
                     'type': 'market_status',
                     'data': {
-                        'a': {'is_trading': is_a_trading, 'status': '交易中' if is_a_trading else '已收盘'},
-                        'hk': {'is_trading': is_hk_trading, 'status': '交易中' if is_hk_trading else '已收盘'}
+                        'a': a_status,
+                        'hk': hk_status
                     }
                 }
                 status_json = json.dumps(status_data)
-                logger.info(f"[SSE推送] [{client_id}] 推送初始市场状态: A股={'交易中' if is_a_trading else '已收盘'}, 港股={'交易中' if is_hk_trading else '已收盘'}, 数据大小={len(status_json)}字节")
+                logger.info(f"[SSE推送] [{client_id}] 推送初始市场状态: A股={a_status['status']}, 港股={hk_status['status']}, next_open={a_status.get('next_open')}, 数据大小={len(status_json)}字节")
                 yield f"data: {status_json}\n\n"
             except Exception as e:
                 logger.error(f"[SSE推送] [{client_id}] 推送初始市场状态失败: {e}", exc_info=True)
@@ -319,27 +319,19 @@ def broadcast_market_update(market_type: str = "both"):
 
 
 def broadcast_market_status_update():
-    """广播市场状态更新（A股和港股交易状态）"""
+    """广播市场状态更新（A股和港股交易状态，包含下次开盘时间）"""
     try:
-        from common.trading_hours import is_a_stock_trading_time, is_hk_stock_trading_time
+        from common.trading_hours import get_market_status_with_next
         
-        is_a_trading = is_a_stock_trading_time()
-        is_hk_trading = is_hk_stock_trading_time()
+        a_status = get_market_status_with_next("A")
+        hk_status = get_market_status_with_next("HK")
         
-        a_status = "交易中" if is_a_trading else "已收盘"
-        hk_status = "交易中" if is_hk_trading else "已收盘"
-        logger.info(f"[SSE广播] 准备广播市场状态更新: A股={a_status}, 港股={hk_status}")
+        logger.info(f"[SSE广播] 准备广播市场状态更新: A股={a_status['status']}, 港股={hk_status['status']}, next_open={a_status.get('next_open')}")
         broadcast_message({
             "type": "market_status",
             "data": {
-                "a": {
-                    "is_trading": is_a_trading,
-                    "status": a_status
-                },
-                "hk": {
-                    "is_trading": is_hk_trading,
-                    "status": hk_status
-                }
+                "a": a_status,
+                "hk": hk_status
             }
         })
     except Exception as e:

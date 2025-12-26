@@ -943,6 +943,27 @@ def _fetch_kline_source6(code: str, period: str, adjust: str, start_date: str, e
         return []
 
 
+def _fetch_kline_source7(code: str, period: str, adjust: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    """数据源7: 东方财富 K线数据源（支持分钟/小时K线）"""
+    try:
+        from market_collector.eastmoney_source import fetch_eastmoney_a_kline
+        
+        logger.info(f"尝试使用 东方财富 获取K线数据: {code}, period={period}")
+        result = fetch_eastmoney_a_kline(code, period, adjust, start_date, end_date, limit=1000)
+        
+        if result and len(result) > 0:
+            logger.info(f"东方财富 获取K线数据成功: {code}, {len(result)}条")
+            return result
+        
+        return []
+    except ImportError:
+        logger.debug("东方财富模块导入失败")
+        return []
+    except Exception as e:
+        logger.debug(f"数据源7(东方财富)失败 {code}: {str(e)[:100]}")
+        return []
+
+
 def fetch_a_stock_kline(
     code: str,
     period: str = "daily",
@@ -1106,7 +1127,13 @@ def fetch_a_stock_kline(
     preferred_source = config.kline_data_source or "auto"
     
     # 定义数据源列表（按优先级排序）
-    if preferred_source == "akshare":
+    # 东方财富作为主数据源，支持日线和小时线
+    if preferred_source == "eastmoney":
+        # 仅使用 东方财富
+        data_sources = [
+            ("东方财富数据源", _fetch_kline_source7),
+        ]
+    elif preferred_source == "akshare":
         # 仅使用 AKShare
         data_sources = [
             ("AKShare数据源1", _fetch_kline_source1),
@@ -1129,13 +1156,14 @@ def fetch_a_stock_kline(
             ("Easyquotation数据源", _fetch_kline_source6),
         ]
     else:
-        # 自动切换（默认）：优先 AKShare，失败时依次切换到其他数据源
+        # 自动切换（默认）：东方财富优先，失败时依次切换到其他数据源
         data_sources = [
+            ("东方财富数据源", _fetch_kline_source7),
             ("AKShare数据源1", _fetch_kline_source1),
+            ("新浪财经数据源", _fetch_kline_source5),
             ("AKShare数据源2", _fetch_kline_source2),
             ("AKShare数据源3", _fetch_kline_source3),
             ("Tushare数据源", _fetch_kline_source4),
-            ("新浪财经数据源", _fetch_kline_source5),
             ("Easyquotation数据源", _fetch_kline_source6),
         ]
     
@@ -1241,7 +1269,7 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     
     Args:
         source: 数据源选择
-            - "auto": 自动切换，按顺序尝试 Easyquotation → 东方财富(并发) → 新浪 → AKShare
+            - "auto": 自动切换，按顺序尝试 东方财富(并发) → Easyquotation → 新浪 → AKShare
             - "akshare": 仅使用AKShare
             - "sina": 仅使用新浪财经
             - "easyquotation": 仅使用Easyquotation
@@ -1254,8 +1282,8 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     sources_order = []
     
     if source == "auto":
-        # 优先级：Easyquotation > 东方财富(并发) > 新浪 > AKShare
-        sources_order = ["easyquotation", "eastmoney", "sina", "akshare"]
+        # 优先级：东方财富(并发) > Easyquotation > 新浪 > AKShare
+        sources_order = ["eastmoney", "easyquotation", "sina", "akshare"]
     elif source == "akshare":
         sources_order = ["akshare"]
     elif source == "sina":
@@ -1265,7 +1293,7 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
     elif source == "eastmoney":
         sources_order = ["eastmoney"]
     else:
-        sources_order = ["easyquotation", "eastmoney", "sina", "akshare"]
+        sources_order = ["eastmoney", "easyquotation", "sina", "akshare"]
     
     last_error = None
     
