@@ -14,6 +14,8 @@ from common.db import save_indicator, get_kline_from_db
 from common.redis import get_json
 from market.indicator.ta import calculate_all_indicators
 import pandas as pd
+import concurrent.futures
+import time
 
 logger = get_logger(__name__)
 
@@ -22,9 +24,12 @@ logger = get_logger(__name__)
 # 当前最大需求：斐波那契回撤需要180根K线
 MIN_KLINE_REQUIRED = 180  # 保守值，确保所有指标都能计算
 
+# 小时线指标计算所需的最小K线数量（小时线数据较少，降低要求）
+MIN_KLINE_REQUIRED_HOURLY = 30
+
 
 def batch_compute_indicators(market: str = "A", max_count: int = None, incremental: bool = True, period: str = "daily") -> Dict[str, Any]:
-    """批量计算并缓存技术指标（支持增量更新）
+    """批量计算并缓存技术指标（并发版本，支持增量更新）
     
     Args:
         market: 市场类型（A或HK）
@@ -59,68 +64,85 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         
         today = datetime.now().strftime("%Y-%m-%d")
         today_ymd = datetime.now().strftime("%Y%m%d")
-        success_count = 0
-        failed_count = 0
-        skipped_count = 0
         
         period_name = "日线" if period == "daily" else "小时线"
-        logger.info(f"开始批量计算{period_name}指标：市场={market}，目标股票数={len(target_stocks)}，增量更新={incremental}")
+        min_kline = MIN_KLINE_REQUIRED if period == "daily" else MIN_KLINE_REQUIRED_HOURLY
         
-        for i, stock in enumerate(target_stocks):
+        logger.info(f"开始并发批量计算{period_name}指标：市场={market}，目标股票数={len(target_stocks)}，增量更新={incremental}，最小K线数={min_kline}")
+        
+        start_time = time.time()
+        
+        # 定义单个股票的计算函数
+        def compute_single(stock):
             code = str(stock.get("code", ""))
-            
-            if (i + 1) % 100 == 0:
-                logger.info(f"批量计算{period_name}进度：{i+1}/{len(target_stocks)}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
-            
             try:
                 # 增量更新：检查是否需要计算
                 if incremental:
-                    # 检查指标表的最新日期（带周期参数）
                     indicator_date = get_indicator_date(code, market.upper(), period)
-                    # 检查K线数据的最新日期
                     kline_latest_date = get_kline_latest_date(code, period)
                     
-                    # 如果指标日期是今天，且K线最新日期也是今天（或更早），说明已经是最新的，跳过
                     if indicator_date == today and kline_latest_date:
-                        # 比较日期（转换为YYYYMMDD格式比较）
                         indicator_date_ymd = indicator_date.replace("-", "") if indicator_date else None
                         if indicator_date_ymd == today_ymd and kline_latest_date <= today_ymd:
-                            skipped_count += 1
-                            continue
+                            return ("skipped", code)
                 
-                # 获取K线数据（只从数据库获取）
+                # 获取K线数据
                 kline_data = get_kline_from_db(code, None, None, period)
                 
-                if not kline_data or len(kline_data) < MIN_KLINE_REQUIRED:
-                    failed_count += 1
-                    continue
+                if not kline_data or len(kline_data) < min_kline:
+                    return ("failed", code, f"K线数据不足: {len(kline_data) if kline_data else 0}/{min_kline}")
                 
                 # 转换为DataFrame并计算指标
                 df = pd.DataFrame(kline_data)
                 indicators = calculate_all_indicators(df)
                 
                 if indicators and indicators.get("ma60"):
-                    # 保存到数据库（带周期参数）
                     if save_indicator(code, market.upper(), today, indicators, period):
-                        success_count += 1
+                        return ("success", code)
                     else:
-                        failed_count += 1
+                        return ("failed", code, "保存失败")
                 else:
-                    failed_count += 1
+                    return ("failed", code, "指标计算失败")
                     
             except Exception as e:
-                logger.debug(f"计算指标失败 {code}: {e}")
-                failed_count += 1
-                continue
+                return ("failed", code, str(e))
         
-        logger.info(f"批量计算{period_name}完成：成功={success_count}，跳过={skipped_count}，失败={failed_count}，总计={success_count + skipped_count + failed_count}")
+        # 并发计算（20个线程）
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(compute_single, stock): stock for stock in target_stocks}
+            
+            completed = 0
+            for future in concurrent.futures.as_completed(futures):
+                completed += 1
+                try:
+                    result = future.result()
+                    if result[0] == "success":
+                        success_count += 1
+                    elif result[0] == "skipped":
+                        skipped_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    failed_count += 1
+                
+                # 每500只股票输出一次进度
+                if completed % 500 == 0:
+                    logger.info(f"批量计算{period_name}进度：{completed}/{len(target_stocks)}，成功={success_count}，跳过={skipped_count}，失败={failed_count}")
+        
+        elapsed = time.time() - start_time
+        logger.info(f"批量计算{period_name}完成：成功={success_count}，跳过={skipped_count}，失败={failed_count}，总计={success_count + skipped_count + failed_count}，耗时={elapsed:.1f}秒")
         
         return {
             "success": success_count,
             "failed": failed_count,
             "skipped": skipped_count,
             "total": success_count + skipped_count + failed_count,
-            "period": period
+            "period": period,
+            "elapsed": elapsed
         }
         
     except Exception as e:

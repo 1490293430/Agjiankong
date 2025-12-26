@@ -1799,6 +1799,8 @@ function handleIndicatorProgress(taskId, progressData) {
     
     // 显示进度容器
     const progressContainer = document.getElementById('indicator-progress-container');
+    const stopIndicatorBtn = document.getElementById('stop-indicator-btn');
+    
     if (progressContainer && progressContainer.style.display === 'none') {
         progressContainer.style.display = 'block';
     }
@@ -1812,22 +1814,26 @@ function handleIndicatorProgress(taskId, progressData) {
     
     const { status, stage, message, progress, total, processed, success, failed, skipped, elapsed_time } = progressData;
     
+    // 显示或隐藏停止按钮
+    if (stopIndicatorBtn) {
+        stopIndicatorBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+    }
+    
     // 更新状态文本
     if (statusEl) {
         let displayMessage = message || '计算中...';
-        // 移除股票代码，只显示状态信息
-        // 例如 "正在计算日线指标... 920116700" -> "正在计算日线指标..."
         displayMessage = displayMessage.replace(/\.\.\.\s*\d+$/, '...');
-        // 添加状态图标
         if (status === 'completed') {
             displayMessage = '✅ ' + displayMessage;
         } else if (status === 'failed') {
             displayMessage = '❌ ' + displayMessage;
+        } else if (status === 'stopped') {
+            displayMessage = '⏹ ' + displayMessage;
         } else {
             displayMessage = '📊 ' + displayMessage;
         }
         statusEl.textContent = displayMessage;
-        statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' ? 'error' : 'running'));
+        statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' || status === 'stopped' ? 'error' : 'running'));
     }
     
     // 更新进度条
@@ -1839,7 +1845,7 @@ function handleIndicatorProgress(taskId, progressData) {
         if (status === 'completed') {
             progressBar.className = 'selection-progress-fill success';
             progressBar.style.background = '';
-        } else if (status === 'failed') {
+        } else if (status === 'failed' || status === 'stopped') {
             progressBar.className = 'selection-progress-fill error';
             progressBar.style.background = '';
         } else {
@@ -1871,13 +1877,13 @@ function handleIndicatorProgress(taskId, progressData) {
             text += ` - ${typeof elapsed_time === 'number' ? elapsed_time.toFixed(1) : elapsed_time}秒`;
         }
         if (!text) {
-            text = status === 'completed' ? '完成' : '处理中...';
+            text = status === 'completed' ? '完成' : (status === 'stopped' ? '已停止' : '处理中...');
         }
         progressText.textContent = text;
     }
     
     // 恢复按钮状态
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'completed' || status === 'failed' || status === 'stopped') {
         const computeDailyBtn = document.getElementById('compute-daily-btn');
         const computeHourlyBtn = document.getElementById('compute-hourly-btn');
         if (computeDailyBtn) {
@@ -1968,6 +1974,36 @@ async function computeIndicators(period) {
         if (progressContainer) {
             progressContainer.style.display = 'none';
         }
+    }
+}
+
+// 停止指标计算
+async function stopIndicatorCompute() {
+    const stopBtn = document.getElementById('stop-indicator-btn');
+    if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.textContent = '⏹ 停止中...';
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE}/api/strategy/stop-indicator-compute`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        
+        if (result.code === 0) {
+            showToast(result.message, 'success');
+        } else {
+            showToast(result.message || '停止失败', 'error');
+        }
+    } catch (error) {
+        console.error('[指标计算] 停止失败:', error);
+        showToast(`停止失败: ${error.message}`, 'error');
+    }
+    
+    if (stopBtn) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = '⏹ 停止';
     }
 }
 
@@ -5767,6 +5803,12 @@ function initStrategy() {
         computeHourlyBtn.addEventListener('click', () => computeIndicators('1h'));
     }
     
+    // 停止指标计算按钮
+    const stopIndicatorBtn = document.getElementById('stop-indicator-btn');
+    if (stopIndicatorBtn) {
+        stopIndicatorBtn.addEventListener('click', stopIndicatorCompute);
+    }
+    
     // 初始化选股页（不再使用滚动监听，改用"加载更多"按钮）
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
@@ -8187,6 +8229,146 @@ function initConfig() {
     
     // 初始化数据备份功能
     initBackup();
+    
+    // 初始化数据库详情功能
+    initDbInfo();
+}
+
+// 数据库详情功能初始化
+function initDbInfo() {
+    const refreshBtn = document.getElementById('refresh-db-info-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadDbInfo);
+    }
+}
+
+// 加载数据库详情
+async function loadDbInfo() {
+    const contentEl = document.getElementById('db-info-content');
+    const refreshBtn = document.getElementById('refresh-db-info-btn');
+    
+    if (!contentEl) return;
+    
+    try {
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '⏳ 加载中...';
+        }
+        
+        contentEl.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 20px;">加载中...</div>';
+        
+        const response = await apiFetch(`${API_BASE}/api/db/info`);
+        const result = await response.json();
+        
+        if (result.code !== 0) {
+            throw new Error(result.message || '获取失败');
+        }
+        
+        const data = result.data;
+        const today = new Date().toISOString().split('T')[0];
+        
+        // 辅助函数：生成K线统计HTML
+        function renderKlineStats(stockData, label, color) {
+            let html = `<div style="background: rgba(${color},0.1); border-radius: 8px; padding: 12px; margin-bottom: 8px;">`;
+            html += `<div style="font-weight: 600; color: rgb(${color}); margin-bottom: 8px;">${label} (${stockData.total_count}只)</div>`;
+            
+            // 日线
+            if (stockData.daily) {
+                const daily = stockData.daily;
+                const isComplete = daily.stock_count >= stockData.total_count * 0.9;
+                const isLatest = daily.latest_date === today;
+                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                    <span style="color: #94a3b8;">日线:</span>
+                    <span>${daily.total_records.toLocaleString()}条 / ${daily.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                </div>`;
+                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px;">
+                    <span style="color: #64748b;">范围:</span>
+                    <span style="color: #64748b;">${daily.earliest_date} ~ ${daily.latest_date}</span>
+                </div>`;
+            } else {
+                html += '<div style="color: #94a3b8; font-size: 12px;">暂无日线数据</div>';
+            }
+            
+            // 小时线
+            if (stockData.hourly) {
+                const hourly = stockData.hourly;
+                const dist = stockData.hourly_distribution;
+                html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
+                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                    <span style="color: #94a3b8;">小时线:</span>
+                    <span>${hourly.total_records.toLocaleString()}条 / ${hourly.stock_count}只</span>
+                </div>`;
+                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px;">
+                    <span style="color: #64748b;">范围:</span>
+                    <span style="color: #64748b;">${hourly.earliest_date} ~ ${hourly.latest_date}</span>
+                </div>`;
+                if (dist && dist.total_stocks > 0) {
+                    const pctMa60 = ((dist.enough_ma60 / dist.total_stocks) * 100).toFixed(1);
+                    html += `<div style="display: flex; justify-content: space-between; font-size: 12px;">
+                        <span style="color: #94a3b8;">MA60可用:</span>
+                        <span>${dist.enough_ma60}只 (${pctMa60}%)</span>
+                    </div>`;
+                }
+            } else {
+                html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
+                html += '<div style="color: #94a3b8; font-size: 12px;">暂无小时线数据</div>';
+            }
+            
+            // 指标
+            if (stockData.indicators) {
+                const dailyInd = stockData.indicators.daily;
+                const hourlyInd = stockData.indicators['1h'];
+                if (dailyInd || hourlyInd) {
+                    html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
+                    if (dailyInd) {
+                        const isLatest = dailyInd.latest_date === today;
+                        // 与日线K线股票数对比判断是否完整
+                        const dailyKlineCount = stockData.daily?.stock_count || 0;
+                        const isComplete = dailyKlineCount > 0 && dailyInd.stock_count >= dailyKlineCount * 0.9;
+                        html += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 12px;">
+                            <span style="color: #94a3b8;">日线指标:</span>
+                            <span>${dailyInd.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                        </div>`;
+                    }
+                    if (hourlyInd) {
+                        const isLatest = hourlyInd.latest_date === today;
+                        // 与小时线K线股票数对比判断是否完整
+                        const hourlyKlineCount = stockData.hourly?.stock_count || 0;
+                        const isComplete = hourlyKlineCount > 0 && hourlyInd.stock_count >= hourlyKlineCount * 0.9;
+                        html += `<div style="display: flex; justify-content: space-between; font-size: 12px;">
+                            <span style="color: #94a3b8;">小时指标:</span>
+                            <span>${hourlyInd.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                        </div>`;
+                    }
+                }
+            }
+            
+            html += '</div>';
+            return html;
+        }
+        
+        // 构建显示内容
+        let html = '<div style="display: flex; flex-direction: column; gap: 4px;">';
+        
+        // A股数据
+        html += renderKlineStats(data.a_stock, '🇨🇳 A股', '59,130,246');
+        
+        // 港股数据
+        html += renderKlineStats(data.hk_stock, '🇭🇰 港股', '239,68,68');
+        
+        html += '</div>';
+        
+        contentEl.innerHTML = html;
+        
+    } catch (error) {
+        console.error('[数据库详情] 加载失败:', error);
+        contentEl.innerHTML = `<div style="color: #ef4444; text-align: center; padding: 20px;">加载失败: ${error.message}</div>`;
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = '🔄 刷新';
+        }
+    }
 }
 
 // 数据备份功能初始化

@@ -414,36 +414,142 @@ def _parse_eastmoney_item(item: dict, market: str) -> Dict[str, Any]:
     # A股分类
     if market == "A":
         result["sec_type"] = _classify_a_stock(code, result.get("name", ""))
+    elif market == "HK":
+        result["sec_type"] = _classify_hk_stock(code, result.get("name", ""))
     
     return result
 
 
-def _classify_a_stock(code: str, name: str) -> str:
-    """A股证券分类"""
+def _classify_hk_stock(code: str, name: str) -> str:
+    """港股证券分类
+    
+    港股代码规则：
+    - 股票：大部分4-5位数字代码
+    - ETF：名称含ETF
+    - 基金/REIT：名称含基金或REIT
+    - 指数：名称含指数
+    """
     code = str(code or '').strip()
     name = str(name or '')
     name_upper = name.upper()
     
+    # 指数
+    if "指数" in name:
+        return "index"
+    
     # ETF
     if "ETF" in name_upper:
         return "etf"
-    if code.startswith("51") or code.startswith("159"):
+    
+    # 基金/REIT
+    if "基金" in name or "REIT" in name_upper or "房托" in name:
+        return "fund"
+    
+    # 债券
+    if "债" in name:
+        return "bond"
+    
+    # 权证/牛熊证
+    if "牛" in name or "熊" in name or "权证" in name or "窝轮" in name:
+        return "warrant"
+    
+    return "stock"
+
+
+def _classify_a_stock(code: str, name: str) -> str:
+    """A股证券分类
+    
+    A股代码规则：
+    - 沪市主板股票：600xxx, 601xxx, 603xxx, 605xxx
+    - 沪市科创板股票：688xxx, 689xxx
+    - 深市主板股票：000xxx, 001xxx
+    - 深市中小板股票：002xxx, 003xxx
+    - 深市创业板股票：300xxx, 301xxx
+    - 北交所股票：4xxxxx, 8xxxxx
+    - 沪市ETF：510xxx, 511xxx, 512xxx, 513xxx, 515xxx, 516xxx, 517xxx, 518xxx, 560xxx, 561xxx, 562xxx, 563xxx
+    - 深市ETF：159xxx
+    - 深市指数：399xxx
+    - 沪市基金：501xxx, 502xxx, 505xxx, 506xxx
+    - 深市基金：16xxxx
+    - 可转债：11xxxx (沪市), 12xxxx (深市)
+    """
+    code = str(code or '').strip()
+    name = str(name or '')
+    name_upper = name.upper()
+    
+    # ========== 名称优先判断 ==========
+    # ETF
+    if "ETF" in name_upper:
         return "etf"
     
-    # 基金
+    # LOF 和基金
     if "LOF" in name_upper or "基金" in name:
         return "fund"
-    if code.startswith("501") or code.startswith("502"):
-        return "fund"
     
-    # 指数
-    if code.startswith("399") or code.startswith("000"):
-        index_keywords = ["指数", "综指", "成指", "上证", "深证", "沪深", "中证"]
+    # 债券/可转债
+    if "债" in name or "转债" in name:
+        return "bond"
+    
+    # 指数关键词
+    if "指数" in name:
+        return "index"
+    
+    # ========== 代码规则判断 ==========
+    # 沪市股票：600, 601, 603, 605 开头
+    if code.startswith(("600", "601", "603", "605")):
+        return "stock"
+    
+    # 科创板股票：688, 689 开头
+    if code.startswith(("688", "689")):
+        return "stock"
+    
+    # 深市主板股票：000, 001 开头
+    if code.startswith(("000", "001")):
+        # 检查名称是否像指数
+        index_keywords = ["上证", "深证", "沪深", "中证", "综指", "成指"]
         for kw in index_keywords:
             if kw in name:
                 return "index"
+        return "stock"
     
-    return "stock"
+    # 深市中小板股票：002, 003 开头
+    if code.startswith(("002", "003")):
+        return "stock"
+    
+    # 深市创业板股票：300, 301 开头
+    if code.startswith(("300", "301")):
+        return "stock"
+    
+    # 沪市ETF：510, 511, 512, 513, 515, 516, 517, 518, 560, 561, 562, 563 开头
+    if code.startswith(("510", "511", "512", "513", "515", "516", "517", "518", "560", "561", "562", "563")):
+        return "etf"
+    
+    # 深市ETF：159 开头
+    if code.startswith("159"):
+        return "etf"
+    
+    # 深市指数：399 开头
+    if code.startswith("399"):
+        return "index"
+    
+    # 沪市基金：501, 502, 505, 506 开头
+    if code.startswith(("501", "502", "505", "506")):
+        return "fund"
+    
+    # 深市基金：16 开头（160-169）
+    if code.startswith("16"):
+        return "fund"
+    
+    # 可转债：11 开头（沪市）, 12 开头（深市）
+    if code.startswith(("11", "12")) and len(code) == 6:
+        return "bond"
+    
+    # 新三板/北交所股票：4xxxxx, 8xxxxx, 920xxx - 标记为 neeq 过滤掉
+    if code.startswith(("4", "8", "920")):
+        return "neeq"
+    
+    # 无法识别的返回 other
+    return "other"
 
 
 # ============ 东方财富K线数据接口 ============

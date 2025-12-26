@@ -142,6 +142,9 @@ class RuntimeConfig(BaseModel):
     collect_period: str = Field(
         default="daily", description="数据采集周期：daily（日线）、1h（小时线）"
     )
+    collect_stock_only: bool = Field(
+        default=True, description="是否只采集股票数据（过滤ETF/指数/基金）"
+    )
 
     # 通知相关
     notify_channels: List[str] = Field(
@@ -294,6 +297,7 @@ class RuntimeConfigUpdate(BaseModel):
     collector_interval_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
     collect_market: Optional[str] = Field(default=None, description="数据采集市场：ALL、A、HK")
     collect_period: Optional[str] = Field(default=None, description="数据采集周期：daily、1h")
+    collect_stock_only: Optional[bool] = Field(default=None, description="是否只采集股票数据")
     notify_channels: Optional[List[str]] = None
     kline_years: Optional[float] = Field(default=None, ge=0.5, le=10.0)
     kline_data_source: Optional[str] = Field(default=None, description="K线数据源：auto、eastmoney、akshare、sina、tushare、easyquotation")

@@ -31,13 +31,30 @@ def _get_tushare_stock_codes() -> Set[str]:
 
 
 def _classify_security(code: str, name: str) -> str:
-    """启发式分类：'stock'|'index'|'etf'|'fund'"""
+    """启发式分类：'stock'|'index'|'etf'|'fund'|'other'
+    
+    A股代码规则：
+    - 沪市主板股票：600xxx, 601xxx, 603xxx, 605xxx
+    - 沪市科创板股票：688xxx, 689xxx
+    - 深市主板股票：000xxx, 001xxx
+    - 深市中小板股票：002xxx, 003xxx
+    - 深市创业板股票：300xxx, 301xxx
+    - 北交所股票：4xxxxx, 8xxxxx (部分)
+    - 沪市ETF：510xxx, 511xxx, 512xxx, 513xxx, 515xxx, 516xxx, 517xxx, 518xxx, 560xxx, 561xxx, 562xxx, 563xxx
+    - 深市ETF：159xxx
+    - 沪市指数：000xxx (上证指数)
+    - 深市指数：399xxx
+    - 沪市基金：501xxx, 502xxx, 505xxx, 506xxx
+    - 深市基金：160xxx, 161xxx, 162xxx, 163xxx, 164xxx, 165xxx, 166xxx, 167xxx, 168xxx, 169xxx
+    - 可转债：11xxxx (沪市), 12xxxx (深市)
+    """
     try:
         name_upper = (name or "").upper()
         code_str = str(code or "").strip()
     except Exception:
-        return "stock"
+        return "other"
 
+    # ========== 名称优先判断 ==========
     # ETF 优先判断（名称含 ETF）
     if "ETF" in name_upper:
         return "etf"
@@ -46,74 +63,92 @@ def _classify_security(code: str, name: str) -> str:
     if "LOF" in name_upper or "基金" in name:
         return "fund"
     
-    # 债券
-    if "债" in name or "可转债" in name:
-        return "fund"
+    # 债券/可转债
+    if "债" in name or "转债" in name:
+        return "bond"
     
-    # 代码规则判断
-    if code_str.startswith("399"):
+    # 指数关键词
+    if "指数" in name:
         return "index"
-    if code_str.startswith("51") or code_str.startswith("159"):
-        return "etf"
-    if code_str.startswith("501") or code_str.startswith("502"):
-        return "fund"
-    
-    # 688 开头是科创板股票
-    if code_str.startswith("688"):
+
+    # ========== 代码规则判断 ==========
+    # 沪市股票：600, 601, 603, 605 开头
+    if code_str.startswith(("600", "601", "603", "605")):
         return "stock"
     
-    # 指数关键词判断（放在公司特征词之前！）
-    index_keywords = [
-        # 交易所/市场前缀
-        "上证", "深证", "沪深", "中证", "沪", "深", "创业板", "科创",
-        # 指数类型
-        "指数", "综指", "成指", "等权", "全指", "红利", "价值", "成长",
-        "基本", "波动", "稳定", "动态", "治理", "高贝", "低贝", "分层",
-        "优选", "领先", "百强", "央视", "腾讯", "济安", "丝路",
-        # 特殊指数
-        "股通", "互联", "龙头", "央企", "国企", "民企", "地企", "沪企",
-        "海外", "周期", "非周期", "上游", "中游", "下游", "投资品",
-        "中小", "大盘", "小盘", "中盘", "超大盘", "流通",
-        # 行业指数后缀
-        "TMT", "ESG", "碳中和", "新丝路", "一带一路", "持续产业",
-        "中国造", "高端装备", "内地资源", "A股资源"
-    ]
+    # 科创板股票：688, 689 开头
+    if code_str.startswith(("688", "689")):
+        return "stock"
     
+    # 深市主板股票：000, 001 开头
+    if code_str.startswith(("000", "001")):
+        # 000 开头需要排除指数（上证指数也是000开头，但那是沪市的）
+        # 深市000开头的是股票
+        # 但需要检查名称是否像指数
+        index_keywords = ["上证", "深证", "沪深", "中证", "综指", "成指", "指数"]
+        for kw in index_keywords:
+            if kw in name:
+                return "index"
+        return "stock"
+    
+    # 深市中小板股票：002, 003 开头
+    if code_str.startswith(("002", "003")):
+        return "stock"
+    
+    # 深市创业板股票：300, 301 开头
+    if code_str.startswith(("300", "301")):
+        return "stock"
+    
+    # 沪市ETF：510, 511, 512, 513, 515, 516, 517, 518, 560, 561, 562, 563 开头
+    if code_str.startswith(("510", "511", "512", "513", "515", "516", "517", "518", "560", "561", "562", "563")):
+        return "etf"
+    
+    # 深市ETF：159 开头
+    if code_str.startswith("159"):
+        return "etf"
+    
+    # 深市指数：399 开头
+    if code_str.startswith("399"):
+        return "index"
+    
+    # 沪市基金：501, 502, 505, 506 开头
+    if code_str.startswith(("501", "502", "505", "506")):
+        return "fund"
+    
+    # 深市基金：16 开头（160-169）
+    if code_str.startswith("16"):
+        return "fund"
+    
+    # 可转债：11 开头（沪市）, 12 开头（深市）
+    if code_str.startswith(("11", "12")) and len(code_str) == 6:
+        return "bond"
+    
+    # 新三板/北交所股票：4xxxxx, 8xxxxx, 920xxx - 标记为 neeq 过滤掉
+    if code_str.startswith(("4", "8", "920")):
+        return "neeq"
+    
+    # ========== 名称特征词判断（兜底）==========
+    # 指数关键词
+    index_keywords = [
+        "上证", "深证", "沪深", "中证", "综指", "成指", "等权", "全指",
+        "红利", "价值", "成长", "龙头", "央企", "国企", "大盘", "小盘", "中盘"
+    ]
     for kw in index_keywords:
         if kw in name:
             return "index"
     
-    # 000 开头的特殊处理：更多行业指数关键词（只对000开头生效，避免误判普通股票）
-    if code_str.startswith("000"):
-        index_000_keywords = [
-            "有色", "资源", "消费", "医药", "优势", "百发", "细分", "主题",
-            "HK", "CS", "农业", "精准", "金融", "材料", "能源", "信息",
-            "电信", "可选", "必需", "公用", "工业", "地产"
-        ]
-        for kw in index_000_keywords:
-            if kw in name:
-                return "index"
-        # 数字开头的名称 = 指数
-        import re
-        if re.match(r'^[\d]+', name):
-            return "index"
-    
-    # 名称以 A/B 结尾的通常是股票
-    if name.endswith("Ａ") or name.endswith("Ｂ") or name.endswith("A") or name.endswith("B"):
-        return "stock"
-    
-    # 公司名称特征词
+    # 公司名称特征词 -> 股票
     company_patterns = ["股份", "集团", "控股", "实业", "科技", "电子", 
                         "生物", "新材", "智能", "网络", "软件",
                         "环境", "建设", "工程", "制造", "机械", "设备",
                         "汽车", "电气", "服饰", "家居", "文化", "教育", 
                         "物流", "运输", "船舶", "置业", "租赁", "信托"]
-    
     for pattern in company_patterns:
         if pattern in name:
             return "stock"
     
-    return "stock"
+    # 无法识别的返回 other，而不是默认 stock
+    return "other"
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -363,6 +398,20 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
                         item['sec_type'] = _classify_security(code, name)
                 except Exception:
                     item['sec_type'] = 'stock'
+
+            # 根据配置决定是否过滤非股票数据
+            from common.runtime_config import get_runtime_config
+            config = get_runtime_config()
+            if config.collect_stock_only:
+                before_filter_count = len(result)
+                result = [item for item in result if item.get('sec_type') == 'stock']
+                non_stock_filtered = before_filter_count - len(result)
+                if non_stock_filtered > 0:
+                    logger.info(f"过滤非股票数据: {non_stock_filtered}只（ETF/指数/基金），保留股票: {len(result)}只")
+                
+                # 同时过滤 added 和 updated 列表
+                added = [item for item in added if item.get('sec_type') == 'stock']
+                updated = [item for item in updated if item.get('sec_type') == 'stock']
 
             # 2. 写入新的全量快照（前端HTTP/WS读取的主数据，保留 30 天）
             set_json("market:a:spot", result, ex=30 * 24 * 3600)
@@ -1430,7 +1479,22 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
 
 
 def _save_spot_to_redis(result: List[Dict[str, Any]], market: str):
-    """保存实时行情到Redis"""
+    """保存实时行情到Redis
+    
+    根据配置决定是否过滤非股票数据（ETF/指数/基金）
+    """
+    from common.runtime_config import get_runtime_config
+    
+    config = get_runtime_config()
+    
+    # 如果配置了只采集股票，则过滤非股票数据
+    if config.collect_stock_only:
+        before_count = len(result)
+        result = [item for item in result if item.get('sec_type') == 'stock']
+        filtered_count = before_count - len(result)
+        if filtered_count > 0:
+            logger.info(f"[{market}] 过滤非股票数据: {filtered_count}只（ETF/指数/基金），保留股票: {len(result)}只")
+    
     key = f"market:{market.lower()}:spot"
     set_json(key, result, ex=30 * 24 * 3600)
     get_redis().set(f"market:{market.lower()}:time", datetime.now().isoformat(), ex=30 * 24 * 3600)

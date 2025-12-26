@@ -23,7 +23,7 @@
             // 直接IP访问保持固定宽度1080
         })();
     </script>
-    <link rel="stylesheet" href="/style.css?v=20251226_07">
+    <link rel="stylesheet" href="/style.css?v=20251227_03">
     <script>
         // 在页面渲染前就设置正确的tab，避免闪烁
         // 使用立即执行的函数，尽可能早地执行
@@ -644,6 +644,7 @@
                     <div class="selection-progress-info">
                         <span id="indicator-status" class="selection-status">准备中...</span>
                         <span id="indicator-progress-text" class="selection-progress-text">0%</span>
+                        <button id="stop-indicator-btn" class="danger-btn" style="display: none; margin-left: 12px; padding: 4px 12px; font-size: 12px;" title="停止指标计算">⏹ 停止</button>
                     </div>
                 </div>
                 <!-- 选股进度显示 -->
@@ -1098,29 +1099,52 @@
                 </div>
             </div>
 
-            <!-- 数据备份配置 -->
-            <div class="config-main-section" style="margin-top: 16px;">
-                <div class="config-main-header" onclick="toggleConfigSection('backup')">
-                    <h3 style="margin: 0; display: inline-block;">💾 数据备份</h3>
-                    <span class="config-main-arrow" id="arrow-backup">▶</span>
+            <!-- 数据备份和数据库详情并排 -->
+            <div style="display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap;">
+                <!-- 数据备份配置 -->
+                <div class="config-main-section" style="flex: 1; min-width: 300px; margin-top: 0;">
+                    <div class="config-main-header" onclick="toggleConfigSection('backup')">
+                        <h3 style="margin: 0; display: inline-block;">💾 数据备份</h3>
+                        <span class="config-main-arrow" id="arrow-backup">▶</span>
+                    </div>
+                    <div class="config-main-content hidden" id="content-backup">
+                        <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
+                            备份和恢复配置数据，包括：配置页所有设置、选股配置、自选股列表。
+                            <br>📁 备份文件将保存到浏览器默认下载目录。
+                        </div>
+                        
+                        <div class="config-item" style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <button id="backup-export-btn" class="primary-btn" style="flex: 1; min-width: 120px;">
+                                📤 导出备份
+                            </button>
+                            <button id="backup-import-btn" class="secondary-btn" style="flex: 1; min-width: 120px;">
+                                📥 导入备份
+                            </button>
+                            <input type="file" id="backup-file-input" accept=".json" style="display: none;">
+                        </div>
+                        
+                        <div id="backup-status" style="margin-top: 12px; font-size: 12px; color: #94a3b8;"></div>
+                    </div>
                 </div>
-                <div class="config-main-content hidden" id="content-backup">
-                    <div style="margin-bottom: 12px; color: #94a3b8; font-size: 12px;">
-                        备份和恢复配置数据，包括：配置页所有设置、选股配置、自选股列表。
-                        <br>📁 备份文件将保存到浏览器默认下载目录。
+
+                <!-- 数据库详情 -->
+                <div class="config-main-section" style="flex: 1; min-width: 300px; margin-top: 0;">
+                    <div class="config-main-header" onclick="toggleConfigSection('dbinfo')">
+                        <h3 style="margin: 0; display: inline-block;">📊 数据库详情</h3>
+                        <span class="config-main-arrow" id="arrow-dbinfo">▶</span>
                     </div>
-                    
-                    <div class="config-item" style="display: flex; gap: 12px; flex-wrap: wrap;">
-                        <button id="backup-export-btn" class="primary-btn" style="flex: 1; min-width: 120px;">
-                            📤 导出备份
-                        </button>
-                        <button id="backup-import-btn" class="secondary-btn" style="flex: 1; min-width: 120px;">
-                            📥 导入备份
-                        </button>
-                        <input type="file" id="backup-file-input" accept=".json" style="display: none;">
+                    <div class="config-main-content hidden" id="content-dbinfo">
+                        <div id="db-info-content" style="font-size: 13px;">
+                            <div style="color: #94a3b8; text-align: center; padding: 20px;">
+                                点击刷新按钮加载数据库信息
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; text-align: right;">
+                            <button id="refresh-db-info-btn" class="secondary-btn" style="padding: 6px 16px; font-size: 12px;">
+                                🔄 刷新
+                            </button>
+                        </div>
                     </div>
-                    
-                    <div id="backup-status" style="margin-top: 12px; font-size: 12px; color: #94a3b8;"></div>
                 </div>
             </div>
 
@@ -1137,7 +1161,7 @@
 
     <!-- 先加载 K 线图依赖，再加载应用脚本 -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/app.js?v=20251226_07"></script>
+    <script src="/app.js?v=20251227_04"></script>
 </body>
 </html>
 

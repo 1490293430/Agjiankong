@@ -1295,6 +1295,9 @@ async def batch_compute_indicators_api(
 # 指标计算进度字典
 indicator_compute_progress = {}
 
+# 指标计算停止标志
+indicator_compute_stop_flags = {}
+
 
 def _broadcast_indicator_progress(task_id: str, progress_data: dict):
     """广播指标计算进度到SSE"""
@@ -1423,6 +1426,24 @@ def _run_indicator_compute_task(task_id: str, market: str, period: str):
             # 每处理50只更新一次进度
             processed = i + 1
             if processed % 50 == 0 or processed == total:
+                # 检查是否需要停止
+                if indicator_compute_stop_flags.get(task_id):
+                    elapsed = time.time() - start_time
+                    _broadcast_indicator_progress(task_id, {
+                        "status": "stopped",
+                        "stage": "stopped",
+                        "message": f"{period_name}指标计算已停止！成功: {success_count}, 跳过: {skipped_count}, 失败: {failed_count}",
+                        "progress": int((processed / total) * 100),
+                        "total": total,
+                        "processed": processed,
+                        "success": success_count,
+                        "failed": failed_count,
+                        "skipped": skipped_count,
+                        "elapsed_time": round(elapsed, 1)
+                    })
+                    indicator_compute_stop_flags.pop(task_id, None)
+                    return
+                
                 elapsed = time.time() - start_time
                 progress = int((processed / total) * 100)
                 _broadcast_indicator_progress(task_id, {
@@ -1505,6 +1526,226 @@ async def compute_indicators_async_api(
         "data": {"task_id": task_id},
         "message": f"{period_name}指标计算任务已启动"
     }
+
+
+@api_router.post("/strategy/stop-indicator-compute")
+async def stop_indicator_compute_api():
+    """停止指标计算任务"""
+    stopped_tasks = []
+    for task_id, progress in indicator_compute_progress.items():
+        if progress.get("status") == "running":
+            indicator_compute_stop_flags[task_id] = True
+            stopped_tasks.append(task_id)
+    
+    if stopped_tasks:
+        return {
+            "code": 0,
+            "data": {"stopped_tasks": stopped_tasks},
+            "message": f"已发送停止信号给 {len(stopped_tasks)} 个任务"
+        }
+    else:
+        return {
+            "code": 0,
+            "data": {"stopped_tasks": []},
+            "message": "没有正在运行的指标计算任务"
+        }
+
+
+@api_router.get("/db/info")
+async def get_db_info_api():
+    """获取数据库详情信息（A股和港股分开统计）"""
+    from common.db import _create_clickhouse_client
+    from common.redis import get_json
+    
+    try:
+        client = _create_clickhouse_client()
+        
+        # 获取A股和港股的股票代码列表
+        a_stocks = get_json("market:a:spot") or []
+        hk_stocks = get_json("market:hk:spot") or []
+        a_codes = set(str(s.get("code", "")).zfill(6) for s in a_stocks)
+        hk_codes = set(str(s.get("code", "")) for s in hk_stocks)
+        a_stock_count = len(a_codes)
+        hk_stock_count = len(hk_codes)
+        
+        # A股代码特征：6位数字，以6/0/3/4/8开头
+        # 港股代码特征：5位数字
+        
+        # 查询A股K线数据统计（代码6位且以6/0/3开头）
+        a_kline_stats = client.execute("""
+            SELECT 
+                period,
+                count() as total_records,
+                uniq(code) as stock_count,
+                min(date) as earliest_date,
+                max(date) as latest_date
+            FROM kline
+            WHERE length(code) = 6 AND (code LIKE '6%' OR code LIKE '0%' OR code LIKE '3%' OR code LIKE '4%' OR code LIKE '8%')
+            GROUP BY period
+            ORDER BY period
+        """)
+        
+        # 查询港股K线数据统计（代码5位或以0开头的5位）
+        hk_kline_stats = client.execute("""
+            SELECT 
+                period,
+                count() as total_records,
+                uniq(code) as stock_count,
+                min(date) as earliest_date,
+                max(date) as latest_date
+            FROM kline
+            WHERE length(code) = 5 OR (length(code) = 6 AND code LIKE '0%' AND code NOT LIKE '00%')
+            GROUP BY period
+            ORDER BY period
+        """)
+        
+        # 查询A股指标数据统计
+        a_indicator_stats = client.execute("""
+            SELECT 
+                period,
+                count() as total_records,
+                uniq(code) as stock_count,
+                max(date) as latest_date
+            FROM indicators
+            WHERE market = 'A'
+            GROUP BY period
+            ORDER BY period
+        """)
+        
+        # 查询港股指标数据统计
+        hk_indicator_stats = client.execute("""
+            SELECT 
+                period,
+                count() as total_records,
+                uniq(code) as stock_count,
+                max(date) as latest_date
+            FROM indicators
+            WHERE market = 'HK'
+            GROUP BY period
+            ORDER BY period
+        """)
+        
+        # 查询A股小时K线数据分布
+        a_hourly_dist = client.execute("""
+            SELECT 
+                countIf(cnt >= 60) as enough_ma60,
+                countIf(cnt >= 52) as enough_ichimoku,
+                countIf(cnt >= 30) as enough_basic,
+                count() as total_stocks
+            FROM (
+                SELECT code, count(*) as cnt 
+                FROM kline 
+                WHERE period = '1h' AND length(code) = 6 AND (code LIKE '6%' OR code LIKE '0%' OR code LIKE '3%' OR code LIKE '4%' OR code LIKE '8%')
+                GROUP BY code
+            )
+        """)
+        
+        # 查询港股小时K线数据分布
+        hk_hourly_dist = client.execute("""
+            SELECT 
+                countIf(cnt >= 60) as enough_ma60,
+                countIf(cnt >= 52) as enough_ichimoku,
+                countIf(cnt >= 30) as enough_basic,
+                count() as total_stocks
+            FROM (
+                SELECT code, count(*) as cnt 
+                FROM kline 
+                WHERE period = '1h' AND (length(code) = 5 OR (length(code) = 6 AND code LIKE '0%' AND code NOT LIKE '00%'))
+                GROUP BY code
+            )
+        """)
+        
+        client.disconnect()
+        
+        # 整理结果
+        result = {
+            "a_stock": {
+                "total_count": a_stock_count,
+                "daily": None,
+                "hourly": None,
+                "hourly_distribution": None,
+                "indicators": {}
+            },
+            "hk_stock": {
+                "total_count": hk_stock_count,
+                "daily": None,
+                "hourly": None,
+                "hourly_distribution": None,
+                "indicators": {}
+            }
+        }
+        
+        # 处理A股K线统计
+        for row in a_kline_stats:
+            period, total_records, stock_count, earliest_date, latest_date = row
+            data = {
+                "total_records": total_records,
+                "stock_count": stock_count,
+                "earliest_date": str(earliest_date) if earliest_date else None,
+                "latest_date": str(latest_date) if latest_date else None
+            }
+            if period == "daily":
+                result["a_stock"]["daily"] = data
+            elif period == "1h":
+                result["a_stock"]["hourly"] = data
+        
+        # 处理港股K线统计
+        for row in hk_kline_stats:
+            period, total_records, stock_count, earliest_date, latest_date = row
+            data = {
+                "total_records": total_records,
+                "stock_count": stock_count,
+                "earliest_date": str(earliest_date) if earliest_date else None,
+                "latest_date": str(latest_date) if latest_date else None
+            }
+            if period == "daily":
+                result["hk_stock"]["daily"] = data
+            elif period == "1h":
+                result["hk_stock"]["hourly"] = data
+        
+        # 处理A股指标统计
+        for row in a_indicator_stats:
+            period, total_records, stock_count, latest_date = row
+            result["a_stock"]["indicators"][period] = {
+                "total_records": total_records,
+                "stock_count": stock_count,
+                "latest_date": str(latest_date) if latest_date else None
+            }
+        
+        # 处理港股指标统计
+        for row in hk_indicator_stats:
+            period, total_records, stock_count, latest_date = row
+            result["hk_stock"]["indicators"][period] = {
+                "total_records": total_records,
+                "stock_count": stock_count,
+                "latest_date": str(latest_date) if latest_date else None
+            }
+        
+        # 处理A股小时K线分布
+        if a_hourly_dist and len(a_hourly_dist) > 0:
+            row = a_hourly_dist[0]
+            result["a_stock"]["hourly_distribution"] = {
+                "enough_ma60": row[0],
+                "enough_ichimoku": row[1],
+                "enough_basic": row[2],
+                "total_stocks": row[3]
+            }
+        
+        # 处理港股小时K线分布
+        if hk_hourly_dist and len(hk_hourly_dist) > 0:
+            row = hk_hourly_dist[0]
+            result["hk_stock"]["hourly_distribution"] = {
+                "enough_ma60": row[0],
+                "enough_ichimoku": row[1],
+                "enough_basic": row[2],
+                "total_stocks": row[3]
+            }
+        
+        return {"code": 0, "data": result}
+        
+    except Exception as e:
+        logger.error(f"获取数据库详情失败: {e}", exc_info=True)
+        return {"code": 1, "message": str(e)}
 
 
 @api_router.get("/config", response_model=RuntimeConfig, dependencies=admin_dependencies)
@@ -3953,8 +4194,8 @@ async def collect_kline_data_api(
             from market.service.ws import kline_collect_stop_flags
             import time
             
-            # 动态调整并发数：根据股票数量，但不超过50
-            max_workers = min(50, max(10, len(target_stocks) // 20))
+            # 动态调整并发数：根据股票数量，但不超过10
+            max_workers = min(10, max(3, len(target_stocks) // 50))
             executor = ThreadPoolExecutor(max_workers=max_workers)
             
             # 进度更新计数器（每完成10只股票或每2秒更新一次）

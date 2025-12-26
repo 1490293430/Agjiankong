@@ -84,6 +84,39 @@ def get_clickhouse() -> Client:
     return _client
 
 
+def _get_stock_codes_from_cache() -> set:
+    """从Redis缓存获取股票代码列表（仅sec_type='stock'的）
+    
+    Returns:
+        股票代码集合
+    """
+    try:
+        from common.redis import get_json
+        
+        stock_codes = set()
+        
+        # 获取A股股票代码
+        a_spot = get_json("market:a:spot") or []
+        for item in a_spot:
+            if item.get('sec_type') == 'stock':
+                code = str(item.get('code', '')).strip()
+                if code:
+                    stock_codes.add(code)
+        
+        # 获取港股股票代码
+        hk_spot = get_json("market:hk:spot") or []
+        for item in hk_spot:
+            if item.get('sec_type') == 'stock':
+                code = str(item.get('code', '')).strip()
+                if code:
+                    stock_codes.add(code)
+        
+        return stock_codes
+    except Exception as e:
+        logger.warning(f"获取股票代码缓存失败: {e}")
+        return set()
+
+
 def init_tables():
     """初始化数据表"""
     client = None
@@ -552,6 +585,21 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
     Returns:
         是否保存成功
     """
+    if not kline_data:
+        return True
+    
+    # 根据配置决定是否过滤非股票数据
+    config = get_runtime_config()
+    if config.collect_stock_only:
+        # 获取股票代码列表（从Redis缓存）
+        stock_codes = _get_stock_codes_from_cache()
+        if stock_codes:
+            before_count = len(kline_data)
+            kline_data = [item for item in kline_data if str(item.get('code', '')) in stock_codes]
+            filtered_count = before_count - len(kline_data)
+            if filtered_count > 0:
+                logger.info(f"K线数据过滤非股票: {filtered_count}条，保留: {len(kline_data)}条")
+    
     if not kline_data:
         return True
     
@@ -1846,6 +1894,18 @@ def save_snapshot_data(snapshot_data: List[Dict[str, Any]], market: str = "A") -
     Returns:
         是否保存成功
     """
+    if not snapshot_data:
+        return True
+    
+    # 根据配置决定是否过滤非股票数据
+    config = get_runtime_config()
+    if config.collect_stock_only:
+        before_count = len(snapshot_data)
+        snapshot_data = [item for item in snapshot_data if item.get('sec_type') == 'stock']
+        filtered_count = before_count - len(snapshot_data)
+        if filtered_count > 0:
+            logger.info(f"[{market}] 快照数据过滤非股票: {filtered_count}条，保留: {len(snapshot_data)}条")
+    
     if not snapshot_data:
         return True
     

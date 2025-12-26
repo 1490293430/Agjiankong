@@ -287,6 +287,7 @@ def _collect_hourly_kline_for_market(market: str):
     import concurrent.futures
     from common.redis import get_json
     from common.db import save_kline_data
+    from common.runtime_config import get_runtime_config
     from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
     
     # 从Redis获取股票列表
@@ -297,8 +298,14 @@ def _collect_hourly_kline_for_market(market: str):
         logger.warning(f"[{market}] 无法获取股票列表，跳过小时K线采集")
         return
     
-    # 获取所有股票代码
-    codes = [item.get("code") for item in spot_data if item.get("code")]
+    # 根据配置决定是否只采集股票
+    config = get_runtime_config()
+    if config.collect_stock_only:
+        # 只获取股票代码（过滤ETF/指数/基金）
+        codes = [item.get("code") for item in spot_data if item.get("code") and item.get("sec_type") == "stock"]
+    else:
+        codes = [item.get("code") for item in spot_data if item.get("code")]
+    
     logger.info(f"[{market}] 准备并发采集 {len(codes)} 只股票的小时K线")
     
     start_time = time.time()

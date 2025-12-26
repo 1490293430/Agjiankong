@@ -13,20 +13,47 @@ logger = get_logger(__name__)
 
 
 def _classify_security_hk(code: str, name: str) -> str:
-    """港股启发式分类，返回 'stock'|'index'|'etf'|'fund'。仅在采集时使用，不做定时任务。"""
+    """港股启发式分类，返回 'stock'|'index'|'etf'|'fund'|'bond'|'warrant'|'other'
+    
+    港股代码规则：
+    - 股票：大部分4-5位数字代码
+    - ETF：名称含ETF
+    - 基金/REIT：名称含基金或REIT
+    - 指数：名称含指数
+    - 权证/牛熊证：名称含牛、熊、权证、窝轮
+    """
     try:
-        name_str = (name or "").upper()
+        name_str = (name or "")
+        name_upper = name_str.upper()
         code_str = str(code or "").strip()
     except Exception:
-        return "stock"
+        return "other"
 
-    if "指数" in name or "指数" in name_str:
+    # 指数
+    if "指数" in name_str:
         return "index"
-    if "ETF" in name_str:
+    
+    # ETF
+    if "ETF" in name_upper:
         return "etf"
-    if "基金" in name or "基金" in name_str or "REIT" in name_str:
+    
+    # 基金/REIT
+    if "基金" in name_str or "REIT" in name_upper or "房托" in name_str:
         return "fund"
-    return "stock"
+    
+    # 债券
+    if "债" in name_str:
+        return "bond"
+    
+    # 权证/牛熊证
+    if "牛" in name_str or "熊" in name_str or "权证" in name_str or "窝轮" in name_str:
+        return "warrant"
+    
+    # 港股股票代码通常是4-5位数字
+    if code_str.isdigit() and 4 <= len(code_str) <= 5:
+        return "stock"
+    
+    return "other"
 
 # yfinance导入（可选，如果安装失败不影响其他功能）
 try:
@@ -225,7 +252,10 @@ def _fetch_hk_spot_akshare() -> List[Dict[str, Any]]:
 
 
 def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
-    """保存港股实时行情到Redis，并处理差分更新"""
+    """保存港股实时行情到Redis，并处理差分更新
+    
+    根据配置决定是否过滤非股票数据（ETF/指数/基金）
+    """
     # 读取旧快照（如果存在），作为基准数据
     old_data: List[Dict[str, Any]] = get_json("market:hk:spot") or []
     old_map: Dict[str, Dict[str, Any]] = {
@@ -283,6 +313,20 @@ def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
             item['sec_type'] = _classify_security_hk(code, name)
         except Exception:
             item['sec_type'] = 'stock'
+
+    # 根据配置决定是否过滤非股票数据
+    from common.runtime_config import get_runtime_config
+    config = get_runtime_config()
+    if config.collect_stock_only:
+        before_filter_count = len(result)
+        result = [item for item in result if item.get('sec_type') == 'stock']
+        non_stock_filtered = before_filter_count - len(result)
+        if non_stock_filtered > 0:
+            logger.info(f"[HK] 过滤非股票数据: {non_stock_filtered}只（ETF/指数/基金），保留股票: {len(result)}只")
+        
+        # 同时过滤 added 和 updated 列表
+        added = [item for item in added if item.get('sec_type') == 'stock']
+        updated = [item for item in updated if item.get('sec_type') == 'stock']
 
     # 写入新的全量快照
     set_json("market:hk:spot", result, ex=30 * 24 * 3600)
