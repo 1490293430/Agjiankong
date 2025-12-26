@@ -973,6 +973,7 @@ def fetch_a_stock_kline(
     force_full_refresh: bool = False,
     skip_db: bool = False,  # 新增参数：是否跳过数据库操作
     return_source: bool = False,  # 新增参数：是否返回数据源名称
+    stop_check: callable = None,  # 新增参数：停止检查回调函数，返回True表示应该停止
 ) -> List[Dict[str, Any]] | tuple:
     """获取A股K线数据（增量获取策略）
     
@@ -988,6 +989,7 @@ def fetch_a_stock_kline(
         start_date: 开始日期 YYYYMMDD（用于查询时的过滤，不影响增量逻辑）
         end_date: 结束日期 YYYYMMDD（默认今天）
         force_full_refresh: 是否强制全量刷新（用于初始化或修复数据）
+        stop_check: 可选的停止检查回调函数，返回True表示应该停止采集
     
     Returns:
         K线数据列表
@@ -1172,6 +1174,11 @@ def fetch_a_stock_kline(
     used_source = None  # 记录实际使用的数据源
     last_error = None  # 记录最后一个错误
     for source_name, fetch_func in data_sources:
+        # 检查是否应该停止采集
+        if stop_check and stop_check():
+            logger.info(f"K线采集被中断 {code}（用户停止）")
+            return ([], None) if return_source else []
+        
         try:
             logger.debug(f"尝试使用{source_name}{fetch_mode}获取K线数据: {code}")
             # 小时级别不使用start_date和end_date参数

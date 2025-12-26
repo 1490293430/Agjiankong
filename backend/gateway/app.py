@@ -2706,9 +2706,13 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         if not code:
             return
         
+        # 创建停止检查回调函数，用于在数据源重试循环中检查停止标志
+        def check_should_stop():
+            return kline_collect_stop_flags.get(task_id, False)
+        
         try:
-            # 使用 return_source=True 获取实际使用的数据源
-            result = fetch_kline_func(code, period, "", None, None, False, False, True)
+            # 使用 return_source=True 获取实际使用的数据源，传递 stop_check 回调
+            result = fetch_kline_func(code, period, "", None, None, False, False, True, check_should_stop)
             if isinstance(result, tuple):
                 kline_data, source_name = result
                 if source_name:
@@ -3595,9 +3599,13 @@ async def collect_kline_data_api(
             if not code:
                 return
             
+            # 创建停止检查回调函数，用于在数据源重试循环中检查停止标志
+            def check_should_stop():
+                return kline_collect_stop_flags.get(task_id, False)
+            
             try:
-                # 使用 return_source=True 获取实际使用的数据源
-                result = fetch_kline_func(code, period, "", None, None, False, False, True)
+                # 使用 return_source=True 获取实际使用的数据源，传递 stop_check 回调
+                result = fetch_kline_func(code, period, "", None, None, False, False, True, check_should_stop)
                 if isinstance(result, tuple):
                     kline_data, source_name = result
                     # 只有当实际从数据源获取时才更新数据源名称（None表示从缓存返回）
