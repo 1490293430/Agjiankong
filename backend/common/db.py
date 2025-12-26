@@ -611,10 +611,13 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
             codes.add(code)
             
             # 将日期字符串转换为date对象（ClickHouse driver需要date对象）
+            # 注意：date_value 可能包含时间部分（如 "2025-12-26 11:30"），需要先提取日期部分
             try:
                 if isinstance(date_value, str):
                     from datetime import datetime as dt
-                    date_obj = dt.strptime(date_value, "%Y-%m-%d").date()
+                    # 提取日期部分（去掉时间）
+                    date_only = date_value.split(" ")[0]
+                    date_obj = dt.strptime(date_only, "%Y-%m-%d").date()
                 else:
                     date_obj = date_value
             except Exception:

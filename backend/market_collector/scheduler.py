@@ -19,6 +19,10 @@ _last_batch_compute_market = set()  # 存储格式："{market}_{date}"，例如 
 # 记录上次资讯采集时间
 _last_news_collect_time = None
 
+# 记录上次小时K线采集时间（A股和港股分开记录）
+_last_hourly_kline_collect_time_a = None  # 格式: "YYYY-MM-DD HH" 例如 "2025-12-26 10"
+_last_hourly_kline_collect_time_hk = None
+
 
 def _broadcast_spot_result(a_count: int, hk_count: int, a_time: str, hk_time: str, a_source: str, hk_source: str, a_success: bool, hk_success: bool):
     """广播采集结果到前端顶部状态栏
@@ -218,6 +222,125 @@ def news_collect_job():
         logger.error(f"资讯采集失败: {e}", exc_info=True)
 
 
+def hourly_kline_collect_job():
+    """小时K线采集任务
+    
+    统一采集时间：
+    - 12:00 采集A股和港股上午的小时K线
+    - 16:15 采集A股和港股下午的小时K线
+    """
+    global _last_hourly_kline_collect_time_a, _last_hourly_kline_collect_time_hk
+    
+    from common.trading_hours import TZ_SHANGHAI, is_trading_day
+    
+    now_sh = datetime.now(TZ_SHANGHAI)
+    current_hour = now_sh.hour
+    current_minute = now_sh.minute
+    today = now_sh.strftime("%Y-%m-%d")
+    
+    # 统一采集时间点
+    # 12:00 采集上午数据，16:15 采集下午数据
+    collect_times = [
+        (12, 0, "morning"),   # 12:00 采集上午K线
+        (16, 15, "afternoon"), # 16:15 采集下午K线
+    ]
+    
+    should_collect = False
+    collect_key = None
+    
+    for hour, minute, period_name in collect_times:
+        if current_hour == hour and current_minute >= minute and current_minute < minute + 30:
+            collect_key = f"{today} {period_name}"
+            # 检查是否已经采集过（A股和港股用同一个key）
+            if _last_hourly_kline_collect_time_a != collect_key:
+                should_collect = True
+                _last_hourly_kline_collect_time_a = collect_key
+                _last_hourly_kline_collect_time_hk = collect_key
+            break
+    
+    if not should_collect:
+        return
+    
+    # 采集A股小时K线
+    if is_trading_day("A", now_sh.date()):
+        try:
+            logger.info(f"[A股] 开始采集小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+            _collect_hourly_kline_for_market("A")
+        except Exception as e:
+            logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
+    
+    # 采集港股小时K线
+    if is_trading_day("HK", now_sh.date()):
+        try:
+            logger.info(f"[港股] 开始采集小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+            _collect_hourly_kline_for_market("HK")
+        except Exception as e:
+            logger.error(f"[港股] 小时K线采集失败: {e}", exc_info=True)
+
+
+def _collect_hourly_kline_for_market(market: str):
+    """采集指定市场的小时K线数据
+    
+    Args:
+        market: "A" 或 "HK"
+    """
+    from common.redis import get_json
+    from common.db import save_kline_data
+    from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
+    
+    # 从Redis获取股票列表
+    redis_key = f"market:{market.lower()}:spot"
+    spot_data = get_json(redis_key)
+    
+    if not spot_data:
+        logger.warning(f"[{market}] 无法获取股票列表，跳过小时K线采集")
+        return
+    
+    # 获取所有股票代码
+    codes = [item.get("code") for item in spot_data if item.get("code")]
+    logger.info(f"[{market}] 准备采集 {len(codes)} 只股票的小时K线")
+    
+    # 批量采集（限制并发，避免请求过快）
+    success_count = 0
+    fail_count = 0
+    all_kline_data = []
+    
+    # 分批处理，每批50只
+    batch_size = 50
+    for i in range(0, len(codes), batch_size):
+        batch_codes = codes[i:i+batch_size]
+        
+        for code in batch_codes:
+            try:
+                if market == "A":
+                    kline_data = fetch_eastmoney_a_kline(code, period="1h", limit=5)
+                else:
+                    kline_data = fetch_eastmoney_hk_kline(code, period="1h", limit=5)
+                
+                if kline_data:
+                    all_kline_data.extend(kline_data)
+                    success_count += 1
+                else:
+                    fail_count += 1
+            except Exception as e:
+                fail_count += 1
+                logger.debug(f"[{market}] {code} 小时K线获取失败: {e}")
+        
+        # 每批之间稍微等待，避免请求过快
+        if i + batch_size < len(codes):
+            time.sleep(0.5)
+    
+    # 批量保存到数据库
+    if all_kline_data:
+        try:
+            save_kline_data(all_kline_data, period="1h")
+            logger.info(f"[{market}] 小时K线采集完成: 成功={success_count}, 失败={fail_count}, 总数据={len(all_kline_data)}条")
+        except Exception as e:
+            logger.error(f"[{market}] 小时K线保存失败: {e}", exc_info=True)
+    else:
+        logger.warning(f"[{market}] 小时K线采集无数据")
+
+
 def batch_compute_indicators_job(market: str = "A"):
     """批量计算指标任务（收盘后自动执行，计算所有股票的日线和小时线指标）
     
@@ -318,6 +441,9 @@ def main():
             # 采集资讯（每30分钟一次）
             news_collect_job()
             
+            # 采集小时K线（在特定时间点采集，A股和港股分开）
+            hourly_kline_collect_job()
+            
             # 采集完成后，广播市场状态更新（通过SSE）
             try:
                 from market.service.sse import broadcast_market_status_update
@@ -330,6 +456,9 @@ def main():
         else:
             # 不在交易时间内，也要采集资讯（每30分钟一次）
             news_collect_job()
+            
+            # 不在交易时间内，也检查小时K线采集（处理收盘后的采集时间点）
+            hourly_kline_collect_job()
             
             # 不在交易时间内，检查是否需要执行收盘后批量计算指标
             # 16:30 准时开始计算（通过 _last_batch_compute_market 防止重复执行）
