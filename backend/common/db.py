@@ -1317,14 +1317,31 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
     try:
         client = _create_clickhouse_client()
         
+        # 显式指定列名，避免 SELECT * 导致的列顺序问题
+        columns_sql = """code, market, date, period, ma5, ma10, ma20, ma60,
+            ma5_trend, ma10_trend, ma20_trend, ma60_trend,
+            ema12, ema26,
+            macd_dif, macd_dea, macd, macd_dif_trend, macd_prev, rsi,
+            bias6, bias12, bias24,
+            boll_upper, boll_middle, boll_lower, boll_expanding, boll_contracting, boll_width, boll_width_prev,
+            kdj_k, kdj_d, kdj_j, williams_r, williams_r_prev,
+            adx, plus_di, minus_di, adx_prev, adx_rising,
+            cci, cci_prev, cci_rising, cci_status,
+            ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
+            ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
+            fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
+            vol_ratio, high_20d, recent_low,
+            current_price, current_open, current_high, current_low, current_close,
+            update_time"""
+        
         if date:
             # 转换为日期格式
             if len(date) == 8 and "-" not in date:
                 date_str = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
             else:
                 date_str = date
-            query = """
-                SELECT * FROM indicators
+            query = f"""
+                SELECT {columns_sql} FROM indicators
                 WHERE code = %(code)s AND market = %(market)s AND date = %(date)s AND period = %(period)s
                 ORDER BY update_time DESC
                 LIMIT 1
@@ -1332,8 +1349,8 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
             result = client.execute(query, {'code': code, 'market': market.upper(), 'date': date_str, 'period': period})
         else:
             # 获取最新的指标
-            query = """
-                SELECT * FROM indicators
+            query = f"""
+                SELECT {columns_sql} FROM indicators
                 WHERE code = %(code)s AND market = %(market)s AND period = %(period)s
                 ORDER BY date DESC, update_time DESC
                 LIMIT 1
