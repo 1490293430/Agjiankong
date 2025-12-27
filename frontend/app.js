@@ -4748,7 +4748,7 @@ function updateEMA() {
                 const emaLine = chart.addLineSeries({
                     color: colors[index % colors.length],
                     lineWidth: 1,
-                    title: `EMA${period}`,
+                    title: '',  // 不显示标签
                     lastValueVisible: false,  // 隐藏EMA数值标签（价格栏旁边的数值）
                     priceLineVisible: false,  // 隐藏EMA横线
                     crosshairMarkerVisible: false, // 隐藏交叉标记
@@ -8398,51 +8398,76 @@ async function loadDbInfo() {
         const data = result.data;
         const today = new Date().toISOString().split('T')[0];
         
+        // 辅助函数：生成状态标签
+        function statusTag(isOk, okText, warnText) {
+            if (isOk) {
+                return `<span style="background: #22c55e20; color: #22c55e; padding: 1px 6px; border-radius: 4px; font-size: 11px;">${okText}</span>`;
+            } else {
+                return `<span style="background: #f9731620; color: #f97316; padding: 1px 6px; border-radius: 4px; font-size: 11px;">${warnText}</span>`;
+            }
+        }
+        
         // 辅助函数：生成K线统计HTML
         function renderKlineStats(stockData, label, color) {
             let html = `<div style="background: rgba(${color},0.1); border-radius: 8px; padding: 12px; margin-bottom: 8px;">`;
-            html += `<div style="font-weight: 600; color: rgb(${color}); margin-bottom: 8px;">${label} (${stockData.total_count}只)</div>`;
+            html += `<div style="font-weight: 600; color: rgb(${color}); margin-bottom: 10px;">${label} (${stockData.total_count}只)</div>`;
             
             // 日线
             if (stockData.daily) {
                 const daily = stockData.daily;
                 const isComplete = daily.stock_count >= stockData.total_count * 0.9;
                 const isLatest = daily.latest_date === today;
-                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
-                    <span style="color: #94a3b8;">日线:</span>
-                    <span>${daily.total_records.toLocaleString()}条 / ${daily.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                const completePct = ((daily.stock_count / stockData.total_count) * 100).toFixed(0);
+                
+                html += `<div style="margin-bottom: 8px;">`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="color: #e5e7eb; font-weight: 500;">📊 日线K线</span>
+                    <span style="color: #94a3b8; font-size: 12px;">${daily.total_records.toLocaleString()}条</span>
                 </div>`;
-                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px;">
-                    <span style="color: #64748b;">范围:</span>
-                    <span style="color: #64748b;">${daily.earliest_date} ~ ${daily.latest_date}</span>
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
+                    <span style="color: #64748b;">覆盖股票:</span>
+                    <span>${daily.stock_count}只 (${completePct}%) ${statusTag(isComplete, '完整', '不完整')}</span>
                 </div>`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                    <span style="color: #64748b;">数据范围:</span>
+                    <span style="color: #94a3b8;">${daily.earliest_date} ~ ${daily.latest_date} ${statusTag(isLatest, '最新', '待更新')}</span>
+                </div>`;
+                html += `</div>`;
             } else {
-                html += '<div style="color: #94a3b8; font-size: 12px;">暂无日线数据</div>';
+                html += '<div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">📊 日线K线: 暂无数据</div>';
             }
             
             // 小时线
+            html += `<div style="border-top: 1px solid rgba(148,163,184,0.15); margin: 8px 0;"></div>`;
             if (stockData.hourly) {
                 const hourly = stockData.hourly;
                 const dist = stockData.hourly_distribution;
-                html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
-                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
-                    <span style="color: #94a3b8;">小时线:</span>
-                    <span>${hourly.total_records.toLocaleString()}条 / ${hourly.stock_count}只</span>
+                const completePct = ((hourly.stock_count / stockData.total_count) * 100).toFixed(0);
+                
+                html += `<div style="margin-bottom: 8px;">`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="color: #e5e7eb; font-weight: 500;">⏰ 小时线K线</span>
+                    <span style="color: #94a3b8; font-size: 12px;">${hourly.total_records.toLocaleString()}条</span>
                 </div>`;
-                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px;">
-                    <span style="color: #64748b;">范围:</span>
-                    <span style="color: #64748b;">${hourly.earliest_date} ~ ${hourly.latest_date}</span>
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
+                    <span style="color: #64748b;">覆盖股票:</span>
+                    <span>${hourly.stock_count}只 (${completePct}%)</span>
+                </div>`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
+                    <span style="color: #64748b;">数据范围:</span>
+                    <span style="color: #94a3b8;">${hourly.earliest_date} ~ ${hourly.latest_date}</span>
                 </div>`;
                 if (dist && dist.total_stocks > 0) {
                     const pctMa60 = ((dist.enough_ma60 / dist.total_stocks) * 100).toFixed(1);
-                    html += `<div style="display: flex; justify-content: space-between; font-size: 12px;">
-                        <span style="color: #94a3b8;">MA60可用:</span>
-                        <span>${dist.enough_ma60}只 (${pctMa60}%)</span>
+                    const isMa60Ok = dist.enough_ma60 >= dist.total_stocks * 0.8;
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                        <span style="color: #64748b;">MA60可计算:</span>
+                        <span>${dist.enough_ma60}只 (${pctMa60}%) ${statusTag(isMa60Ok, '充足', '不足')}</span>
                     </div>`;
                 }
+                html += `</div>`;
             } else {
-                html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
-                html += '<div style="color: #94a3b8; font-size: 12px;">暂无小时线数据</div>';
+                html += '<div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">⏰ 小时线K线: 暂无数据</div>';
             }
             
             // 指标
@@ -8450,25 +8475,27 @@ async function loadDbInfo() {
                 const dailyInd = stockData.indicators.daily;
                 const hourlyInd = stockData.indicators['1h'];
                 if (dailyInd || hourlyInd) {
-                    html += `<div style="border-top: 1px solid rgba(148,163,184,0.2); margin: 6px 0;"></div>`;
+                    html += `<div style="border-top: 1px solid rgba(148,163,184,0.15); margin: 8px 0;"></div>`;
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="color: #e5e7eb; font-weight: 500;">📈 技术指标</span>
+                    </div>`;
+                    
                     if (dailyInd) {
                         const isLatest = dailyInd.latest_date === today;
-                        // 与日线K线股票数对比判断是否完整
                         const dailyKlineCount = stockData.daily?.stock_count || 0;
                         const isComplete = dailyKlineCount > 0 && dailyInd.stock_count >= dailyKlineCount * 0.9;
-                        html += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 12px;">
-                            <span style="color: #94a3b8;">日线指标:</span>
-                            <span>${dailyInd.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                        html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
+                            <span style="color: #64748b;">日线指标:</span>
+                            <span>${dailyInd.stock_count}只 ${statusTag(isLatest, '最新', '待计算')} ${statusTag(isComplete, '完整', '不完整')}</span>
                         </div>`;
                     }
                     if (hourlyInd) {
                         const isLatest = hourlyInd.latest_date === today;
-                        // 与小时线K线股票数对比判断是否完整
                         const hourlyKlineCount = stockData.hourly?.stock_count || 0;
                         const isComplete = hourlyKlineCount > 0 && hourlyInd.stock_count >= hourlyKlineCount * 0.9;
-                        html += `<div style="display: flex; justify-content: space-between; font-size: 12px;">
-                            <span style="color: #94a3b8;">小时指标:</span>
-                            <span>${hourlyInd.stock_count}只 ${isLatest ? '✅' : '⚠️'} ${isComplete ? '✅' : '⚠️'}</span>
+                        html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                            <span style="color: #64748b;">小时指标:</span>
+                            <span>${hourlyInd.stock_count}只 ${statusTag(isLatest, '最新', '待计算')} ${statusTag(isComplete, '完整', '不完整')}</span>
                         </div>`;
                     }
                 }

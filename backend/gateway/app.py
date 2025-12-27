@@ -612,6 +612,18 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         if not valid_stocks:
             return {"code": 0, "data": [], "message": "没有有效的股票数据", "task_id": task_id}
         
+        # 默认排除ST股票（名称包含ST或*的股票）
+        # 可通过 exclude_st=false 参数禁用
+        if filter_config.get("exclude_st", True):
+            before_count = len(valid_stocks)
+            valid_stocks = [
+                s for s in valid_stocks 
+                if "ST" not in str(s.get("name", "")).upper() and "*" not in str(s.get("name", ""))
+            ]
+            filtered_count = before_count - len(valid_stocks)
+            if filtered_count > 0:
+                logger.info(f"排除ST股票：过滤掉 {filtered_count} 只")
+        
         # 如果启用了"仅股票"筛选，过滤掉 ETF/指数/基金
         if filter_config.get("stock_only"):
             before_count = len(valid_stocks)
