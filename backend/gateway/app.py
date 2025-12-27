@@ -1747,6 +1747,59 @@ async def get_db_info_api():
                 "total_stocks": row[3]
             }
         
+        # 检测异常数据
+        client = _create_clickhouse_client()
+        anomalies = []
+        
+        # 1. 检测价格<=0的数据
+        price_zero = client.execute("""
+            SELECT count() FROM kline FINAL WHERE close <= 0 OR open <= 0
+        """)
+        if price_zero and price_zero[0][0] > 0:
+            anomalies.append({
+                "type": "price_zero",
+                "count": price_zero[0][0],
+                "message": f"价格≤0的数据: {price_zero[0][0]}条"
+            })
+        
+        # 2. 检测A股价格>1000的数据（异常高）
+        price_high = client.execute("""
+            SELECT count() FROM kline FINAL 
+            WHERE period = 'daily' 
+              AND length(code) = 6 
+              AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
+              AND close > 1000
+        """)
+        if price_high and price_high[0][0] > 0:
+            anomalies.append({
+                "type": "price_high",
+                "count": price_high[0][0],
+                "message": f"A股价格>1000元: {price_high[0][0]}条"
+            })
+        
+        # 3. 检测单日价格突变>50%的数据
+        price_spike = client.execute("""
+            WITH ranked AS (
+                SELECT 
+                    code, date, close,
+                    lagInFrame(close) OVER (PARTITION BY code, period ORDER BY date) as prev_close
+                FROM kline FINAL
+                WHERE period = 'daily'
+            )
+            SELECT count() FROM ranked
+            WHERE prev_close > 0 AND abs(close - prev_close) / prev_close > 0.5
+        """)
+        if price_spike and price_spike[0][0] > 0:
+            anomalies.append({
+                "type": "price_spike",
+                "count": price_spike[0][0],
+                "message": f"单日涨跌>50%: {price_spike[0][0]}条"
+            })
+        
+        client.disconnect()
+        
+        result["anomalies"] = anomalies
+        
         return {"code": 0, "data": result}
         
     except Exception as e:

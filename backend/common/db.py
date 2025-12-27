@@ -657,6 +657,35 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
             code = str(item.get("code", ""))
             codes.add(code)
             
+            # 数据校验：过滤异常数据
+            try:
+                open_price = float(item.get("open", 0) or 0)
+                high_price = float(item.get("high", 0) or 0)
+                low_price = float(item.get("low", 0) or 0)
+                close_price = float(item.get("close", 0) or 0)
+                volume = float(item.get("volume", 0) or 0)
+                amount = float(item.get("amount", 0) or 0)
+                
+                # 校验1：价格必须为正数
+                if close_price <= 0 or open_price <= 0:
+                    logger.debug(f"跳过异常数据 {code} {date_value}: 价格<=0 (close={close_price}, open={open_price})")
+                    continue
+                
+                # 校验2：A股价格不应超过2000元（茅台最高也就2000多）
+                if len(code) == 6 and (code.startswith('0') or code.startswith('3') or code.startswith('6')):
+                    if close_price > 2000 or open_price > 2000:
+                        logger.warning(f"跳过异常数据 {code} {date_value}: A股价格异常高 (close={close_price}, open={open_price})")
+                        continue
+                
+                # 校验3：high >= low
+                if high_price < low_price:
+                    logger.debug(f"跳过异常数据 {code} {date_value}: high < low")
+                    continue
+                    
+            except (ValueError, TypeError) as e:
+                logger.debug(f"跳过异常数据 {code} {date_value}: 数值转换失败 {e}")
+                continue
+            
             # 将日期字符串转换为date对象（ClickHouse driver需要date对象）
             # 注意：date_value 可能包含时间部分（如 "2025-12-26 11:30"），需要先提取日期部分
             try:
@@ -726,12 +755,12 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
                 period_normalized,  # 添加period字段
                 date_obj,  # 使用date对象而不是字符串
                 time_obj,  # 添加time字段（DateTime类型）
-                float(item.get("open", 0) or 0),
-                float(item.get("high", 0) or 0),
-                float(item.get("low", 0) or 0),
-                float(item.get("close", 0) or 0),
-                float(item.get("volume", 0) or 0),
-                float(item.get("amount", 0) or 0),
+                open_price,
+                high_price,
+                low_price,
+                close_price,
+                volume,
+                amount,
             ))
         
         if not data_to_insert:

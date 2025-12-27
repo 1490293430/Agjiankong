@@ -8545,6 +8545,25 @@ async function loadDbInfo() {
         // 港股数据
         html += renderKlineStats(data.hk_stock, '🇭🇰 港股', '239,68,68');
         
+        // 异常数据检测结果
+        if (data.anomalies && data.anomalies.length > 0) {
+            html += `<div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-top: 4px;">`;
+            html += `<div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">⚠️ 检测到异常数据</div>`;
+            for (const anomaly of data.anomalies) {
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 12px;">
+                    <span style="color: #fca5a5;">${anomaly.message}</span>
+                </div>`;
+            }
+            html += `<div style="margin-top: 8px; font-size: 11px; color: #f87171;">
+                运行命令清理: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">docker-compose exec api python scripts/clean_abnormal_kline.py --execute</code>
+            </div>`;
+            html += `</div>`;
+        } else {
+            html += `<div style="background: rgba(34,197,94,0.1); border: 1px solid #22c55e; border-radius: 8px; padding: 8px 12px; margin-top: 4px;">
+                <span style="color: #22c55e; font-size: 12px;">✅ 数据质量正常，未检测到异常</span>
+            </div>`;
+        }
+        
         html += '</div>';
         
         contentEl.innerHTML = html;
