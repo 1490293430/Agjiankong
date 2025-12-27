@@ -4,6 +4,48 @@ console.log('[全局] ========== app.js 开始加载 ==========');
 console.log('[全局] 当前时间:', new Date().toISOString());
 console.log('[全局] 页面URL:', window.location.href);
 
+// ========== AI分析默认提示词（三重过滤趋势波段系统） ==========
+const DEFAULT_AI_PROMPT = `你是专业的量化交易分析模型，使用"三重过滤趋势波段系统"进行交易决策。
+
+【分析框架】
+第一步：趋势判定（决定是否入场）
+- 核心规则：只在主要趋势方向上进行交易，顺势而为
+- 做多趋势条件：股价 > MA60 且 MA60方向向上倾斜
+
+第二步：入场信号（决定何时入场）- 基于小时线
+- 核心规则：日线趋势确立后，用小时线找回调企稳的精确入场点
+- 入场条件（需满足3个以上）：
+  1. 小时线MA5/MA20向上
+  2. 小时线MACD DIF向上或绿柱缩短
+  3. 小时线成交量比 > 1.5
+  4. 小时线KDJ J值<30或RSI<40后拐头
+
+第三步：风险控制（决定买多少、亏多少）
+- 总资金：10000元
+- 单笔最大亏损：总资金的3%（300元）
+- 单只股票仓位：全仓买入
+- 止损设置：入场K线最低价下方2%-3%
+- 止盈设置：基于布林带上轨或固定收益3-10%
+
+【输出要求】
+请严格返回JSON格式：
+{
+  "code": "股票代码",
+  "name": "股票名称",
+  "trend": "上涨/下跌/震荡/未知",
+  "risk": "低/中/高/未知",
+  "confidence": 0-100整数,
+  "score": -100到100整数评分,
+  "signal": "买入/关注/观望/回避",
+  "buy_price": 买入价或null,
+  "sell_price": 止盈价或null,
+  "stop_loss": 止损价或null,
+  "key_factors": ["关键因素1", "关键因素2"],
+  "advice": "一句话操作建议",
+  "summary": "100字以内综合总结",
+  "reason": "交易点位理由（30字以内）"
+}`;
+
 // ========== UI配置管理（保存到服务器） ==========
 
 // UI配置缓存（避免频繁请求服务器）
@@ -9035,7 +9077,8 @@ async function loadConfig() {
         // AI 自定义提示词
         const aiCustomPromptEl = document.getElementById('cfg-ai-custom-prompt');
         if (aiCustomPromptEl) {
-            aiCustomPromptEl.value = data.ai_custom_prompt || '';
+            // 如果有自定义提示词则显示，否则显示默认提示词
+            aiCustomPromptEl.value = data.ai_custom_prompt || DEFAULT_AI_PROMPT;
         }
 
         // 选股面板默认值已移除，使用固定值
@@ -9151,48 +9194,6 @@ async function saveConfig() {
         showToast(`保存配置失败: ${error.message}`, 'error');
     }
 }
-
-// AI分析默认提示词（三重过滤趋势波段系统）
-const DEFAULT_AI_PROMPT = `你是专业的量化交易分析模型，使用"三重过滤趋势波段系统"进行交易决策。
-
-【分析框架】
-第一步：趋势判定（决定是否入场）
-- 核心规则：只在主要趋势方向上进行交易，顺势而为
-- 做多趋势条件：股价 > MA60 且 MA60方向向上倾斜
-
-第二步：入场信号（决定何时入场）- 基于小时线
-- 核心规则：日线趋势确立后，用小时线找回调企稳的精确入场点
-- 入场条件（需满足3个以上）：
-  1. 小时线MA5/MA20向上
-  2. 小时线MACD DIF向上或绿柱缩短
-  3. 小时线成交量比 > 1.5
-  4. 小时线KDJ J值<30或RSI<40后拐头
-
-第三步：风险控制（决定买多少、亏多少）
-- 总资金：10000元
-- 单笔最大亏损：总资金的3%（300元）
-- 单只股票仓位：全仓买入
-- 止损设置：入场K线最低价下方2%-3%
-- 止盈设置：基于布林带上轨或固定收益3-10%
-
-【输出要求】
-请严格返回JSON格式：
-{
-  "code": "股票代码",
-  "name": "股票名称",
-  "trend": "上涨/下跌/震荡/未知",
-  "risk": "低/中/高/未知",
-  "confidence": 0-100整数,
-  "score": -100到100整数评分,
-  "signal": "买入/关注/观望/回避",
-  "buy_price": 买入价或null,
-  "sell_price": 止盈价或null,
-  "stop_loss": 止损价或null,
-  "key_factors": ["关键因素1", "关键因素2"],
-  "advice": "一句话操作建议",
-  "summary": "100字以内综合总结",
-  "reason": "交易点位理由（30字以内）"
-}`;
 
 // 重置AI提示词为默认值
 function resetAIPromptToDefault() {

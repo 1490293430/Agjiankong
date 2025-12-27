@@ -667,6 +667,30 @@ body.light-mode input,
 body.light-mode select,
 body.light-mode textarea {
     color: #1f2937;
+    background: #ffffff;
+    border-color: #d1d5db;
+}
+
+/* AI自定义提示词输入框 */
+#cfg-ai-custom-prompt {
+    width: 100%;
+    min-height: 200px;
+    max-height: 400px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #374151;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+body.light-mode #cfg-ai-custom-prompt {
+    background: #ffffff;
+    border-color: #d1d5db;
+    color: #1f2937;
 }
 
 /* 配置页面下拉框样式 */
