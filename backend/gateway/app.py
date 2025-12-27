@@ -1762,14 +1762,14 @@ async def get_db_info_api():
                 "message": f"价格≤0的数据: {price_zero[0][0]}条"
             })
         
-        # 2. 检测A股价格>1000的数据（异常高，排除茅台600519和寒武纪688256）
+        # 2. 检测A股价格>1000的数据（异常高，排除正常高价股）
         price_high = client.execute("""
             SELECT count() FROM kline FINAL 
             WHERE period = 'daily' 
               AND length(code) = 6 
               AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
               AND close > 1000
-              AND code NOT IN ('600519', '688256')
+              AND code NOT IN ('600519', '688256', '688032')
         """)
         if price_high and price_high[0][0] > 0:
             anomalies.append({

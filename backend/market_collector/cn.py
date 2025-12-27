@@ -123,9 +123,19 @@ def _classify_security(code: str, name: str) -> str:
     if code_str.startswith(("11", "12")) and len(code_str) == 6:
         return "bond"
     
-    # 新三板/北交所股票：4xxxxx, 8xxxxx, 920xxx - 标记为 neeq 过滤掉
-    if code_str.startswith(("4", "8", "920")):
+    # 北交所股票：8xxxxx, 920xxx（正式股票，不是新三板）
+    # 北交所代码规则：83xxxx, 87xxxx, 88xxxx 为北交所股票
+    if code_str.startswith(("83", "87", "88")):
+        return "stock"
+    
+    # 新三板：4xxxxx, 920xxx - 标记为 neeq 过滤掉
+    # 注意：8开头但不是83/87/88的可能是老三板或其他
+    if code_str.startswith(("4", "920")):
         return "neeq"
+    
+    # 其他8开头的暂时也标记为股票（北交所可能有新代码段）
+    if code_str.startswith("8"):
+        return "stock"
     
     # ========== 名称特征词判断（兜底）==========
     # 指数关键词
