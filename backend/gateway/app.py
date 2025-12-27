@@ -1778,25 +1778,26 @@ async def get_db_info_api():
                 "message": f"A股价格>1000元: {price_high[0][0]}条"
             })
         
-        # 3. 检测A股单日价格突变>500%的数据（正常复牌、新股等可能有100-300%波动）
-        price_spike = client.execute("""
-            WITH ranked AS (
-                SELECT 
-                    code, date, close,
-                    lagInFrame(close) OVER (PARTITION BY code, period ORDER BY date) as prev_close
-                FROM kline FINAL
-                WHERE period = 'daily'
-                  AND length(code) = 6
-                  AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
-            )
-            SELECT count() FROM ranked
-            WHERE prev_close > 0 AND abs(close - prev_close) / prev_close > 5.0
+        # 3. 检测 high < low 的数据（明显错误）
+        high_low_error = client.execute("""
+            SELECT count() FROM kline FINAL WHERE high < low
         """)
-        if price_spike and price_spike[0][0] > 0:
+        if high_low_error and high_low_error[0][0] > 0:
             anomalies.append({
-                "type": "price_spike",
-                "count": price_spike[0][0],
-                "message": f"A股单日涨跌>500%: {price_spike[0][0]}条"
+                "type": "high_low_error",
+                "count": high_low_error[0][0],
+                "message": f"最高价<最低价: {high_low_error[0][0]}条"
+            })
+        
+        # 4. 检测成交量为负数的数据
+        volume_negative = client.execute("""
+            SELECT count() FROM kline FINAL WHERE volume < 0
+        """)
+        if volume_negative and volume_negative[0][0] > 0:
+            anomalies.append({
+                "type": "volume_negative",
+                "count": volume_negative[0][0],
+                "message": f"成交量为负: {volume_negative[0][0]}条"
             })
         
         client.disconnect()
