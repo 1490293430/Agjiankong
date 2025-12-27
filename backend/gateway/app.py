@@ -1778,7 +1778,7 @@ async def get_db_info_api():
                 "message": f"A股价格>1000元: {price_high[0][0]}条"
             })
         
-        # 3. 检测单日价格突变>100%的数据（排除正常的复牌、新股等情况）
+        # 3. 检测A股单日价格突变>100%的数据（港股没有涨跌停限制，不检测）
         price_spike = client.execute("""
             WITH ranked AS (
                 SELECT 
@@ -1786,6 +1786,8 @@ async def get_db_info_api():
                     lagInFrame(close) OVER (PARTITION BY code, period ORDER BY date) as prev_close
                 FROM kline FINAL
                 WHERE period = 'daily'
+                  AND length(code) = 6
+                  AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
             )
             SELECT count() FROM ranked
             WHERE prev_close > 0 AND abs(close - prev_close) / prev_close > 1.0
@@ -1794,7 +1796,7 @@ async def get_db_info_api():
             anomalies.append({
                 "type": "price_spike",
                 "count": price_spike[0][0],
-                "message": f"单日涨跌>100%: {price_spike[0][0]}条"
+                "message": f"A股单日涨跌>100%: {price_spike[0][0]}条"
             })
         
         client.disconnect()
