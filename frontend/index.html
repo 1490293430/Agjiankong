@@ -1146,6 +1146,20 @@
                             AI 分析结果通过 企业微信 通知
                         </label>
                     </div>
+                    
+                    <!-- AI分析自定义提示词 -->
+                    <div class="config-item" style="margin-top: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <label style="font-weight: 500;">AI 分析提示词（自定义）：</label>
+                            <button id="cfg-ai-prompt-reset-btn" type="button" class="secondary-btn" style="padding: 4px 12px; font-size: 12px;">
+                                🔄 重置为默认
+                            </button>
+                        </div>
+                        <textarea id="cfg-ai-custom-prompt" placeholder="留空使用默认提示词，或输入自定义提示词..." style="width: 100%; min-height: 200px; max-height: 400px; padding: 8px; border-radius: 6px; border: 1px solid #374151; background: #1e293b; color: #e2e8f0; font-family: monospace; font-size: 12px; line-height: 1.5; resize: vertical;"></textarea>
+                        <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">
+                            提示词中可使用变量：{stock_code}、{stock_name}、{current_price}、{indicators} 等。留空则使用系统默认的三重过滤趋势波段系统提示词。
+                        </div>
+                    </div>
                 </div>
             </div>
 

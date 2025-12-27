@@ -1,7 +1,18 @@
 """
 AI分析提示词构建
 """
+from typing import Optional
 from ai.parameter_optimizer import get_dynamic_parameters
+
+
+def get_custom_prompt() -> Optional[str]:
+    """从运行时配置获取自定义提示词"""
+    try:
+        from common.runtime_config import get_runtime_config
+        cfg = get_runtime_config()
+        return cfg.ai_custom_prompt if cfg.ai_custom_prompt else None
+    except Exception:
+        return None
 
 
 def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None, include_trading_points: bool = False, dynamic_params: dict = None) -> str:
@@ -14,6 +25,31 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
         include_trading_points: 是否包含交易点位（买入价、卖出价、止损价）
     """
     
+    # 检查是否有自定义提示词
+    custom_prompt = get_custom_prompt()
+    if custom_prompt:
+        # 使用自定义提示词，替换变量
+        news_summary = ""
+        if news:
+            news_summary = "\n".join([f"- {n.get('title', '')}" for n in news[:5]])
+        
+        # 构建指标字符串
+        indicators_str = "\n".join([f"- {k}: {v}" for k, v in indicators.items() if v is not None])
+        
+        # 替换变量
+        prompt = custom_prompt
+        prompt = prompt.replace("{stock_code}", str(stock.get('code', '')))
+        prompt = prompt.replace("{stock_name}", str(stock.get('name', '')))
+        prompt = prompt.replace("{current_price}", str(stock.get('price', 0)))
+        prompt = prompt.replace("{pct}", str(stock.get('pct', 0)))
+        prompt = prompt.replace("{volume}", str(stock.get('volume', 0)))
+        prompt = prompt.replace("{amount}", str(stock.get('amount', 0)))
+        prompt = prompt.replace("{indicators}", indicators_str)
+        prompt = prompt.replace("{news}", news_summary if news_summary else "暂无相关资讯")
+        
+        return prompt
+    
+    # 使用默认提示词
     news_summary = ""
     if news:
         news_summary = "\n".join([f"- {n.get('title', '')}" for n in news[:5]])
@@ -90,23 +126,31 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 
 做多趋势条件：股价 > MA60 且 MA60方向向上倾斜
 
-【第二步：入场信号（决定何时入场）】
-核心规则：在趋势确立后，等待短期调整结束、重新启动的瞬间入场。
+【第二步：入场信号（决定何时入场）- 基于小时线】
+核心规则：日线趋势确立后，用小时线找回调企稳的精确入场点。
 
-入场信号数据：
-- MA5：{ma5 if ma5 else 'N/A'}元，趋势：{ma5_trend}
-- MA20：{ma20 if ma20 else 'N/A'}元，趋势：{ma20_trend}
-- MACD DIF：{macd_dif if macd_dif else 'N/A'}，趋势：{macd_dif_trend}
-- MACD柱（当前）：{macd_current if macd_current else 'N/A'}
-- MACD柱（前一日）：{macd_prev if macd_prev else 'N/A'}
-- 成交量比：{vol_ratio if vol_ratio else 'N/A'}（>1.5为放量）
-- KDJ J值：{kdj_j if kdj_j else 'N/A'}（<20为超卖区）
+小时线入场信号数据：
+- 小时线MA5：{indicators.get('hourly_ma5', 'N/A')}元，趋势：{indicators.get('hourly_ma5_trend', '未知')}
+- 小时线MA20：{indicators.get('hourly_ma20', 'N/A')}元，趋势：{indicators.get('hourly_ma20_trend', '未知')}
+- 小时线MACD DIF：{indicators.get('hourly_macd_dif', 'N/A')}，趋势：{indicators.get('hourly_macd_dif_trend', '未知')}
+- 小时线MACD柱（当前）：{indicators.get('hourly_macd', 'N/A')}
+- 小时线MACD柱（前一根）：{indicators.get('hourly_macd_prev', 'N/A')}
+- 小时线RSI：{indicators.get('hourly_rsi', 'N/A')}
+- 小时线KDJ J值：{indicators.get('hourly_kdj_j', 'N/A')}（<20为超卖区）
+- 小时线成交量比：{indicators.get('hourly_vol_ratio', 'N/A')}（>1.5为放量）
 
-做多入场条件（需同时满足）：
-1. 价格调整：股价接近或略跌破MA20（{ma20 if ma20 else 'N/A'}元）
-2. 动能确认：MACD的DIF在零轴上方回调后再次拐头向上，或MACD绿柱显著缩短
-3. 放量启动：成交量比 > 1.5
-4. 短期均线信号：MA5向上金叉或确认拐头向上
+日线辅助参考：
+- 日线MA5：{ma5 if ma5 else 'N/A'}元，趋势：{ma5_trend}
+- 日线MA20：{ma20 if ma20 else 'N/A'}元，趋势：{ma20_trend}
+- 日线MACD柱：{macd_current if macd_current else 'N/A'}
+- 日线成交量比：{vol_ratio if vol_ratio else 'N/A'}
+
+做多入场条件（基于小时线，需同时满足）：
+1. 日线趋势确认：日线MA60向上（已在第一步确认）
+2. 小时线回调企稳：价格回调至小时线MA20附近后企稳
+3. 小时线动能确认：小时线MACD的DIF拐头向上，或MACD绿柱显著缩短
+4. 小时线均线信号：小时线MA5向上金叉MA20，或MA5拐头向上
+5. 放量启动：小时线成交量比 > 1.5
 
 【第三步：风险控制（决定买多少、亏多少）】
 核心规则：严格止损，让利润奔跑。
@@ -160,18 +204,19 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 下跌趋势中：价格反弹到38.2%-61.8%区间是较好的卖出区域
 - 61.8%是黄金分割位，突破此位可能趋势反转
 
-【多周期分析】（如果有小时线数据）
-- 日线趋势方向：{daily_trend if daily_trend else 'N/A'}
-- 小时线趋势方向：{hourly_trend if hourly_trend else 'N/A'}
+【多周期分析】（日线定趋势，小时线定进场）
+- 日线趋势方向：{daily_trend if daily_trend else 'N/A'}（决定是否可以做多）
+- 小时线趋势方向：{hourly_trend if hourly_trend else 'N/A'}（决定入场时机）
 - 多周期共振信号：{multi_tf_signal if multi_tf_signal else 'N/A'}
 - 是否共振：{multi_tf_resonance if multi_tf_resonance is not None else 'N/A'}
 - 入场时机评估：{entry_timing if entry_timing else 'N/A'}
 - 入场信号：{', '.join(entry_signals) if entry_signals else 'N/A'}
 
 多周期分析说明：
-- 日线多头 + 小时线多头 = 强烈看多，可积极入场
-- 日线多头 + 小时线回调 = 等待小时线企稳后入场
-- 日线空头 = 观望或回避
+- 日线多头 + 小时线多头 = 强烈看多，立即入场
+- 日线多头 + 小时线回调企稳 = 最佳入场时机（回调买入）
+- 日线多头 + 小时线下跌中 = 等待小时线企稳再入场
+- 日线空头 = 观望或回避，不做多
 
 【三重过滤系统分析步骤】
 
@@ -180,13 +225,15 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 如果不符合 → 直接输出 signal="观望"，reason="不符合趋势要求：股价未站上MA60或MA60趋势向下"，不返回交易点位
 - 如果符合 → 进入第二步
 
-【第二步：入场信号过滤器 - 是否有明确的入场时机？】
+【第二步：入场信号过滤器 - 基于小时线判断入场时机】
+日线趋势确认后，用小时线找回调企稳的精确入场点。
+
 必须同时满足以下条件（至少满足{min_conditions}个以上）：
-1. MA5_trend == "向上" AND MA20_trend == "向上"  # 短期均线向上
-2. macd_dif_trend == "向上"  # MACD DIF线向上
-3. macd_current > macd_prev AND macd_current < 0  # MACD绿柱缩短（负值减小）
-4. vol_ratio > {vol_ratio_threshold}  # 放量启动（阈值：{vol_ratio_threshold}）
-5. kdj_j < 20  # 超卖区拐头向上（可选）
+1. hourly_ma5_trend == "向上" AND hourly_ma20_trend == "向上"  # 小时线均线向上
+2. hourly_macd_dif_trend == "向上"  # 小时线MACD DIF线向上
+3. hourly_macd > hourly_macd_prev AND hourly_macd < 0  # 小时线MACD绿柱缩短
+4. hourly_vol_ratio > {vol_ratio_threshold}  # 小时线放量启动（阈值：{vol_ratio_threshold}）
+5. hourly_kdj_j < 30 或 hourly_rsi < 40  # 小时线超卖区拐头向上（可选）
 
 入场信号评分：
 - 满足5个条件：信号强度100%
@@ -195,7 +242,7 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 少于{min_conditions}个条件：信号不足
 
 - 如果满足{min_conditions}个以上条件 → 进入第三步
-- 否则 → 输出 signal="观望"，reason="入场信号不足：缺少MACD确认/成交量不足/均线未共振"，不返回交易点位
+- 否则 → 输出 signal="观望"，reason="小时线入场信号不足：等待回调企稳"，不返回交易点位
 
 【第三步：风险控制过滤器 - 盈亏比是否合理？】
 重要：总资金设置为10000元，所有仓位计算和决策都基于此资金量。
@@ -338,16 +385,22 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 当前价格：{current_price}元
 涨跌幅：{stock.get('pct', 0)}%
 
-技术指标：
-- MA5：{indicators.get('ma5', 'N/A')}，趋势：{indicators.get('ma5_trend', '未知')}
-- MA20：{indicators.get('ma20', 'N/A')}，趋势：{indicators.get('ma20_trend', '未知')}
+日线指标（定趋势）：
 - MA60：{indicators.get('ma60', 'N/A')}，趋势：{indicators.get('ma60_trend', '未知')}
-- MACD DIF：{indicators.get('macd_dif', 'N/A')}，趋势：{indicators.get('macd_dif_trend', '未知')}
-- MACD柱：{indicators.get('macd', 'N/A')}
-- RSI：{indicators.get('rsi', 'N/A')}
-- 成交量比：{indicators.get('vol_ratio', 'N/A')}
-- KDJ J值：{indicators.get('kdj_j', 'N/A')}
+- MA20：{indicators.get('ma20', 'N/A')}，趋势：{indicators.get('ma20_trend', '未知')}
+- 日线RSI：{indicators.get('rsi', 'N/A')}
 - 布林带上轨：{indicators.get('boll_upper', 'N/A')}元
+
+小时线指标（定进场）：
+- 小时MA5：{indicators.get('hourly_ma5', 'N/A')}，趋势：{indicators.get('hourly_ma5_trend', '未知')}
+- 小时MA20：{indicators.get('hourly_ma20', 'N/A')}，趋势：{indicators.get('hourly_ma20_trend', '未知')}
+- 小时MACD DIF：{indicators.get('hourly_macd_dif', 'N/A')}，趋势：{indicators.get('hourly_macd_dif_trend', '未知')}
+- 小时MACD柱：{indicators.get('hourly_macd', 'N/A')}
+- 小时RSI：{indicators.get('hourly_rsi', 'N/A')}
+- 小时KDJ J值：{indicators.get('hourly_kdj_j', 'N/A')}
+- 小时成交量比：{indicators.get('hourly_vol_ratio', 'N/A')}
+
+止损参考：
 - 当前最低价：{indicators.get('current_low', 'N/A')}元
 - 近期最低价：{indicators.get('recent_low', 'N/A')}元
 
@@ -374,12 +427,22 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 
 {stocks_info_str}
 
-【分析要求】
+【分析要求 - 日线定趋势，小时线定进场】
 请对每支股票分别进行分析，使用三重过滤系统：
 
-1. 趋势过滤器：股价 > MA60 且 MA60趋势向上
-2. 入场信号过滤器：需满足{min_conditions}个以上入场条件（MA5/MA20向上、MACD向上、放量等）
+1. 趋势过滤器（日线）：股价 > MA60 且 MA60趋势向上 → 确认可以做多
+2. 入场信号过滤器（小时线）：需满足{min_conditions}个以上条件：
+   - 小时MA5/MA20向上
+   - 小时MACD DIF向上或绿柱缩短
+   - 小时成交量比 > {vol_ratio_threshold}
+   - 小时KDJ J值<30或RSI<40后拐头（超卖回升）
 3. 风险控制过滤器：风险回报比 >= {min_risk_reward}，单笔最大亏损300元
+
+【多周期配合说明】
+- 日线多头 + 小时线回调企稳 = 最佳入场时机（回调买入）
+- 日线多头 + 小时线多头共振 = 强烈看多，可立即入场
+- 日线多头 + 小时线下跌中 = 等待小时线企稳
+- 日线空头 = 观望或回避
 
 【重要规则】
 - 总资金10000元，每只股票全仓买入（不限制持仓数量）

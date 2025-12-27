@@ -289,6 +289,12 @@ class RuntimeConfig(BaseModel):
         default=False,
         description="行情页是否仅显示股票（过滤ETF/指数/基金）",
     )
+    
+    # AI分析自定义提示词
+    ai_custom_prompt: Optional[str] = Field(
+        default=None,
+        description="AI分析自定义提示词，为空时使用默认提示词",
+    )
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -388,6 +394,9 @@ class RuntimeConfigUpdate(BaseModel):
     # 行情页配置
     market_sort: Optional[str] = None
     market_filter_stock_only: Optional[bool] = None
+    
+    # AI分析自定义提示词
+    ai_custom_prompt: Optional[str] = None
 
 
 def get_runtime_config() -> RuntimeConfig:
