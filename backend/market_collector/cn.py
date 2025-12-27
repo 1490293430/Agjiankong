@@ -1172,10 +1172,13 @@ def fetch_a_stock_kline(
             fetch_start = start_date.replace("-", "") if "-" in start_date else start_date
             fetch_mode = "全量（按请求日期）"
         else:
-            # 默认获取最近2年（约500根K线）
-            two_years_ago = datetime.now() - timedelta(days=2*365)
-            fetch_start = two_years_ago.strftime("%Y%m%d")
-            fetch_mode = "全量"
+            # 使用配置的 kline_years 年限
+            from common.runtime_config import get_runtime_config
+            config = get_runtime_config()
+            years = config.kline_years or 1.0  # 默认1年
+            start_dt = datetime.now() - timedelta(days=int(years * 365))
+            fetch_start = start_dt.strftime("%Y%m%d")
+            fetch_mode = f"全量（{years}年）"
     
     logger.info(f"开始{fetch_mode}获取K线数据 {code}: {fetch_start} 到 {default_end}")
     

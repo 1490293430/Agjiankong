@@ -671,9 +671,9 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
                     logger.debug(f"跳过异常数据 {code} {date_value}: 价格<=0 (close={close_price}, open={open_price})")
                     continue
                 
-                # 校验2：A股价格不应超过2000元（茅台最高也就2000多）
+                # 校验2：A股价格不应超过3000元（茅台历史最高约2600，留余量）
                 if len(code) == 6 and (code.startswith('0') or code.startswith('3') or code.startswith('6')):
-                    if close_price > 2000 or open_price > 2000:
+                    if close_price > 3000 or open_price > 3000:
                         logger.warning(f"跳过异常数据 {code} {date_value}: A股价格异常高 (close={close_price}, open={open_price})")
                         continue
                 

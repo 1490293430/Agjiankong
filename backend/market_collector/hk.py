@@ -631,7 +631,7 @@ def fetch_hk_stock_kline(
         code: 股票代码（如：00700, 03690）
         period: 周期（daily, weekly, monthly, 1h/hourly - 1小时K线）
         adjust: 复权类型
-        start_date: 开始日期 YYYYMMDD（可选）
+        start_date: 开始日期 YYYYMMDD（可选，不传则使用配置的kline_years）
         end_date: 结束日期 YYYYMMDD（默认今天）
         force_full_refresh: 是否强制全量刷新
         skip_db: 是否跳过数据库操作
@@ -642,6 +642,16 @@ def fetch_hk_stock_kline(
         K线数据列表，或 (数据列表, 数据源名称) 元组（当 return_source=True）
     """
     from common.db import get_kline_latest_date, save_kline_data, get_kline_from_db
+    from datetime import datetime, timedelta
+    
+    # 如果没有指定 start_date，使用配置的 kline_years
+    if not start_date:
+        from common.runtime_config import get_runtime_config
+        config = get_runtime_config()
+        years = config.kline_years or 1.0
+        start_dt = datetime.now() - timedelta(days=int(years * 365))
+        start_date = start_dt.strftime("%Y%m%d")
+        logger.debug(f"港股K线采集使用配置年限: {years}年, start_date={start_date}")
     
     # 小时级别数据使用专门的处理逻辑
     is_hourly = period in ['1h', 'hourly', '60']
