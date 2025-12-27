@@ -60,7 +60,8 @@ class IndicatorValidator:
             return False
         
         # 检查 NaN 和 Inf
-        if pd.isna(value) or pd.isinf(value):
+        import math
+        if pd.isna(value) or math.isinf(value):
             self.log_error(code, field, "值为NaN或Inf", value)
             return False
         
