@@ -1433,10 +1433,10 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                     except Exception as e:
                         logger.warning(f"[实时行情] 补充市值数据失败（不影响主数据）: {e}")
                     
-                    # 保存到Redis
-                    _save_spot_to_redis(result, "A")
-                    logger.info(f"[实时行情] 新浪财经 获取成功: {len(result)}只股票")
-                    return result, "新浪财经"
+                    # 保存到Redis（会过滤非股票数据）
+                    filtered_result = _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] 新浪财经 获取成功: {len(filtered_result)}只股票（原始{len(result)}只）")
+                    return filtered_result, "新浪财经"
                     
             elif src == "easyquotation":
                 logger.info("[实时行情] 尝试使用 Easyquotation 数据源...")
@@ -1466,20 +1466,20 @@ def fetch_a_stock_spot_with_source(source: str = "auto", max_retries: int = 2) -
                     except Exception as e:
                         logger.warning(f"[实时行情] 补充市值数据失败（不影响主数据）: {e}")
                     
-                    # 保存到Redis
-                    _save_spot_to_redis(result, "A")
-                    logger.info(f"[实时行情] Easyquotation 获取成功: {len(result)}只股票")
-                    return result, "Easyquotation"
+                    # 保存到Redis（会过滤非股票数据）
+                    filtered_result = _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] Easyquotation 获取成功: {len(filtered_result)}只股票（原始{len(result)}只）")
+                    return filtered_result, "Easyquotation"
             
             elif src == "eastmoney":
                 logger.info("[实时行情] 尝试使用 东方财富(并发) 数据源...")
                 from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
                 result = fetch_eastmoney_a_stock_spot(max_retries=1)
                 if result and len(result) > 0:
-                    # 保存到Redis
-                    _save_spot_to_redis(result, "A")
-                    logger.info(f"[实时行情] 东方财富(并发) 获取成功: {len(result)}只股票")
-                    return result, "东方财富(并发)"
+                    # 保存到Redis（会过滤非股票数据）
+                    filtered_result = _save_spot_to_redis(result, "A")
+                    logger.info(f"[实时行情] 东方财富(并发) 获取成功: {len(filtered_result)}只股票（原始{len(result)}只）")
+                    return filtered_result, "东方财富(并发)"
                     
         except Exception as e:
             last_error = e
@@ -1495,6 +1495,9 @@ def _save_spot_to_redis(result: List[Dict[str, Any]], market: str):
     """保存实时行情到Redis
     
     根据配置决定是否过滤非股票数据（ETF/指数/基金）
+    
+    Returns:
+        过滤后的数据列表
     """
     from common.runtime_config import get_runtime_config
     
@@ -1518,3 +1521,5 @@ def _save_spot_to_redis(result: List[Dict[str, Any]], market: str):
         broadcast_market_update(market.lower())
     except Exception as e:
         logger.debug(f"SSE广播{market}股数据失败（不影响数据采集）: {e}")
+    
+    return result
