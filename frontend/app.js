@@ -8620,8 +8620,47 @@ async function loadDbInfo() {
             html += `</div>`;
         } else {
             html += `<div style="background: rgba(34,197,94,0.1); border: 1px solid #22c55e; border-radius: 8px; padding: 8px 12px; margin-top: 4px;">
-                <span style="color: #22c55e; font-size: 12px;">✅ 数据质量正常，未检测到异常</span>
+                <span style="color: #22c55e; font-size: 12px;">✅ K线数据质量正常，未检测到异常</span>
             </div>`;
+        }
+        
+        // 指标验证结果
+        if (data.indicator_validation) {
+            const iv = data.indicator_validation;
+            const hasErrors = iv.error_count > 0;
+            const hasWarnings = iv.warning_count > 0;
+            
+            if (hasErrors || hasWarnings) {
+                html += `<div style="background: rgba(251,191,36,0.1); border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 4px;">`;
+                html += `<div style="color: #fbbf24; font-weight: 600; margin-bottom: 8px;">📊 指标数据验证 (${iv.latest_date || ''})</div>`;
+                html += `<div style="font-size: 12px; color: #fcd34d; margin-bottom: 8px;">${iv.summary}</div>`;
+                
+                // 显示错误统计
+                if (iv.error_counts && Object.keys(iv.error_counts).length > 0) {
+                    html += `<div style="font-size: 11px; color: #fca5a5; margin-bottom: 6px;">错误分布:`;
+                    for (const [field, count] of Object.entries(iv.error_counts)) {
+                        html += ` ${field}(${count})`;
+                    }
+                    html += `</div>`;
+                }
+                
+                // 显示部分错误详情
+                if (iv.errors && iv.errors.length > 0) {
+                    html += `<div style="font-size: 11px; color: #94a3b8; max-height: 80px; overflow-y: auto;">`;
+                    for (const err of iv.errors.slice(0, 5)) {
+                        html += `<div style="margin-bottom: 2px;">• ${err.code}: ${err.message}</div>`;
+                    }
+                    if (iv.errors.length > 5) {
+                        html += `<div style="color: #64748b;">... 还有 ${iv.errors.length - 5} 个错误</div>`;
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            } else {
+                html += `<div style="background: rgba(34,197,94,0.1); border: 1px solid #22c55e; border-radius: 8px; padding: 8px 12px; margin-top: 4px;">
+                    <span style="color: #22c55e; font-size: 12px;">✅ ${iv.summary}</span>
+                </div>`;
+            }
         }
         
         html += '</div>';

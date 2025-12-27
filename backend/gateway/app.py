@@ -1390,6 +1390,125 @@ async def stop_indicator_compute_api():
         }
 
 
+def validate_all_indicators(client) -> dict:
+    """验证所有指标数据的正确性"""
+    errors = []
+    warnings = []
+    
+    try:
+        # 获取最新日期
+        latest_date_result = client.execute("SELECT max(date) FROM indicators")
+        if not latest_date_result or not latest_date_result[0][0]:
+            return {"validated": 0, "errors": [], "warnings": [], "summary": "无指标数据"}
+        
+        latest_date = latest_date_result[0][0]
+        
+        # 统计总数
+        total_result = client.execute(f"SELECT count() FROM indicators WHERE date = '{latest_date}'")
+        total_count = total_result[0][0] if total_result else 0
+        
+        # 1. RSI 范围检查 (0-100)
+        rsi_errors = client.execute(f"""
+            SELECT code, rsi FROM indicators 
+            WHERE date = '{latest_date}' AND (rsi < 0 OR rsi > 100) AND rsi != 0
+            LIMIT 10
+        """)
+        for row in rsi_errors:
+            errors.append({"code": row[0], "field": "rsi", "value": row[1], "message": f"RSI超出范围: {row[1]}"})
+        
+        # 2. Williams %R 范围检查 (-100 ~ 0)
+        wr_errors = client.execute(f"""
+            SELECT code, williams_r FROM indicators 
+            WHERE date = '{latest_date}' AND (williams_r < -100 OR williams_r > 0)
+            LIMIT 10
+        """)
+        for row in wr_errors:
+            errors.append({"code": row[0], "field": "williams_r", "value": row[1], "message": f"Williams %R超出范围: {row[1]}"})
+        
+        # 3. KDJ K/D 范围检查 (0-100)
+        kdj_errors = client.execute(f"""
+            SELECT code, kdj_k, kdj_d FROM indicators 
+            WHERE date = '{latest_date}' AND (kdj_k < 0 OR kdj_k > 100 OR kdj_d < 0 OR kdj_d > 100)
+            LIMIT 10
+        """)
+        for row in kdj_errors:
+            errors.append({"code": row[0], "field": "kdj", "value": f"K={row[1]}, D={row[2]}", "message": "KDJ超出范围"})
+        
+        # 4. 布林带顺序检查 (upper > middle > lower)
+        boll_errors = client.execute(f"""
+            SELECT code, boll_upper, boll_middle, boll_lower FROM indicators 
+            WHERE date = '{latest_date}' 
+              AND boll_upper > 0 AND boll_middle > 0 AND boll_lower > 0
+              AND NOT (boll_upper >= boll_middle AND boll_middle >= boll_lower)
+            LIMIT 10
+        """)
+        for row in boll_errors:
+            errors.append({"code": row[0], "field": "boll", "value": f"U={row[1]}, M={row[2]}, L={row[3]}", "message": "布林带顺序错误"})
+        
+        # 5. 一目均衡表云层状态检查 (只能有一个为true)
+        ichimoku_errors = client.execute(f"""
+            SELECT code, ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud FROM indicators 
+            WHERE date = '{latest_date}' 
+              AND (ichimoku_above_cloud + ichimoku_below_cloud + ichimoku_in_cloud) != 1
+              AND (ichimoku_tenkan > 0 OR ichimoku_kijun > 0)
+            LIMIT 10
+        """)
+        for row in ichimoku_errors:
+            errors.append({"code": row[0], "field": "ichimoku_cloud", "value": f"above={row[1]}, below={row[2]}, in={row[3]}", "message": "云层状态异常"})
+        
+        # 6. 价格一致性检查 (high >= low)
+        price_errors = client.execute(f"""
+            SELECT code, current_high, current_low FROM indicators 
+            WHERE date = '{latest_date}' AND current_high < current_low AND current_high > 0
+            LIMIT 10
+        """)
+        for row in price_errors:
+            errors.append({"code": row[0], "field": "price", "value": f"high={row[1]}, low={row[2]}", "message": "最高价<最低价"})
+        
+        # 7. ADX 范围检查 (0-100)
+        adx_errors = client.execute(f"""
+            SELECT code, adx, plus_di, minus_di FROM indicators 
+            WHERE date = '{latest_date}' AND (adx < 0 OR adx > 100 OR plus_di < 0 OR plus_di > 100 OR minus_di < 0 OR minus_di > 100)
+            LIMIT 10
+        """)
+        for row in adx_errors:
+            errors.append({"code": row[0], "field": "adx", "value": f"ADX={row[1]}, +DI={row[2]}, -DI={row[3]}", "message": "ADX超出范围"})
+        
+        # 8. 成交量比异常检查 (> 50 可能异常)
+        vol_warnings = client.execute(f"""
+            SELECT code, vol_ratio FROM indicators 
+            WHERE date = '{latest_date}' AND vol_ratio > 50
+            LIMIT 5
+        """)
+        for row in vol_warnings:
+            warnings.append({"code": row[0], "field": "vol_ratio", "value": row[1], "message": f"成交量比异常高: {row[1]}"})
+        
+        # 统计各类错误数量
+        error_counts = {}
+        for err in errors:
+            field = err["field"]
+            error_counts[field] = error_counts.get(field, 0) + 1
+        
+        summary = f"验证{total_count}条数据，{len(errors)}个错误，{len(warnings)}个警告"
+        if not errors and not warnings:
+            summary = f"✓ 验证{total_count}条数据，全部通过"
+        
+        return {
+            "validated": total_count,
+            "latest_date": str(latest_date),
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "errors": errors[:20],  # 最多返回20个
+            "warnings": warnings[:10],
+            "error_counts": error_counts,
+            "summary": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"指标验证失败: {e}")
+        return {"validated": 0, "errors": [], "warnings": [], "summary": f"验证失败: {str(e)}"}
+
+
 @api_router.get("/db/info")
 async def get_db_info_api():
     """获取数据库详情信息（A股和港股分开统计）"""
@@ -1633,9 +1752,13 @@ async def get_db_info_api():
                 "message": f"成交量为负: {volume_negative[0][0]}条"
             })
         
+        # 5. 指标数据验证
+        indicator_validation = validate_all_indicators(client)
+        
         client.disconnect()
         
         result["anomalies"] = anomalies
+        result["indicator_validation"] = indicator_validation
         
         return {"code": 0, "data": result}
         
