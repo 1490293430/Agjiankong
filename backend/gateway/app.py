@@ -734,14 +734,30 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         total_filters = len(enabled_filters)
         logger.info(f"启用的筛选指标：{filter_names}，共{total_filters}个")
         
-        # 批量读取缓存的指标（不再实时计算缺失的指标）
+        # 批量读取数据库中的指标（不再实时计算缺失的指标）
         all_codes = [str(s.get("code", "")) for s in valid_stocks]
         cached_indicators = {}
         try:
-            cached_indicators = batch_get_indicators(all_codes, market.upper(), None)
-            logger.info(f"缓存命中：{len(cached_indicators)}只股票")
+            if market_upper == "ALL":
+                # 全市场选股时，分别查询A股和港股的指标
+                a_codes = [str(s.get("code", "")) for s in valid_stocks if s.get("_market") == "A"]
+                hk_codes = [str(s.get("code", "")) for s in valid_stocks if s.get("_market") == "HK"]
+                
+                if a_codes:
+                    a_indicators = batch_get_indicators(a_codes, "A", None)
+                    cached_indicators.update(a_indicators)
+                    logger.info(f"A股指标命中：{len(a_indicators)}只")
+                
+                if hk_codes:
+                    hk_indicators = batch_get_indicators(hk_codes, "HK", None)
+                    cached_indicators.update(hk_indicators)
+                    logger.info(f"港股指标命中：{len(hk_indicators)}只")
+            else:
+                cached_indicators = batch_get_indicators(all_codes, market_upper, None)
+            
+            logger.info(f"指标缓存命中：{len(cached_indicators)}只股票")
         except Exception as e:
-            logger.warning(f"读取缓存失败: {e}")
+            logger.warning(f"读取指标失败: {e}")
         
         # 统计缺失指标的股票数量（仅记录日志，不再计算）
         missing_codes = [code for code in all_codes if code not in cached_indicators]
