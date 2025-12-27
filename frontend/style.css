@@ -397,6 +397,7 @@ body.light-mode .market-status-value.loading {
     gap: 10px;
     margin-bottom: 20px;
     flex-wrap: wrap;
+    position: relative;
 }
 
 .market-controls select,
@@ -426,10 +427,9 @@ body.light-mode .market-status-value.loading {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
     border: 1px solid #334155;
     border-radius: 6px;
-    margin: 0 auto;
-    flex: 1;
-    justify-content: center;
-    max-width: 320px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .sh-index-name {

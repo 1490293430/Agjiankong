@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-from common.db import get_client
+from common.db import get_clickhouse
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -91,7 +91,7 @@ def fetch_sh_index_kline(days: int = 365):
         print(f"最新收盘: {records[-1]['close']:.2f}点")
         
         # 写入ClickHouse
-        client = get_client()
+        client = get_clickhouse()
         
         # 先删除旧数据
         client.command(f"ALTER TABLE kline_daily DELETE WHERE code = '1A0001' AND market = 'A'")
@@ -185,7 +185,7 @@ def fetch_sh_index_kline_hourly(days: int = 30):
         print(f"时间范围: {records[0]['time']} ~ {records[-1]['time']}")
         
         # 写入ClickHouse
-        client = get_client()
+        client = get_clickhouse()
         
         # 先删除旧数据
         client.command(f"ALTER TABLE kline_1h DELETE WHERE code = '1A0001' AND market = 'A'")
