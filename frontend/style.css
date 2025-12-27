@@ -417,6 +417,70 @@ body.light-mode .market-status-value.loading {
     cursor: pointer;
 }
 
+/* 上证指数显示 */
+.sh-index-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid #334155;
+    border-radius: 6px;
+    margin: 0 auto;
+    flex: 1;
+    justify-content: center;
+    max-width: 320px;
+}
+
+.sh-index-name {
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.sh-index-price {
+    color: #f1f5f9;
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sh-index-pct {
+    font-size: 16px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.sh-index-pct.up {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.15);
+}
+
+.sh-index-pct.down {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.sh-index-pct.flat {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.15);
+}
+
+/* 浅色模式 */
+body.light-mode .sh-index-display {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border-color: #cbd5e1;
+}
+
+body.light-mode .sh-index-name {
+    color: #64748b;
+}
+
+body.light-mode .sh-index-price {
+    color: #1e293b;
+}
+
 .stock-list-container {
     background: #1e293b;
     border-radius: 8px;

@@ -1197,6 +1197,40 @@ function handleMarketStatusUpdate(data) {
 // 市场行情更新防抖定时器
 let marketUpdateTimer = null;
 
+// 更新上证指数显示
+function updateShIndexDisplay(stocks) {
+    if (!stocks || !Array.isArray(stocks)) return;
+    
+    // 查找上证指数（代码1A0001）
+    const shIndex = stocks.find(s => s && String(s.code) === '1A0001');
+    
+    const priceEl = document.getElementById('sh-index-price');
+    const pctEl = document.getElementById('sh-index-pct');
+    
+    if (!priceEl || !pctEl) return;
+    
+    if (shIndex) {
+        const price = parseFloat(shIndex.price) || 0;
+        const pct = parseFloat(shIndex.pct) || 0;
+        
+        priceEl.textContent = price.toFixed(2);
+        
+        // 格式化涨跌幅
+        const pctText = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+        pctEl.textContent = pctText;
+        
+        // 设置颜色类
+        pctEl.classList.remove('up', 'down', 'flat');
+        if (pct > 0) {
+            pctEl.classList.add('up');
+        } else if (pct < 0) {
+            pctEl.classList.add('down');
+        } else {
+            pctEl.classList.add('flat');
+        }
+    }
+}
+
 // 处理市场行情数据更新（SSE推送，无感刷新）
 function handleMarketUpdate(data) {
     const tbody = document.getElementById('stock-list');
@@ -1247,6 +1281,11 @@ function _doMarketUpdate(data) {
     
     // 根据当前选择的市场获取对应数据
     const stocks = currentMarketValue === 'a' ? (data.a || []) : (data.hk || []);
+    
+    // 更新上证指数显示（仅A股市场）
+    if (currentMarketValue === 'a' && data.a) {
+        updateShIndexDisplay(data.a);
+    }
     
     if (stocks.length === 0) return;
     
@@ -3053,6 +3092,11 @@ async function loadMarket() {
                 tbody.innerHTML = '';
                 // 第一页时保存数据
                 allMarketData = result.data || [];
+                
+                // 更新上证指数显示（仅A股市场第一页）
+                if (market === 'a') {
+                    updateShIndexDisplay(result.data);
+                }
             } else {
                 // 追加数据
                 allMarketData = allMarketData.concat(result.data || []);
