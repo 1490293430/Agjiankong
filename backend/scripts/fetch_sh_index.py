@@ -1,49 +1,64 @@
 """
-单独采集上证指数并写入Redis
+单独采集上证指数并写入Redis（使用东方财富接口）
 用法: python -m scripts.fetch_sh_index
 """
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import akshare as ak
+import requests
 from datetime import datetime
 from common.redis import get_json, set_json
 
 def fetch_sh_index():
-    """采集上证指数并写入Redis"""
-    print("正在采集上证指数...")
+    """采集上证指数并写入Redis（东方财富接口）"""
+    print("正在采集上证指数（东方财富）...")
     
     try:
-        # 获取指数实时行情
-        index_df = ak.stock_zh_index_spot_em()
+        # 东方财富上证指数实时行情接口
+        # 1.000001 = 上证指数
+        url = "https://push2.eastmoney.com/api/qt/stock/get"
+        params = {
+            "secid": "1.000001",  # 上证指数
+            "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b"
+        }
         
-        # 找到上证指数 (代码1A0001)
-        sh_row = index_df[index_df['代码'] == '1A0001']
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://quote.eastmoney.com/"
+        }
         
-        if sh_row.empty:
-            print("未找到上证指数数据")
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        data = resp.json()
+        
+        if data.get("rc") != 0 or not data.get("data"):
+            print(f"接口返回错误: {data}")
             return False
         
-        row = sh_row.iloc[0]
+        d = data["data"]
+        # f43=最新价(需除100), f44=最高, f45=最低, f46=今开, f60=昨收
+        # f47=成交量, f48=成交额, f57=代码, f58=名称
+        # f169=涨跌额, f170=涨跌幅
+        
         sh_index = {
             "code": "1A0001",
-            "name": row.get("名称", "上证指数"),
-            "price": float(row.get("最新价", 0) or 0),
-            "pct": float(row.get("涨跌幅", 0) or 0),
-            "change": float(row.get("涨跌额", 0) or 0),
-            "volume": float(row.get("成交量", 0) or 0),
-            "amount": float(row.get("成交额", 0) or 0),
-            "high": float(row.get("最高", 0) or 0),
-            "low": float(row.get("最低", 0) or 0),
-            "open": float(row.get("今开", 0) or 0),
-            "pre_close": float(row.get("昨收", 0) or 0),
+            "name": d.get("f58", "上证指数"),
+            "price": d.get("f43", 0) / 100 if d.get("f43") else 0,
+            "pct": d.get("f170", 0) / 100 if d.get("f170") else 0,
+            "change": d.get("f169", 0) / 100 if d.get("f169") else 0,
+            "high": d.get("f44", 0) / 100 if d.get("f44") else 0,
+            "low": d.get("f45", 0) / 100 if d.get("f45") else 0,
+            "open": d.get("f46", 0) / 100 if d.get("f46") else 0,
+            "pre_close": d.get("f60", 0) / 100 if d.get("f60") else 0,
+            "volume": d.get("f47", 0),
+            "amount": d.get("f48", 0),
             "update_time": datetime.now().isoformat(),
             "market": "A",
             "sec_type": "index"
         }
         
-        print(f"上证指数: {sh_index['price']}点, 涨跌: {sh_index['pct']}%")
+        print(f"上证指数: {sh_index['price']:.2f}点, 涨跌: {sh_index['pct']:.2f}%")
         
         # 读取现有数据
         a_spot = get_json("market:a:spot") or []
@@ -62,6 +77,8 @@ def fetch_sh_index():
         
     except Exception as e:
         print(f"采集失败: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 if __name__ == "__main__":
