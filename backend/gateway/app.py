@@ -1762,13 +1762,14 @@ async def get_db_info_api():
                 "message": f"价格≤0的数据: {price_zero[0][0]}条"
             })
         
-        # 2. 检测A股价格>1000的数据（异常高）
+        # 2. 检测A股价格>1000的数据（异常高，排除茅台600519和寒武纪688256）
         price_high = client.execute("""
             SELECT count() FROM kline FINAL 
             WHERE period = 'daily' 
               AND length(code) = 6 
               AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
               AND close > 1000
+              AND code NOT IN ('600519', '688256')
         """)
         if price_high and price_high[0][0] > 0:
             anomalies.append({
@@ -1777,7 +1778,7 @@ async def get_db_info_api():
                 "message": f"A股价格>1000元: {price_high[0][0]}条"
             })
         
-        # 3. 检测单日价格突变>50%的数据
+        # 3. 检测单日价格突变>100%的数据（排除正常的复牌、新股等情况）
         price_spike = client.execute("""
             WITH ranked AS (
                 SELECT 
@@ -1787,13 +1788,13 @@ async def get_db_info_api():
                 WHERE period = 'daily'
             )
             SELECT count() FROM ranked
-            WHERE prev_close > 0 AND abs(close - prev_close) / prev_close > 0.5
+            WHERE prev_close > 0 AND abs(close - prev_close) / prev_close > 1.0
         """)
         if price_spike and price_spike[0][0] > 0:
             anomalies.append({
                 "type": "price_spike",
                 "count": price_spike[0][0],
-                "message": f"单日涨跌>50%: {price_spike[0][0]}条"
+                "message": f"单日涨跌>100%: {price_spike[0][0]}条"
             })
         
         client.disconnect()
