@@ -7391,13 +7391,32 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     let successItems = items.filter(item => item && item.success && item.analysis);
     const failedItems = items.filter(item => !item || !item.success || !item.analysis);
 
-    // 根据评分从高到低排序，只展示前50条，避免页面太长
+    // 排序规则：
+    // 1. 买入信号优先
+    // 2. 同类信号按评分从高到低排序
+    const signalPriority = {
+        '买入': 0,
+        '关注': 1,
+        '观望': 2,
+        '回避': 3
+    };
+    
     successItems = successItems
         .map(item => ({
             ...item,
+            _signal: (item.analysis && item.analysis.signal) || '未知',
             _score: (item.analysis && typeof item.analysis.score === 'number') ? item.analysis.score : 0,
         }))
-        .sort((a, b) => b._score - a._score)
+        .sort((a, b) => {
+            // 先按信号优先级排序（买入 > 关注 > 观望 > 回避）
+            const priorityA = signalPriority[a._signal] ?? 99;
+            const priorityB = signalPriority[b._signal] ?? 99;
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB;
+            }
+            // 同类信号按评分从高到低排序
+            return b._score - a._score;
+        })
         .slice(0, 50);
 
     // 加载每只股票的胜率统计
@@ -8433,8 +8452,8 @@ async function loadDbInfo() {
                 
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="color: #e5e7eb; font-weight: 500;">📊 日线K线</span>
-                    <span style="color: #94a3b8; font-size: 12px;">${daily.total_records.toLocaleString()}条</span>
+                    <span style="color: #334155; font-weight: 600;">📊 日线K线</span>
+                    <span style="color: #64748b; font-size: 12px;">${daily.total_records.toLocaleString()}条</span>
                 </div>`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
                     <span style="color: #64748b;">覆盖股票:</span>
@@ -8458,8 +8477,8 @@ async function loadDbInfo() {
                 
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="color: #e5e7eb; font-weight: 500;">⏰ 小时线K线</span>
-                    <span style="color: #94a3b8; font-size: 12px;">${hourly.total_records.toLocaleString()}条</span>
+                    <span style="color: #334155; font-weight: 600;">⏰ 小时线K线</span>
+                    <span style="color: #64748b; font-size: 12px;">${hourly.total_records.toLocaleString()}条</span>
                 </div>`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
                     <span style="color: #64748b;">覆盖股票:</span>
@@ -8489,7 +8508,7 @@ async function loadDbInfo() {
                 if (dailyInd || hourlyInd) {
                     html += `<div style="border-top: 1px solid rgba(148,163,184,0.15); margin: 8px 0;"></div>`;
                     html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="color: #e5e7eb; font-weight: 500;">📈 技术指标</span>
+                        <span style="color: #334155; font-weight: 600;">📈 技术指标</span>
                     </div>`;
                     
                     if (dailyInd) {
