@@ -210,11 +210,17 @@ class RuntimeConfig(BaseModel):
         default=["daily"],
         description="AI分析使用的K线周期：可以是字符串或数组，支持 daily（日线）和 1h（小时线）"
     )
-    ai_data_count: int = Field(
-        default=500,
-        ge=50,
-        le=1000,
-        description="提交给AI的K线根数，范围50-1000"
+    ai_daily_history_count: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description="提交给AI的日线历史K线根数，范围1-30，默认7天"
+    )
+    ai_hourly_history_count: int = Field(
+        default=16,
+        ge=1,
+        le=60,
+        description="提交给AI的小时线历史K线根数，范围1-60，默认16根（约3个交易日）"
     )
     ai_batch_size: int = Field(
         default=5,
@@ -368,7 +374,8 @@ class RuntimeConfigUpdate(BaseModel):
     openai_model: Optional[str] = None
     ai_auto_analyze_time: Optional[str] = None
     ai_data_period: Optional[Any] = Field(default=None, description="AI分析使用的K线周期：可以是字符串或数组")
-    ai_data_count: Optional[int] = Field(default=None, ge=50, le=1000)
+    ai_daily_history_count: Optional[int] = Field(default=None, ge=1, le=30)
+    ai_hourly_history_count: Optional[int] = Field(default=None, ge=1, le=60)
     ai_batch_size: Optional[int] = Field(default=None, ge=1, le=1000)
     ai_notify_telegram: Optional[bool] = None
     ai_notify_email: Optional[bool] = None

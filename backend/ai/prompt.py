@@ -1,8 +1,80 @@
 """
 AI分析提示词构建
 """
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from ai.parameter_optimizer import get_dynamic_parameters
+
+
+def build_history_section(indicators: dict) -> str:
+    """构建历史数据部分的提示词
+    
+    Args:
+        indicators: 包含history字段的指标数据
+    
+    Returns:
+        历史数据的提示词字符串
+    """
+    lines = []
+    
+    # 日线历史
+    history = indicators.get('history', [])
+    if history:
+        lines.append("【日线近期走势（最近6个交易日）】")
+        lines.append("日期       | 收盘价 | 涨跌 | MA5   | MA20  | MACD  | RSI  | 量比")
+        lines.append("-" * 70)
+        
+        prev_close = None
+        for item in reversed(history):  # 按时间正序显示
+            date = item.get('date', '')[-5:]  # 只显示月-日
+            close = item.get('close', 0)
+            ma5 = item.get('ma5', 0)
+            ma20 = item.get('ma20', 0)
+            macd = item.get('macd', 0)
+            rsi = item.get('rsi', 0)
+            vol_ratio = item.get('vol_ratio', 0)
+            
+            # 计算涨跌
+            if prev_close and prev_close > 0:
+                change = ((close - prev_close) / prev_close) * 100
+                change_str = f"{change:+.1f}%"
+            else:
+                change_str = "  -  "
+            prev_close = close
+            
+            lines.append(f"{date} | {close:7.2f} | {change_str:5} | {ma5:6.2f} | {ma20:6.2f} | {macd:+5.2f} | {rsi:4.1f} | {vol_ratio:.2f}")
+        lines.append("")
+    
+    # 小时线历史
+    hourly_history = indicators.get('hourly_history', [])
+    if hourly_history:
+        lines.append("【小时线近期走势（最近15根K线）】")
+        lines.append("时间  | 收盘价 | MA5   | MA20  | MACD  | RSI  | 量比")
+        lines.append("-" * 60)
+        
+        for item in reversed(hourly_history[-15:]):  # 最多显示15根
+            date = item.get('date', '')
+            # 尝试提取时间部分
+            if ' ' in str(date):
+                time_str = str(date).split(' ')[1][:5]  # HH:MM
+            else:
+                time_str = str(date)[-5:]
+            close = item.get('close', 0)
+            ma5 = item.get('ma5', 0)
+            ma20 = item.get('ma20', 0)
+            macd = item.get('macd', 0)
+            rsi = item.get('rsi', 0)
+            vol_ratio = item.get('vol_ratio', 0)
+            
+            lines.append(f"{time_str} | {close:7.2f} | {ma5:6.2f} | {ma20:6.2f} | {macd:+5.2f} | {rsi:4.1f} | {vol_ratio:.2f}")
+        lines.append("")
+    
+    if lines:
+        lines.append("历史趋势分析要点：")
+        lines.append("- 日线：观察收盘价连续涨跌、MACD柱状图放大/缩小、RSI超买超卖")
+        lines.append("- 小时线：观察日内波动节奏、短期支撑阻力、入场时机")
+        lines.append("")
+    
+    return "\n".join(lines)
 
 
 def get_custom_prompt() -> Optional[str]:
@@ -211,6 +283,8 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 是否共振：{multi_tf_resonance if multi_tf_resonance is not None else 'N/A'}
 - 入场时机评估：{entry_timing if entry_timing else 'N/A'}
 - 入场信号：{', '.join(entry_signals) if entry_signals else 'N/A'}
+
+{build_history_section(indicators)}
 
 多周期分析说明：
 - 日线多头 + 小时线多头 = 强烈看多，立即入场

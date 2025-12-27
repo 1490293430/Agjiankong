@@ -1407,6 +1407,83 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
                 pass
 
 
+def get_indicator_history(code: str, market: str, days: int = 7, period: str = "daily") -> List[Dict[str, Any]]:
+    """获取最近N天的历史指标数据（用于AI分析趋势）
+    
+    Args:
+        code: 股票代码
+        market: 市场类型（A或HK）
+        days: 获取天数，默认7天
+        period: K线周期，daily（日线）或 1h（小时线），默认 daily
+    
+    Returns:
+        指标列表，按日期降序排列（最新的在前）
+    """
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        # 只获取关键字段，减少数据量
+        columns_sql = """date, 
+            current_close, current_open, current_high, current_low, vol_ratio,
+            ma5, ma10, ma20, ma60, ma5_trend,
+            macd_dif, macd_dea, macd, macd_dif_trend,
+            rsi, kdj_k, kdj_d, kdj_j,
+            boll_upper, boll_middle, boll_lower,
+            williams_r, adx, cci"""
+        
+        query = f"""
+            SELECT {columns_sql} FROM indicators
+            WHERE code = %(code)s AND market = %(market)s AND period = %(period)s
+            ORDER BY date DESC
+            LIMIT %(days)s
+        """
+        result = client.execute(query, {
+            'code': code, 
+            'market': market.upper(), 
+            'period': period,
+            'days': days
+        })
+        
+        if not result:
+            return []
+        
+        columns = [
+            "date", "close", "open", "high", "low", "vol_ratio",
+            "ma5", "ma10", "ma20", "ma60", "ma5_trend",
+            "macd_dif", "macd_dea", "macd", "macd_dif_trend",
+            "rsi", "kdj_k", "kdj_d", "kdj_j",
+            "boll_upper", "boll_middle", "boll_lower",
+            "williams_r", "adx", "cci"
+        ]
+        
+        history = []
+        for row in result:
+            item = {}
+            for i, col in enumerate(columns):
+                if i < len(row):
+                    value = row[i]
+                    # 日期转字符串
+                    if col == "date" and value:
+                        value = str(value)
+                    # 数值保留2位小数
+                    elif isinstance(value, float):
+                        value = round(value, 2)
+                    item[col] = value
+            history.append(item)
+        
+        return history
+    except Exception as e:
+        logger.debug(f"获取历史指标失败 {code}: {e}")
+        return []
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
 def batch_get_indicators(codes: List[str], market: str, date: str | None = None) -> Dict[str, Dict[str, Any]]:
     """批量获取指标（用于选股时的快速查询）
     

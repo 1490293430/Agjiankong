@@ -1119,10 +1119,17 @@
                             <input type="checkbox" id="cfg-ai-data-period-hourly" value="1h">
                             <span style="margin-left: 4px;">小时线</span>
                         </label>
+                    </div>
+                    <div class="config-item">
+                        <label style="margin-right: 24px;">
+                            日线历史：
+                            <input type="number" id="cfg-ai-daily-history-count" min="1" max="30" step="1" value="7" style="width: 60px; margin-left: 8px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 4px;">天</span>
+                        </label>
                         <label>
-                            K线根数：
-                            <input type="number" id="cfg-ai-data-count" min="50" max="1000" step="10" value="500" style="width: 100px; margin-left: 8px;">
-                            <span style="font-size: 11px; color: #94a3b8; margin-left: 8px;">50-1000，提交给AI的K线数量</span>
+                            小时线历史：
+                            <input type="number" id="cfg-ai-hourly-history-count" min="1" max="60" step="1" value="16" style="width: 60px; margin-left: 8px;">
+                            <span style="font-size: 11px; color: #94a3b8; margin-left: 4px;">根</span>
                         </label>
                     </div>
                     <div class="config-item">

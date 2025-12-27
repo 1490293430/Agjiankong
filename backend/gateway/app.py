@@ -1816,7 +1816,7 @@ async def analyze_stock_api(
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
         # 从数据库获取日线指标
-        from common.db import get_indicator
+        from common.db import get_indicator, get_indicator_history
         daily_indicators = get_indicator(code, "A", None, "daily")
         
         if not daily_indicators:
@@ -1825,6 +1825,13 @@ async def analyze_stock_api(
         # 使用日线指标作为基础
         indicators = {k: v for k, v in daily_indicators.items() 
                      if k not in ["code", "market", "date", "period", "update_time"]}
+        
+        # 获取日线历史数据用于趋势分析（使用配置的天数）
+        daily_history_count = config.ai_daily_history_count or 7
+        history_data = get_indicator_history(code, "A", days=daily_history_count, period="daily")
+        if history_data and len(history_data) > 1:
+            # 排除当天数据（已在indicators中），只保留历史
+            indicators["history"] = history_data[1:] if len(history_data) > 1 else []
         
         # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
         use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
@@ -1837,6 +1844,12 @@ async def analyze_stock_api(
                 for key, value in hourly_indicators.items():
                     if key not in ["code", "market", "date", "period", "update_time"]:
                         indicators[f"hourly_{key}"] = value
+                
+                # 获取小时线历史数据（使用配置的根数）
+                hourly_history_count = config.ai_hourly_history_count or 16
+                hourly_history = get_indicator_history(code, "A", days=hourly_history_count, period="1h")
+                if hourly_history and len(hourly_history) > 1:
+                    indicators["hourly_history"] = hourly_history[1:]  # 排除当前K线
                 
                 # 添加趋势判断
                 indicators["daily_trend_direction"] = "未知"
@@ -2256,7 +2269,7 @@ async def analyze_stock_batch_api(
 
             try:
                 # 从数据库获取日线指标
-                from common.db import get_indicator
+                from common.db import get_indicator, get_indicator_history
                 daily_indicators = get_indicator(code, "A", None, "daily")
                 
                 if not daily_indicators:
@@ -2273,6 +2286,12 @@ async def analyze_stock_batch_api(
                 indicators = {k: v for k, v in daily_indicators.items() 
                              if k not in ["code", "market", "date", "period", "update_time"]}
                 
+                # 获取日线历史数据用于趋势分析（使用配置的天数）
+                daily_history_count = config.ai_daily_history_count or 7
+                history_data = get_indicator_history(code, "A", days=daily_history_count, period="daily")
+                if history_data and len(history_data) > 1:
+                    indicators["history"] = history_data[1:]  # 排除当天
+                
                 # 多周期分析：从数据库获取小时线指标
                 if use_multi_timeframe:
                     hourly_indicators = get_indicator(code, "A", None, "1h")
@@ -2282,6 +2301,12 @@ async def analyze_stock_batch_api(
                         for key, value in hourly_indicators.items():
                             if key not in ["code", "market", "date", "period", "update_time"]:
                                 indicators[f"hourly_{key}"] = value
+                        
+                        # 获取小时线历史数据（使用配置的根数）
+                        hourly_history_count = config.ai_hourly_history_count or 16
+                        hourly_history = get_indicator_history(code, "A", days=hourly_history_count, period="1h")
+                        if hourly_history and len(hourly_history) > 1:
+                            indicators["hourly_history"] = hourly_history[1:]  # 排除当前K线
                         
                         # 添加趋势判断
                         indicators["daily_trend_direction"] = "未知"

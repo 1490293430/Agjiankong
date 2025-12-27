@@ -9071,7 +9071,8 @@ async function loadConfig() {
         if (typeof aiDataPeriods === 'string') {
             aiDataPeriods = [aiDataPeriods];
         }
-        const aiDataCount = data.ai_data_count || 500;
+        const aiDailyHistoryCount = data.ai_daily_history_count || 7;
+        const aiHourlyHistoryCount = data.ai_hourly_history_count || 16;
         const aiBatchSize = data.ai_batch_size || 5;
 
         const aiNotifyTelegramEl = document.getElementById('cfg-ai-notify-telegram');
@@ -9080,7 +9081,8 @@ async function loadConfig() {
         const aiAutoTimeEl = document.getElementById('cfg-ai-auto-analyze-time');
         const aiDataPeriodDailyEl = document.getElementById('cfg-ai-data-period-daily');
         const aiDataPeriodHourlyEl = document.getElementById('cfg-ai-data-period-hourly');
-        const aiDataCountEl = document.getElementById('cfg-ai-data-count');
+        const aiDailyHistoryCountEl = document.getElementById('cfg-ai-daily-history-count');
+        const aiHourlyHistoryCountEl = document.getElementById('cfg-ai-hourly-history-count');
         const aiBatchSizeEl = document.getElementById('cfg-ai-batch-size');
 
         if (aiNotifyTelegramEl) aiNotifyTelegramEl.checked = aiNotifyTelegram;
@@ -9089,7 +9091,8 @@ async function loadConfig() {
         if (aiAutoTimeEl) aiAutoTimeEl.value = aiAutoTime;
         if (aiDataPeriodDailyEl) aiDataPeriodDailyEl.checked = aiDataPeriods.includes('daily');
         if (aiDataPeriodHourlyEl) aiDataPeriodHourlyEl.checked = aiDataPeriods.includes('1h');
-        if (aiDataCountEl) aiDataCountEl.value = aiDataCount;
+        if (aiDailyHistoryCountEl) aiDailyHistoryCountEl.value = aiDailyHistoryCount;
+        if (aiHourlyHistoryCountEl) aiHourlyHistoryCountEl.value = aiHourlyHistoryCount;
         if (aiBatchSizeEl) aiBatchSizeEl.value = aiBatchSize;
 
         // 通知渠道配置
@@ -9191,7 +9194,8 @@ async function saveConfig() {
                     if (document.getElementById('cfg-ai-data-period-hourly')?.checked) periods.push('1h');
                     return periods.length > 0 ? periods : ['daily'];
                 })(),
-                ai_data_count: Math.max(50, parseInt(document.getElementById('cfg-ai-data-count')?.value || '500')),
+                ai_daily_history_count: Math.min(30, Math.max(1, parseInt(document.getElementById('cfg-ai-daily-history-count')?.value || '7'))),
+                ai_hourly_history_count: Math.min(60, Math.max(1, parseInt(document.getElementById('cfg-ai-hourly-history-count')?.value || '16'))),
                 ai_batch_size: Math.max(1, parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5')),
                 ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram')?.checked ?? false,
                 ai_notify_email: document.getElementById('cfg-ai-notify-email')?.checked ?? false,
