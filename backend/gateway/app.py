@@ -734,7 +734,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         total_filters = len(enabled_filters)
         logger.info(f"启用的筛选指标：{filter_names}，共{total_filters}个")
         
-        # 批量读取缓存
+        # 批量读取缓存的指标（不再实时计算缺失的指标）
         all_codes = [str(s.get("code", "")) for s in valid_stocks]
         cached_indicators = {}
         try:
@@ -743,197 +743,14 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         except Exception as e:
             logger.warning(f"读取缓存失败: {e}")
         
-        # 找出缺失指标的股票，预先批量计算
+        # 统计缺失指标的股票数量（仅记录日志，不再计算）
         missing_codes = [code for code in all_codes if code not in cached_indicators]
-        failed_codes = []  # 记录计算失败的股票
-        
         if missing_codes:
-            logger.info(f"缺失指标的股票：{len(missing_codes)}只，开始预计算...")
-            _broadcast_selection_progress(task_id, {
-                "status": "running",
-                "stage": "computing",
-                "message": f"预计算指标中，共{len(missing_codes)}只股票缺失指标...",
-                "progress": 3,
-                "total": total_stocks,
-                "missing_count": len(missing_codes)
-            })
-            
-            # 使用线程池并发计算指标
-            import concurrent.futures
-            computed_count = 0
-            saved_count = 0
-            
-            def compute_and_save_indicator(code):
-                """计算并保存单只股票的指标（仅从数据库获取K线，不从网络获取）"""
-                try:
-                    # 只从数据库获取K线数据，不从网络数据源获取
-                    from common.db import get_kline_from_db
-                    kline_data = get_kline_from_db(code, None, None, "daily")
-                    if not kline_data:
-                        logger.debug(f"股票 {code} 数据库无K线数据")
-                        return (code, None, "数据库无K线")
-                    if len(kline_data) < 20:
-                        logger.debug(f"股票 {code} K线数据不足: {len(kline_data)}条")
-                        return (code, None, f"K线不足({len(kline_data)}条)")
-                    
-                    df = pd.DataFrame(kline_data)
-                    indicators = calculate_all_indicators(df)
-                    if not indicators:
-                        return (code, None, "指标计算失败")
-                    
-                    # 保存到缓存
-                    latest_date = kline_data[-1].get("date", "") if kline_data else ""
-                    if latest_date:
-                        try:
-                            save_indicator(code, market.upper(), latest_date, indicators)
-                        except Exception as e:
-                            logger.debug(f"保存指标失败 {code}: {e}")
-                    return (code, indicators, None)
-                except Exception as e:
-                    logger.debug(f"计算指标失败 {code}: {e}")
-                    return (code, None, str(e)[:50])
-            
-            # 并发计算（限制并发数避免过载）
-            max_workers = min(30, len(missing_codes))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(compute_and_save_indicator, code): code for code in missing_codes}
-                
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        code, indicators, error = future.result(timeout=30)
-                        if indicators:
-                            cached_indicators[code] = indicators
-                            computed_count += 1
-                            saved_count += 1
-                        else:
-                            failed_codes.append((code, error))
-                    except concurrent.futures.TimeoutError:
-                        code = futures[future]
-                        failed_codes.append((code, "超时"))
-                        logger.debug(f"计算指标超时: {code}")
-                    except Exception as e:
-                        code = futures[future]
-                        failed_codes.append((code, str(e)[:30]))
-                        logger.debug(f"计算指标失败: {code}, {e}")
-                    
-                    # 每计算50只更新一次进度
-                    processed = computed_count + len(failed_codes)
-                    if processed % 50 == 0:
-                        _broadcast_selection_progress(task_id, {
-                            "status": "running",
-                            "stage": "computing",
-                            "message": f"预计算指标中... 成功{computed_count}，失败{len(failed_codes)}，共{len(missing_codes)}",
-                            "progress": 3 + int((processed / len(missing_codes)) * 2),
-                            "total": total_stocks,
-                            "computed": computed_count,
-                            "failed": len(failed_codes),
-                            "missing_count": len(missing_codes)
-                        })
-            
-            logger.info(f"预计算完成：成功{computed_count}只，失败{len(failed_codes)}只")
-            if failed_codes and len(failed_codes) <= 20:
-                # 只显示前20个失败的股票
-                logger.info(f"失败的股票: {failed_codes[:20]}")
+            logger.warning(f"缺失指标的股票：{len(missing_codes)}只，请先点击【计算日线】按钮计算指标")
         
         # 筛选结果
         passed_stocks = valid_stocks.copy()
-        indicators_map = dict(cached_indicators)  # 复制缓存的指标
-        
-        # 检查是否需要EMA、BIAS、ADX、CCI、一目均衡等高级指标
-        # 这些指标不在数据库缓存中，需要实时计算
-        advanced_filters = {"ema", "bias", "adx", "ichimoku", "cci"}
-        need_advanced = any(f[0] in advanced_filters for f in enabled_filters)
-        
-        if need_advanced:
-            logger.info(f"检测到高级指标筛选，需要实时计算EMA/BIAS/ADX/CCI/一目均衡...")
-            
-            # 找出所有需要计算高级指标的股票：
-            # 1. 没有缓存的股票
-            # 2. 有缓存但缺少高级指标的股票
-            codes_need_recalc = []
-            for stock in valid_stocks:
-                code = str(stock.get("code", ""))
-                indicators = indicators_map.get(code, {})
-                # 检查是否缺少高级指标（没有缓存或缓存中没有高级指标）
-                if not indicators or not indicators.get("ema12") or not indicators.get("bias") or not indicators.get("adx") or not indicators.get("cci") or not indicators.get("ichimoku_tenkan"):
-                    codes_need_recalc.append(code)
-            
-            logger.info(f"需要计算高级指标的股票：{len(codes_need_recalc)}只（总有效股票：{len(valid_stocks)}只，已缓存：{len(indicators_map)}只）")
-            
-            if codes_need_recalc:
-                _broadcast_selection_progress(task_id, {
-                    "status": "running",
-                    "stage": "computing",
-                    "message": f"计算高级指标中，共{len(codes_need_recalc)}只股票需要计算...",
-                    "progress": 4,
-                    "total": total_stocks,
-                    "missing_count": len(codes_need_recalc)
-                })
-                
-                recalc_count = 0
-                recalc_failed = 0
-                
-                def recalc_indicator(code):
-                    """重新计算单只股票的完整指标并保存到数据库"""
-                    try:
-                        from common.db import get_kline_from_db, save_indicator
-                        from datetime import datetime
-                        
-                        # 只从数据库获取K线数据
-                        kline_data = get_kline_from_db(code, None, None, "daily")
-                        
-                        if not kline_data or len(kline_data) < 20:
-                            return (code, None)
-                        df = pd.DataFrame(kline_data)
-                        indicators = calculate_all_indicators(df)
-                        
-                        if indicators:
-                            # 保存到数据库，下次就不用重新计算了
-                            today = datetime.now().strftime("%Y-%m-%d")
-                            # 判断市场类型
-                            stock_market = "A"
-                            for stock in valid_stocks:
-                                if str(stock.get("code", "")) == code:
-                                    stock_market = stock.get("_market", market_upper)
-                                    break
-                            save_indicator(code, stock_market, today, indicators)
-                        
-                        return (code, indicators)
-                    except Exception as e:
-                        logger.debug(f"重新计算指标失败 {code}: {e}")
-                        return (code, None)
-                
-                # 并发重新计算
-                max_workers = min(30, len(codes_need_recalc))
-                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = {executor.submit(recalc_indicator, code): code for code in codes_need_recalc}
-                    
-                    processed_count = 0
-                    for future in concurrent.futures.as_completed(futures, timeout=300):  # 增加超时到5分钟
-                        try:
-                            code, indicators = future.result(timeout=30)
-                            if indicators:
-                                indicators_map[code] = indicators
-                                recalc_count += 1
-                            else:
-                                recalc_failed += 1
-                        except Exception:
-                            recalc_failed += 1
-                        
-                        processed_count += 1
-                        # 每处理100只更新一次进度
-                        if processed_count % 100 == 0:
-                            _broadcast_selection_progress(task_id, {
-                                "status": "running",
-                                "stage": "computing",
-                                "message": f"计算高级指标中... {processed_count}/{len(codes_need_recalc)}，成功{recalc_count}只",
-                                "progress": 4 + int((processed_count / len(codes_need_recalc)) * 5),
-                                "total": total_stocks,
-                                "computed": recalc_count,
-                                "failed": recalc_failed
-                            })
-                
-                logger.info(f"高级指标计算完成：成功{recalc_count}只，失败{recalc_failed}只")
+        indicators_map = dict(cached_indicators)  # 使用缓存的指标
         
         # 初始化进度
         _broadcast_selection_progress(task_id, {
