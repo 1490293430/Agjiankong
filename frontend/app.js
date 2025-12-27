@@ -2045,6 +2045,10 @@ async function computeIndicators(period) {
     const computeHourlyBtn = document.getElementById('compute-hourly-btn');
     const progressContainer = document.getElementById('indicator-progress-container');
     
+    // 获取用户选择的市场
+    const marketSelect = document.getElementById('indicator-market-select');
+    const selectedMarket = marketSelect?.value || 'ALL';
+    
     // 禁用按钮
     if (computeDailyBtn) {
         computeDailyBtn.disabled = true;
@@ -2073,8 +2077,15 @@ async function computeIndicators(period) {
         if (progressText) progressText.textContent = '0%';
     }
     
-    // 依次计算A股和港股
-    const markets = ['A', 'HK'];
+    // 根据选择决定计算哪些市场
+    let markets = [];
+    if (selectedMarket === 'ALL') {
+        markets = ['A', 'HK'];
+    } else {
+        markets = [selectedMarket];
+    }
+    
+    const marketDesc = selectedMarket === 'ALL' ? 'A股+港股' : (selectedMarket === 'A' ? 'A股' : '港股');
     let startedCount = 0;
     
     for (const market of markets) {
@@ -2097,7 +2108,7 @@ async function computeIndicators(period) {
     }
     
     if (startedCount > 0) {
-        showToast(`${periodName}指标计算任务已启动（A股+港股）`, 'success');
+        showToast(`${periodName}指标计算任务已启动（${marketDesc}）`, 'success');
     } else {
         showToast(`${periodName}指标计算启动失败`, 'error');
         
