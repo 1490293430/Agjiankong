@@ -1785,14 +1785,15 @@ def get_stock_list_from_db(market: str = "A") -> List[Dict[str, Any]]:
             
             # 根据市场类型过滤股票代码
             if market.upper() == "A":
-                # A股：6开头（上海），0/3开头（深圳）
-                if not (code.startswith("6") or code.startswith("0") or code.startswith("3")):
+                # A股：6位代码，且以6/0/3开头（排除ETF 15开头、B股 90/20开头等）
+                if len(code) != 6:
+                    continue
+                if not (code.startswith("60") or code.startswith("00") or code.startswith("30") or code.startswith("68")):
                     continue
             elif market.upper() == "HK":
-                # 港股：通常以数字开头，或者需要其他判断逻辑
-                # 这里假设港股代码都是纯数字或特定格式
-                if code.startswith("6") or code.startswith("0") or code.startswith("3"):
-                    continue  # 排除A股代码
+                # 港股：5位代码
+                if len(code) != 5:
+                    continue
             
             stocks.append({
                 "code": code,
