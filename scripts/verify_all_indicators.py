@@ -232,9 +232,9 @@ class IndicatorValidator:
 def get_all_indicators_from_db(limit: int = None) -> List[Dict]:
     """从数据库获取所有指标数据"""
     try:
-        from common.db import get_client
+        from common.db import get_clickhouse
         
-        client = get_client()
+        client = get_clickhouse()
         
         # 获取最新日期的指标数据
         query = """
@@ -263,9 +263,9 @@ def get_all_indicators_from_db(limit: int = None) -> List[Dict]:
 def get_hourly_indicators_from_db(limit: int = None) -> List[Dict]:
     """从数据库获取小时线指标数据"""
     try:
-        from common.db import get_client
+        from common.db import get_clickhouse
         
-        client = get_client()
+        client = get_clickhouse()
         
         query = """
             SELECT *
