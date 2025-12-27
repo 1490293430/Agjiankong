@@ -5,78 +5,6 @@ from typing import Optional, List, Dict, Any
 from ai.parameter_optimizer import get_dynamic_parameters
 
 
-def build_history_section(indicators: dict) -> str:
-    """构建历史数据部分的提示词
-    
-    Args:
-        indicators: 包含history字段的指标数据
-    
-    Returns:
-        历史数据的提示词字符串
-    """
-    lines = []
-    
-    # 日线历史
-    history = indicators.get('history', [])
-    if history:
-        lines.append("【日线近期走势（最近6个交易日）】")
-        lines.append("日期       | 收盘价 | 涨跌 | MA5   | MA20  | MACD  | RSI  | 量比")
-        lines.append("-" * 70)
-        
-        prev_close = None
-        for item in reversed(history):  # 按时间正序显示
-            date = item.get('date', '')[-5:]  # 只显示月-日
-            close = item.get('close', 0)
-            ma5 = item.get('ma5', 0)
-            ma20 = item.get('ma20', 0)
-            macd = item.get('macd', 0)
-            rsi = item.get('rsi', 0)
-            vol_ratio = item.get('vol_ratio', 0)
-            
-            # 计算涨跌
-            if prev_close and prev_close > 0:
-                change = ((close - prev_close) / prev_close) * 100
-                change_str = f"{change:+.1f}%"
-            else:
-                change_str = "  -  "
-            prev_close = close
-            
-            lines.append(f"{date} | {close:7.2f} | {change_str:5} | {ma5:6.2f} | {ma20:6.2f} | {macd:+5.2f} | {rsi:4.1f} | {vol_ratio:.2f}")
-        lines.append("")
-    
-    # 小时线历史
-    hourly_history = indicators.get('hourly_history', [])
-    if hourly_history:
-        lines.append("【小时线近期走势（最近15根K线）】")
-        lines.append("时间  | 收盘价 | MA5   | MA20  | MACD  | RSI  | 量比")
-        lines.append("-" * 60)
-        
-        for item in reversed(hourly_history[-15:]):  # 最多显示15根
-            date = item.get('date', '')
-            # 尝试提取时间部分
-            if ' ' in str(date):
-                time_str = str(date).split(' ')[1][:5]  # HH:MM
-            else:
-                time_str = str(date)[-5:]
-            close = item.get('close', 0)
-            ma5 = item.get('ma5', 0)
-            ma20 = item.get('ma20', 0)
-            macd = item.get('macd', 0)
-            rsi = item.get('rsi', 0)
-            vol_ratio = item.get('vol_ratio', 0)
-            
-            lines.append(f"{time_str} | {close:7.2f} | {ma5:6.2f} | {ma20:6.2f} | {macd:+5.2f} | {rsi:4.1f} | {vol_ratio:.2f}")
-        lines.append("")
-    
-    if lines:
-        lines.append("历史趋势分析要点：")
-        lines.append("- 日线：观察收盘价连续涨跌、MACD柱状图放大/缩小、RSI超买超卖")
-        lines.append("- 小时线：观察日内波动节奏、短期支撑阻力、入场时机")
-        lines.append("")
-    
-    return "\n".join(lines)
-
-
 def get_custom_prompt() -> Optional[str]:
     """从运行时配置获取自定义提示词"""
     try:
@@ -187,6 +115,12 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 当前价格：{current_price}元
 涨跌幅：{stock.get('pct', 0)}%
 
+【大盘参考】
+- 上证指数：{indicators.get('sh_index_price', 'N/A')}点
+- 大盘涨跌：{indicators.get('sh_index_pct', 'N/A')}%
+- 市场情绪：{indicators.get('market_sentiment', 'N/A')}
+（大盘强势时可适当激进，大盘弱势时需谨慎）
+
 【第一步：趋势判定（决定是否入场）】
 核心规则：只在主要趋势方向上进行交易，顺势而为。
 
@@ -276,6 +210,14 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 下跌趋势中：价格反弹到38.2%-61.8%区间是较好的卖出区域
 - 61.8%是黄金分割位，突破此位可能趋势反转
 
+【近5日走势摘要】
+- 近5日涨跌幅：{indicators.get('recent_5d_pct', 'N/A')}（从早到近）
+- 5日累计涨跌幅：{indicators.get('pct_5d', 'N/A')}%
+- 连续上涨天数：{indicators.get('consecutive_up_days', 0)}天
+- 连续下跌天数：{indicators.get('consecutive_down_days', 0)}天
+- 成交量趋势：{indicators.get('vol_trend_5d', 'N/A')}
+- MACD柱状图：{indicators.get('macd_bar_trend', 'N/A')}
+
 【多周期分析】（日线定趋势，小时线定进场）
 - 日线趋势方向：{daily_trend if daily_trend else 'N/A'}（决定是否可以做多）
 - 小时线趋势方向：{hourly_trend if hourly_trend else 'N/A'}（决定入场时机）
@@ -283,8 +225,6 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 是否共振：{multi_tf_resonance if multi_tf_resonance is not None else 'N/A'}
 - 入场时机评估：{entry_timing if entry_timing else 'N/A'}
 - 入场信号：{', '.join(entry_signals) if entry_signals else 'N/A'}
-
-{build_history_section(indicators)}
 
 多周期分析说明：
 - 日线多头 + 小时线多头 = 强烈看多，立即入场
@@ -444,6 +384,12 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
     if not stocks_data:
         return ""
     
+    # 从第一只股票的indicators中获取大盘数据
+    first_indicators = stocks_data[0][1] if stocks_data else {}
+    sh_index_price = first_indicators.get('sh_index_price', 'N/A')
+    sh_index_pct = first_indicators.get('sh_index_pct', 'N/A')
+    market_sentiment = first_indicators.get('market_sentiment', 'N/A')
+    
     # 构建股票信息列表
     stocks_info = []
     for i, (stock, indicators, news) in enumerate(stocks_data, 1):
@@ -464,6 +410,8 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 - MA20：{indicators.get('ma20', 'N/A')}，趋势：{indicators.get('ma20_trend', '未知')}
 - 日线RSI：{indicators.get('rsi', 'N/A')}
 - 布林带上轨：{indicators.get('boll_upper', 'N/A')}元
+- 近5日走势：{indicators.get('recent_5d_pct', 'N/A')}
+- MACD柱状图：{indicators.get('macd_bar_trend', 'N/A')}
 
 小时线指标（定进场）：
 - 小时MA5：{indicators.get('hourly_ma5', 'N/A')}，趋势：{indicators.get('hourly_ma5_trend', '未知')}
@@ -498,6 +446,10 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
         
         prompt = f"""
 你是专业的量化交易分析模型，使用"三重过滤趋势波段系统"对以下{len(stocks_data)}支股票进行批量分析。
+
+【大盘参考】
+- 上证指数：{sh_index_price}点，涨跌：{sh_index_pct}%
+- 市场情绪：{market_sentiment}（大盘强势时可适当激进，大盘弱势时需谨慎）
 
 {stocks_info_str}
 

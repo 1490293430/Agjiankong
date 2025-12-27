@@ -414,14 +414,18 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             config = get_runtime_config()
             if config.collect_stock_only:
                 before_filter_count = len(result)
-                result = [item for item in result if item.get('sec_type') == 'stock']
+                # 保留股票 + 上证指数（代码1A0001，用于AI分析时参考大盘）
+                result = [item for item in result if item.get('sec_type') == 'stock' or 
+                         (item.get('sec_type') == 'index' and str(item.get('code', '')) == '1A0001')]
                 non_stock_filtered = before_filter_count - len(result)
                 if non_stock_filtered > 0:
-                    logger.info(f"过滤非股票数据: {non_stock_filtered}只（ETF/指数/基金），保留股票: {len(result)}只")
+                    logger.info(f"过滤非股票数据: {non_stock_filtered}只（ETF/指数/基金，保留上证指数），保留: {len(result)}只")
                 
                 # 同时过滤 added 和 updated 列表
-                added = [item for item in added if item.get('sec_type') == 'stock']
-                updated = [item for item in updated if item.get('sec_type') == 'stock']
+                added = [item for item in added if item.get('sec_type') == 'stock' or 
+                        (item.get('sec_type') == 'index' and str(item.get('code', '')) == '1A0001')]
+                updated = [item for item in updated if item.get('sec_type') == 'stock' or 
+                          (item.get('sec_type') == 'index' and str(item.get('code', '')) == '1A0001')]
 
             # 2. 写入新的全量快照（前端HTTP/WS读取的主数据，保留 30 天）
             set_json("market:a:spot", result, ex=30 * 24 * 3600)
@@ -1503,13 +1507,14 @@ def _save_spot_to_redis(result: List[Dict[str, Any]], market: str):
     
     config = get_runtime_config()
     
-    # 如果配置了只采集股票，则过滤非股票数据
+    # 如果配置了只采集股票，则过滤非股票数据（保留上证指数用于AI分析）
     if config.collect_stock_only:
         before_count = len(result)
-        result = [item for item in result if item.get('sec_type') == 'stock']
+        result = [item for item in result if item.get('sec_type') == 'stock' or 
+                 (item.get('sec_type') == 'index' and str(item.get('code', '')) == '1A0001')]
         filtered_count = before_count - len(result)
         if filtered_count > 0:
-            logger.info(f"[{market}] 过滤非股票数据: {filtered_count}只（ETF/指数/基金），保留股票: {len(result)}只")
+            logger.info(f"[{market}] 过滤非股票数据: {filtered_count}只（ETF/指数/基金，保留上证指数），保留: {len(result)}只")
     
     key = f"market:{market.lower()}:spot"
     set_json(key, result, ex=30 * 24 * 3600)

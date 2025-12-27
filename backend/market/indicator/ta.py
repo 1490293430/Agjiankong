@@ -799,6 +799,96 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
             # 转换线下穿基准线（死叉）
             result["ichimoku_tk_cross_down"] = bool(tenkan_prev >= kijun_prev and tenkan_curr < kijun_curr)
     
+    # ========== 历史5天趋势摘要（简洁版，用于AI分析） ==========
+    if len(df) >= 6:
+        # 最近5天的涨跌幅列表
+        recent_5_pct = []
+        for i in range(5, 0, -1):
+            if len(df) >= i + 1:
+                prev_close = float(df.iloc[-i-1]["close"])
+                curr_close = float(df.iloc[-i]["close"])
+                if prev_close > 0:
+                    pct = round((curr_close - prev_close) / prev_close * 100, 2)
+                    recent_5_pct.append(pct)
+        result["recent_5d_pct"] = recent_5_pct  # 例如: [1.2, -0.5, 2.1, 0.3, -1.0]
+        
+        # 连续涨跌天数
+        consecutive_up = 0
+        consecutive_down = 0
+        for pct in reversed(recent_5_pct):
+            if pct > 0:
+                if consecutive_down == 0:
+                    consecutive_up += 1
+                else:
+                    break
+            elif pct < 0:
+                if consecutive_up == 0:
+                    consecutive_down += 1
+                else:
+                    break
+            else:
+                break
+        result["consecutive_up_days"] = consecutive_up  # 连续上涨天数
+        result["consecutive_down_days"] = consecutive_down  # 连续下跌天数
+        
+        # 5天累计涨跌幅
+        if len(df) >= 6:
+            close_5d_ago = float(df.iloc[-6]["close"])
+            close_now = float(df.iloc[-1]["close"])
+            if close_5d_ago > 0:
+                result["pct_5d"] = round((close_now - close_5d_ago) / close_5d_ago * 100, 2)
+    
+    # 最近5天成交量变化趋势
+    if len(df) >= 6 and "volume" in df.columns:
+        recent_5_vol = [float(df.iloc[-i]["volume"]) for i in range(5, 0, -1)]
+        avg_vol_prev = sum(recent_5_vol[:3]) / 3 if len(recent_5_vol) >= 3 else recent_5_vol[0]
+        avg_vol_recent = sum(recent_5_vol[-2:]) / 2 if len(recent_5_vol) >= 2 else recent_5_vol[-1]
+        
+        if avg_vol_prev > 0:
+            vol_change = (avg_vol_recent - avg_vol_prev) / avg_vol_prev
+            if vol_change > 0.3:
+                result["vol_trend_5d"] = "明显放量"
+            elif vol_change > 0.1:
+                result["vol_trend_5d"] = "温和放量"
+            elif vol_change < -0.3:
+                result["vol_trend_5d"] = "明显缩量"
+            elif vol_change < -0.1:
+                result["vol_trend_5d"] = "温和缩量"
+            else:
+                result["vol_trend_5d"] = "持平"
+    
+    # MACD柱状图连续变化（判断是否连续放大/缩小）
+    if len(df) >= 30:
+        macd_data = macd(df)
+        macd_bars = macd_data["macd"].tail(5).tolist()
+        
+        # 判断MACD柱是否连续放大或缩小
+        macd_expanding = True  # 柱状图绝对值连续放大
+        macd_contracting = True  # 柱状图绝对值连续缩小
+        
+        for i in range(1, len(macd_bars)):
+            if abs(macd_bars[i]) <= abs(macd_bars[i-1]):
+                macd_expanding = False
+            if abs(macd_bars[i]) >= abs(macd_bars[i-1]):
+                macd_contracting = False
+        
+        # 判断红柱/绿柱
+        current_macd = macd_bars[-1] if macd_bars else 0
+        if current_macd > 0:
+            if macd_expanding:
+                result["macd_bar_trend"] = "红柱连续放大"
+            elif macd_contracting:
+                result["macd_bar_trend"] = "红柱连续缩小"
+            else:
+                result["macd_bar_trend"] = "红柱"
+        else:
+            if macd_expanding:
+                result["macd_bar_trend"] = "绿柱连续放大"
+            elif macd_contracting:
+                result["macd_bar_trend"] = "绿柱连续缩小"
+            else:
+                result["macd_bar_trend"] = "绿柱"
+    
     # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
     def convert_numpy_types(value):
         if isinstance(value, np.integer):

@@ -2019,14 +2019,15 @@ def save_snapshot_data(snapshot_data: List[Dict[str, Any]], market: str = "A") -
     if not snapshot_data:
         return True
     
-    # 根据配置决定是否过滤非股票数据
+    # 根据配置决定是否过滤非股票数据（保留上证指数用于AI分析）
     config = get_runtime_config()
     if config.collect_stock_only:
         before_count = len(snapshot_data)
-        snapshot_data = [item for item in snapshot_data if item.get('sec_type') == 'stock']
+        snapshot_data = [item for item in snapshot_data if item.get('sec_type') == 'stock' or 
+                        (item.get('sec_type') == 'index' and str(item.get('code', '')) == '1A0001')]
         filtered_count = before_count - len(snapshot_data)
         if filtered_count > 0:
-            logger.info(f"[{market}] 快照数据过滤非股票: {filtered_count}条，保留: {len(snapshot_data)}条")
+            logger.info(f"[{market}] 快照数据过滤非股票: {filtered_count}条（保留上证指数），保留: {len(snapshot_data)}条")
     
     if not snapshot_data:
         return True
