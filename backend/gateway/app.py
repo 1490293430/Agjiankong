@@ -886,13 +886,13 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         selected = clean_nan(selected)
         
         total_time = time.time() - start_time
-        failed_count = len(failed_codes) if failed_codes else 0
-        logger.info(f"选股完成：从{total_stocks}只中筛选出{len(selected)}只，耗时{total_time:.1f}秒，数据缺失{failed_count}只")
+        missing_count = len(missing_codes) if missing_codes else 0
+        logger.info(f"选股完成：从{total_stocks}只中筛选出{len(selected)}只，耗时{total_time:.1f}秒，缺失指标{missing_count}只")
         
         # 构建完成消息，包含数据缺失信息
         complete_message = f"选股完成：筛选出{len(selected)}只股票"
-        if failed_count > 0:
-            complete_message += f"（{failed_count}只股票因K线数据不足被跳过）"
+        if missing_count > 0:
+            complete_message += f"（{missing_count}只股票缺失指标被跳过，请先计算日线指标）"
         
         _broadcast_selection_progress(task_id, {
             "status": "completed",
@@ -904,7 +904,7 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
             "filters_total": total_filters,
             "filters_done": total_filters,
             "elapsed_time": round(total_time, 1),
-            "data_missing": failed_count
+            "data_missing": missing_count
         })
         
         return {"code": 0, "data": selected, "message": "success", "task_id": task_id}
