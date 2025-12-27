@@ -2073,21 +2073,33 @@ async function computeIndicators(period) {
         if (progressText) progressText.textContent = '0%';
     }
     
-    try {
-        const response = await apiFetch(`${API_BASE}/api/strategy/compute-indicators-async?market=A&period=${period}`, {
-            method: 'POST'
-        });
-        const result = await response.json();
-        
-        if (result.code === 0) {
-            console.log(`[指标计算] ${periodName}指标计算任务已启动:`, result.data.task_id);
-            showToast(`${periodName}指标计算任务已启动`, 'success');
-        } else {
-            throw new Error(result.message || '启动失败');
+    // 依次计算A股和港股
+    const markets = ['A', 'HK'];
+    let startedCount = 0;
+    
+    for (const market of markets) {
+        try {
+            const marketName = market === 'A' ? 'A股' : '港股';
+            const response = await apiFetch(`${API_BASE}/api/strategy/compute-indicators-async?market=${market}&period=${period}`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.code === 0) {
+                console.log(`[指标计算] ${marketName}${periodName}指标计算任务已启动:`, result.data.task_id);
+                startedCount++;
+            } else {
+                console.warn(`[指标计算] ${marketName}${periodName}指标计算启动失败:`, result.message);
+            }
+        } catch (error) {
+            console.error(`[指标计算] ${market}${periodName}指标计算失败:`, error);
         }
-    } catch (error) {
-        console.error(`[指标计算] ${periodName}指标计算失败:`, error);
-        showToast(`${periodName}指标计算失败: ${error.message}`, 'error');
+    }
+    
+    if (startedCount > 0) {
+        showToast(`${periodName}指标计算任务已启动（A股+港股）`, 'success');
+    } else {
+        showToast(`${periodName}指标计算启动失败`, 'error');
         
         // 恢复按钮状态
         if (computeDailyBtn) {
