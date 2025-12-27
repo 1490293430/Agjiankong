@@ -46,12 +46,12 @@ def find_abnormal_kline(dry_run=True, price_change_threshold=0.5, volume_change_
         FROM kline FINAL
         WHERE close <= 0 OR open <= 0 OR high <= 0 OR low <= 0
         ORDER BY code, date
-        LIMIT 100
     """)
     if result:
         print(f"发现 {len(result)} 条价格<=0的数据:")
         for row in result[:10]:
             print(f"  {row[0]} {row[1]} {row[2]}: O={row[3]} H={row[4]} L={row[5]} C={row[6]}")
+        for row in result:
             abnormal_records.append({
                 'code': row[0], 'date': row[1], 'period': row[2],
                 'reason': '价格<=0'
@@ -77,13 +77,14 @@ def find_abnormal_kline(dry_run=True, price_change_threshold=0.5, volume_change_
         WHERE prev_close > 0 
           AND abs(close - prev_close) / prev_close > {price_change_threshold}
         ORDER BY change_ratio DESC
-        LIMIT 100
     """)
     if result:
         print(f"发现 {len(result)} 条价格突变数据:")
         for row in result[:20]:
             change_pct = row[5] * 100
             print(f"  {row[0]} {row[1]}: {row[4]:.2f} -> {row[3]:.2f} (变化 {change_pct:.1f}%)")
+        for row in result:
+            change_pct = row[5] * 100
             abnormal_records.append({
                 'code': row[0], 'date': row[1], 'period': row[2],
                 'reason': f'价格突变{change_pct:.1f}%'
@@ -112,13 +113,14 @@ def find_abnormal_kline(dry_run=True, price_change_threshold=0.5, volume_change_
         WHERE avg_volume_5 > 1000  -- 排除成交量太小的
           AND volume / avg_volume_5 > {volume_change_threshold}
         ORDER BY volume_ratio DESC
-        LIMIT 100
     """)
     if result:
         print(f"发现 {len(result)} 条成交量异常数据:")
         for row in result[:20]:
             ratio = row[6]
             print(f"  {row[0]} {row[1]}: 成交量={row[3]:.0f}, 5日均量={row[4]:.0f}, 放大{ratio:.1f}倍, 收盘价={row[5]:.2f}")
+        for row in result:
+            ratio = row[6]
             abnormal_records.append({
                 'code': row[0], 'date': row[1], 'period': row[2],
                 'reason': f'成交量放大{ratio:.1f}倍'
@@ -137,12 +139,12 @@ def find_abnormal_kline(dry_run=True, price_change_threshold=0.5, volume_change_
           AND (code LIKE '0%' OR code LIKE '3%' OR code LIKE '6%')
           AND close > 1000
         ORDER BY close DESC
-        LIMIT 100
     """)
     if result:
         print(f"发现 {len(result)} 条A股价格>1000元的数据:")
         for row in result[:20]:
             print(f"  {row[0]} {row[1]}: 收盘价={row[3]:.2f}")
+        for row in result:
             abnormal_records.append({
                 'code': row[0], 'date': row[1], 'period': row[2],
                 'reason': f'A股价格异常高={row[3]:.2f}'
@@ -154,12 +156,13 @@ def find_abnormal_kline(dry_run=True, price_change_threshold=0.5, volume_change_
     return abnormal_records
 
 
-def clean_abnormal_kline(abnormal_records, dry_run=True):
+def clean_abnormal_kline(abnormal_records, dry_run=True, wait_completion=False):
     """清理异常K线数据
     
     Args:
         abnormal_records: 异常数据列表
         dry_run: 是否只预览不删除
+        wait_completion: 是否等待删除完成
     """
     if not abnormal_records:
         print("没有需要清理的异常数据")
@@ -188,26 +191,28 @@ def clean_abnormal_kline(abnormal_records, dry_run=True):
     
     client = get_clickhouse()
     
-    # 按code分组删除，避免一次删除太多
+    # 按code和period分组删除
     codes_to_clean = {}
     for key, r in unique_records.items():
         code = r['code']
-        if code not in codes_to_clean:
-            codes_to_clean[code] = []
-        codes_to_clean[code].append(r)
+        period = r['period']
+        group_key = (code, period)
+        if group_key not in codes_to_clean:
+            codes_to_clean[group_key] = []
+        codes_to_clean[group_key].append(r)
     
     deleted_count = 0
-    for code, records in codes_to_clean.items():
+    for (code, period), records in codes_to_clean.items():
         dates = [f"'{r['date']}'" for r in records]
         dates_str = ','.join(dates)
         
-        # 删除K线数据
+        # 删除K线数据（指定period，更精确）
         try:
             client.execute(f"""
                 ALTER TABLE kline DELETE 
-                WHERE code = '{code}' AND date IN ({dates_str})
+                WHERE code = '{code}' AND period = '{period}' AND date IN ({dates_str})
             """)
-            print(f"已提交删除 {code} 的 {len(records)} 条K线数据")
+            print(f"已提交删除 {code} ({period}) 的 {len(records)} 条K线数据")
             deleted_count += len(records)
         except Exception as e:
             print(f"删除 {code} K线数据失败: {e}")
@@ -216,16 +221,54 @@ def clean_abnormal_kline(abnormal_records, dry_run=True):
         try:
             client.execute(f"""
                 ALTER TABLE indicators DELETE 
-                WHERE code = '{code}' AND date IN ({dates_str})
+                WHERE code = '{code}' AND period = '{period}' AND date IN ({dates_str})
             """)
-            print(f"已提交删除 {code} 的指标数据")
+            print(f"已提交删除 {code} ({period}) 的指标数据")
         except Exception as e:
             print(f"删除 {code} 指标数据失败: {e}")
     
     print()
     print(f"已提交删除 {deleted_count} 条异常数据")
-    print("ClickHouse 将在后台异步执行删除")
-    print("运行 'python clean_abnormal_kline.py --check' 查看执行状态")
+    
+    if wait_completion:
+        print()
+        print("等待删除操作完成...")
+        import time
+        max_wait = 120  # 最多等待120秒
+        waited = 0
+        while waited < max_wait:
+            result = client.execute("""
+                SELECT count() FROM system.mutations WHERE is_done = 0
+            """)
+            pending = result[0][0] if result else 0
+            if pending == 0:
+                print("✓ 所有删除操作已完成")
+                break
+            print(f"  还有 {pending} 个删除操作进行中，等待...")
+            time.sleep(5)
+            waited += 5
+        
+        if waited >= max_wait:
+            print(f"⚠️ 等待超时，部分删除操作可能仍在进行中")
+        
+        # 执行OPTIMIZE强制合并
+        print()
+        print("执行 OPTIMIZE TABLE 强制合并数据...")
+        try:
+            client.execute("OPTIMIZE TABLE kline FINAL")
+            print("✓ kline 表优化完成")
+        except Exception as e:
+            print(f"⚠️ kline 表优化失败: {e}")
+        
+        try:
+            client.execute("OPTIMIZE TABLE indicators FINAL")
+            print("✓ indicators 表优化完成")
+        except Exception as e:
+            print(f"⚠️ indicators 表优化失败: {e}")
+    else:
+        print("ClickHouse 将在后台异步执行删除")
+        print("运行 'python clean_abnormal_kline.py --check' 查看执行状态")
+        print("添加 --wait 参数可等待删除完成并自动优化表")
 
 
 def check_mutations():
@@ -253,6 +296,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='清理K线异常数据')
     parser.add_argument('--execute', action='store_true', help='执行删除（默认只预览）')
     parser.add_argument('--check', action='store_true', help='检查mutation执行状态')
+    parser.add_argument('--wait', action='store_true', help='等待删除完成并自动优化表')
     parser.add_argument('--price-threshold', type=float, default=0.5, help='价格变化阈值（默认0.5即50%%）')
     parser.add_argument('--volume-threshold', type=float, default=100, help='成交量变化阈值（默认100倍）')
     
@@ -267,8 +311,8 @@ if __name__ == "__main__":
             price_change_threshold=args.price_threshold,
             volume_change_threshold=args.volume_threshold
         )
-        clean_abnormal_kline(abnormal, dry_run=dry_run)
+        clean_abnormal_kline(abnormal, dry_run=dry_run, wait_completion=args.wait)
         
-        if not dry_run:
+        if not dry_run and not args.wait:
             print()
             check_mutations()
