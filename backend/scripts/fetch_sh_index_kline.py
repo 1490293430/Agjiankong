@@ -94,7 +94,7 @@ def fetch_sh_index_kline(days: int = 365):
         client = get_clickhouse()
         
         # 先删除旧数据
-        client.command(f"ALTER TABLE kline_daily DELETE WHERE code = '1A0001' AND market = 'A'")
+        client.execute(f"ALTER TABLE kline_daily DELETE WHERE code = '1A0001' AND market = 'A'")
         print("已清除旧数据")
         
         # 插入新数据
@@ -188,7 +188,7 @@ def fetch_sh_index_kline_hourly(days: int = 30):
         client = get_clickhouse()
         
         # 先删除旧数据
-        client.command(f"ALTER TABLE kline_1h DELETE WHERE code = '1A0001' AND market = 'A'")
+        client.execute(f"ALTER TABLE kline_1h DELETE WHERE code = '1A0001' AND market = 'A'")
         print("已清除旧的小时K线数据")
         
         # 插入新数据
