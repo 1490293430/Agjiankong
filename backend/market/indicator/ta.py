@@ -682,11 +682,10 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["current_open"] = float(latest["open"])
         result["current_close"] = float(latest["close"])
     
-    # 价格突破判断（20日新高）
+    # 20日最高价（保留用于其他计算）
     if len(df) >= 20:
         high_20d = df["high"].tail(20).max()
         result["high_20d"] = float(high_20d)
-        result["break_high_20d"] = bool(float(latest["close"]) >= high_20d)  # 转换为Python bool
     
     # 布林带状态判断
     if len(df) >= 20:

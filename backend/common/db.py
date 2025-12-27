@@ -280,9 +280,8 @@ def init_tables():
             fib_current_level String,
             -- 成交量
             vol_ratio Float64,
-            -- 价格突破
+            -- 价格数据
             high_20d Float64,
-            break_high_20d UInt8,
             recent_low Float64,
             -- 当前价格数据
             current_price Float64,
@@ -1164,9 +1163,8 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "fib_current_level": indicators.get("fib_current_level", ""),
             # 成交量
             "vol_ratio": to_float(indicators.get("vol_ratio")),
-            # 价格突破
+            # 价格数据
             "high_20d": to_float(indicators.get("high_20d")),
-            "break_high_20d": 1 if indicators.get("break_high_20d") else 0,
             "recent_low": to_float(indicators.get("recent_low")),
             # 当前价格数据
             "current_price": to_float(indicators.get("current_close")),  # 使用收盘价作为当前价格
@@ -1193,7 +1191,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
              ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b, 
              ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
              fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
-             vol_ratio, high_20d, break_high_20d, recent_low,
+             vol_ratio, high_20d, recent_low,
              current_price, current_open, current_high, current_low, current_close)
             VALUES
             """,
@@ -1218,7 +1216,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
                 insert_data["fib_swing_high"], insert_data["fib_swing_low"], 
                 insert_data["fib_236"], insert_data["fib_382"], insert_data["fib_500"], insert_data["fib_618"], insert_data["fib_786"],
                 insert_data["fib_trend"], insert_data["fib_current_level"],
-                insert_data["vol_ratio"], insert_data["high_20d"], insert_data["break_high_20d"], insert_data["recent_low"],
+                insert_data["vol_ratio"], insert_data["high_20d"], insert_data["recent_low"],
                 insert_data["current_price"], insert_data["current_open"], insert_data["current_high"],
                 insert_data["current_low"], insert_data["current_close"]
             ]]
@@ -1331,7 +1329,7 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
             "ichimoku_tenkan", "ichimoku_kijun", "ichimoku_senkou_a", "ichimoku_senkou_b",
             "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud", "ichimoku_tk_cross_up", "ichimoku_tk_cross_down",
             "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786", "fib_trend", "fib_current_level",
-            "vol_ratio", "high_20d", "break_high_20d", "recent_low",
+            "vol_ratio", "high_20d", "recent_low",
             "current_price", "current_open", "current_high", "current_low", "current_close", 
             "update_time"
         ]
@@ -1341,7 +1339,7 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
             if i < len(row):
                 value = row[i]
                 # 转换布尔类型
-                if col in ["boll_expanding", "boll_contracting", "break_high_20d", 
+                if col in ["boll_expanding", "boll_contracting", 
                            "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud",
                            "ichimoku_tk_cross_up", "ichimoku_tk_cross_down", "adx_rising", "cci_rising"]:
                     value = bool(value) if value is not None else False
@@ -1394,7 +1392,7 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
                     ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
                     ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
                     fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
-                    vol_ratio, high_20d, break_high_20d, recent_low,
+                    vol_ratio, high_20d, recent_low,
                     current_price, current_open, current_high, current_low, current_close, 
                     update_time"""
         
@@ -1439,7 +1437,7 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
             "ichimoku_tenkan", "ichimoku_kijun", "ichimoku_senkou_a", "ichimoku_senkou_b",
             "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud", "ichimoku_tk_cross_up", "ichimoku_tk_cross_down",
             "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786", "fib_trend", "fib_current_level",
-            "vol_ratio", "high_20d", "break_high_20d", "recent_low",
+            "vol_ratio", "high_20d", "recent_low",
             "current_price", "current_open", "current_high", "current_low", "current_close", 
             "update_time"
         ]
@@ -1454,7 +1452,7 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
                     if col == "code":
                         code = value
                     # 转换布尔类型
-                    if col in ["boll_expanding", "boll_contracting", "break_high_20d", 
+                    if col in ["boll_expanding", "boll_contracting", 
                                "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud",
                                "ichimoku_tk_cross_up", "ichimoku_tk_cross_down", "adx_rising", "cci_rising"]:
                         value = bool(value) if value is not None else False

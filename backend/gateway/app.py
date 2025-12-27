@@ -675,9 +675,6 @@ def _run_selection_task(task_id: str, market: str, max_count: int, filter_config
         if filter_config.get("williams_r_enable"):
             enabled_filters.append(("williams_r", filter_config))
             filter_names.append("威廉指标")
-        if filter_config.get("break_high_enable"):
-            enabled_filters.append(("break_high", filter_config))
-            filter_names.append("突破高点")
         if filter_config.get("boll_enable"):
             enabled_filters.append(("boll", filter_config))
             filter_names.append("布林带")
@@ -1197,9 +1194,6 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
         if wr is None:
             return False
         return wr > -80
-    
-    elif filter_type == "break_high":
-        return indicators.get("break_high_20d", False)
     
     elif filter_type == "boll":
         condition = config.get("boll_condition", "expanding")

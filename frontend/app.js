@@ -231,6 +231,7 @@ const STRATEGY_PRESETS = {
         name: '短期交易',
         filters: {
             'stock-only': { enable: true },
+            'market-cap': { enable: false },
             'volume-ratio': { enable: true, min: 3.0, max: 10.0 },
             'rsi': { enable: true, min: 50, max: 80 },
             'ma': { enable: true, period: '5', condition: 'above' },
@@ -240,9 +241,9 @@ const STRATEGY_PRESETS = {
             'boll': { enable: false },
             'bias': { enable: false },
             'adx': { enable: false },
-            'williams': { enable: false },
-            'break-high': { enable: true },
-            'ichimoku': { enable: false }
+            'williams-r': { enable: false },
+            'ichimoku': { enable: false },
+            'cci': { enable: false }
         }
     },
     // 中期波段（数周）- 把握趋势主升浪
@@ -250,6 +251,7 @@ const STRATEGY_PRESETS = {
         name: '中期波段',
         filters: {
             'stock-only': { enable: true },
+            'market-cap': { enable: false },
             'volume-ratio': { enable: true, min: 1.2, max: 5.0 },
             'rsi': { enable: true, min: 40, max: 70 },
             'ma': { enable: true, period: '20', condition: 'above' },
@@ -259,9 +261,9 @@ const STRATEGY_PRESETS = {
             'boll': { enable: true, condition: 'expanding' },
             'bias': { enable: false },
             'adx': { enable: true, min: 25 },
-            'williams': { enable: false },
-            'break-high': { enable: false },
-            'ichimoku': { enable: false }
+            'williams-r': { enable: false },
+            'ichimoku': { enable: false },
+            'cci': { enable: false }
         }
     },
     // 长期布局（数月）- 筛选底部反转
@@ -269,6 +271,7 @@ const STRATEGY_PRESETS = {
         name: '长期布局',
         filters: {
             'stock-only': { enable: true },
+            'market-cap': { enable: false },
             'volume-ratio': { enable: true, min: 0.8, max: 3.0 },
             'rsi': { enable: true, min: 30, max: 50 },
             'ma': { enable: true, period: '60', condition: 'above' },
@@ -278,9 +281,9 @@ const STRATEGY_PRESETS = {
             'boll': { enable: false },
             'bias': { enable: false },
             'adx': { enable: false },
-            'williams': { enable: true },
-            'break-high': { enable: false },
-            'ichimoku': { enable: true, condition: 'above_cloud' }
+            'williams-r': { enable: true },
+            'ichimoku': { enable: true, condition: 'above_cloud' },
+            'cci': { enable: false }
         }
     }
 };
@@ -361,8 +364,7 @@ function resetSelectionConfig() {
         'boll': { enable: false, condition: 'expanding' },
         'bias': { enable: false, min: -6, max: 6 },
         'adx': { enable: false, min: 25 },
-        'williams': { enable: false },
-        'break-high': { enable: false },
+        'williams-r': { enable: false },
         'ichimoku': { enable: false, condition: 'above_cloud' },
         'cci': { enable: false, min: -100, max: 100 }
     };
@@ -499,8 +501,6 @@ async function saveSelectionConfig() {
             filter_bias_max: parseFloat(document.getElementById('filter-bias-max')?.value || '6'),
             // 威廉指标
             filter_williams_r_enable: document.getElementById('filter-williams-r-enable')?.checked || false,
-            // 突破高点
-            filter_break_high_enable: document.getElementById('filter-break-high-enable')?.checked || false,
             // 布林带
             filter_boll_enable: document.getElementById('filter-boll-enable')?.checked || false,
             filter_boll_condition: document.getElementById('filter-boll-condition')?.value || 'expanding',
@@ -643,10 +643,6 @@ async function loadSelectionConfig() {
         // 威廉指标
         const williamsEnableEl = document.getElementById('filter-williams-r-enable');
         if (williamsEnableEl) williamsEnableEl.checked = data.filter_williams_r_enable || false;
-        
-        // 突破高点
-        const breakHighEnableEl = document.getElementById('filter-break-high-enable');
-        if (breakHighEnableEl) breakHighEnableEl.checked = data.filter_break_high_enable || false;
         
         // 布林带
         const bollEnableEl = document.getElementById('filter-boll-enable');
@@ -5722,7 +5718,6 @@ function initSelectionConfig() {
         'filter-bias-min': '-6',
         'filter-bias-max': '6',
         'filter-williams-r-enable': false,
-        'filter-break-high-enable': false,
         'filter-boll-enable': false,
         'filter-boll-condition': 'expanding',
         'filter-adx-enable': false,
@@ -5910,8 +5905,6 @@ function initStrategy() {
                 biasMax: document.getElementById('filter-bias-max')?.value,
                 // 威廉指标
                 williamsREnable: document.getElementById('filter-williams-r-enable')?.checked,
-                // 突破高点
-                breakHighEnable: document.getElementById('filter-break-high-enable')?.checked,
                 // 布林带
                 bollEnable: document.getElementById('filter-boll-enable')?.checked,
                 bollCondition: document.getElementById('filter-boll-condition')?.value,
@@ -6042,8 +6035,6 @@ async function runSelection() {
         bias_max: parseFloat(document.getElementById('filter-bias-max')?.value) || 6,
         // 威廉指标
         williams_r_enable: document.getElementById('filter-williams-r-enable')?.checked || false,
-        // 突破高点
-        break_high_enable: document.getElementById('filter-break-high-enable')?.checked || false,
         // 布林带
         boll_enable: document.getElementById('filter-boll-enable')?.checked || false,
         boll_condition: document.getElementById('filter-boll-condition')?.value || 'expanding',
@@ -6753,15 +6744,6 @@ function getEnabledFilters() {
             id: 'williams-r',
             label: '威廉%R',
             getValue: (stock) => stock.williams_r?.toFixed(1) || stock.indicators?.williams_r?.toFixed(1) || '-'
-        });
-    }
-    
-    // 突破高点
-    if (document.getElementById('filter-break-high-enable')?.checked) {
-        filters.push({
-            id: 'break-high',
-            label: '突破高点',
-            getValue: (stock) => stock.indicators?.break_high_20d ? '是' : '-'
         });
     }
     
@@ -8623,8 +8605,6 @@ async function exportBackup() {
             filter_bias_max: configData.filter_bias_max ?? 6,
             // 威廉指标
             filter_williams_r_enable: configData.filter_williams_r_enable || false,
-            // 突破高点
-            filter_break_high_enable: configData.filter_break_high_enable || false,
             // 布林带
             filter_boll_enable: configData.filter_boll_enable || false,
             filter_boll_condition: configData.filter_boll_condition || 'expanding',

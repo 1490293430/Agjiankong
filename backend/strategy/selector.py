@@ -193,7 +193,6 @@ def filter_stocks_by_criteria(
     bias_max = config.get("bias_max", 6)
     
     williams_r_enable = config.get("williams_r_enable", False)
-    break_high_enable = config.get("break_high_enable", False)
     
     boll_enable = config.get("boll_enable", False)
     boll_condition = config.get("boll_condition", "expanding")
@@ -211,7 +210,7 @@ def filter_stocks_by_criteria(
     # 如果没有启用任何筛选条件，使用默认的基础筛选
     any_filter_enabled = any([
         volume_ratio_enable, rsi_enable, ma_enable, ema_enable, macd_enable,
-        kdj_enable, bias_enable, williams_r_enable, break_high_enable,
+        kdj_enable, bias_enable, williams_r_enable,
         boll_enable, adx_enable, ichimoku_enable, cci_enable
     ])
     
@@ -376,12 +375,6 @@ def filter_stocks_by_criteria(
             else:
                 passed = False
         
-        # 突破高点筛选
-        if break_high_enable and passed:
-            break_high = indicators.get("break_high_20d", False)
-            if not break_high:
-                passed = False
-        
         # 布林带筛选
         if boll_enable and passed:
             boll_middle = indicators.get("boll_middle")
@@ -477,7 +470,6 @@ def filter_stocks_by_criteria(
                 "boll_middle": indicators.get("boll_middle"),
                 "boll_lower": indicators.get("boll_lower"),
                 "boll_expanding": indicators.get("boll_expanding"),
-                "break_high_20d": indicators.get("break_high_20d"),
                 "adx": indicators.get("adx"),
                 "ema12": indicators.get("ema12"),
                 "ema26": indicators.get("ema26"),

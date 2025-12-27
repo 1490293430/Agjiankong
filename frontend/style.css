@@ -889,11 +889,12 @@ body.light-mode .config-select {
     white-space: nowrap;
 }
 
-.kline-select {
-    background: #334155;
+.kline-select,
+#chart-period {
+    background: #334155 !important;
     border: 1px solid #475569;
     border-radius: 6px;
-    color: #e2e8f0;
+    color: #e2e8f0 !important;
     padding: 6px 10px;
     font-size: 13px;
     cursor: pointer;
@@ -901,9 +902,10 @@ body.light-mode .config-select {
     min-width: 80px;
 }
 
-.kline-select option {
-    background: #334155;
-    color: #e2e8f0;
+.kline-select option,
+#chart-period option {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
 }
 
 .kline-select:hover {

@@ -99,9 +99,6 @@ class RuntimeConfig(BaseModel):
     filter_williams_r_enable: bool = Field(
         default=False, description="是否启用威廉指标筛选"
     )
-    filter_break_high_enable: bool = Field(
-        default=False, description="是否启用突破高点筛选"
-    )
     filter_boll_enable: bool = Field(
         default=False, description="是否启用布林带筛选"
     )
@@ -325,7 +322,6 @@ class RuntimeConfigUpdate(BaseModel):
     filter_bias_min: Optional[float] = None
     filter_bias_max: Optional[float] = None
     filter_williams_r_enable: Optional[bool] = None
-    filter_break_high_enable: Optional[bool] = None
     filter_boll_enable: Optional[bool] = None
     filter_boll_condition: Optional[str] = None
     filter_adx_enable: Optional[bool] = None
