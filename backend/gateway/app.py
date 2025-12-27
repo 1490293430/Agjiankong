@@ -3869,11 +3869,15 @@ async def collect_kline_data_api(
                 from common.db import save_stock_info_batch
                 # 先采集A股
                 try:
-                    a_stocks = get_json("market:a:spot") or []
-                    if not a_stocks:
+                    a_stocks_raw = get_json("market:a:spot") or []
+                    if not a_stocks_raw:
                         logger.info("检测到A股行情数据为空，先执行一次行情采集...")
                         fetch_a_stock_spot()
-                        a_stocks = get_json("market:a:spot") or []
+                        a_stocks_raw = get_json("market:a:spot") or []
+                    
+                    # 过滤非股票数据（ETF/指数/基金等）
+                    a_stocks = [s for s in a_stocks_raw if s.get("sec_type") == "stock"]
+                    logger.info(f"A股列表：原始{len(a_stocks_raw)}只，过滤后{len(a_stocks)}只股票")
                     
                     if a_stocks:
                         # 保存股票基本信息
@@ -3889,7 +3893,11 @@ async def collect_kline_data_api(
                 
                 # 再采集港股
                 try:
-                    hk_stocks = get_json("market:hk:spot") or []
+                    hk_stocks_raw = get_json("market:hk:spot") or []
+                    # 过滤非股票数据
+                    hk_stocks = [s for s in hk_stocks_raw if s.get("sec_type") == "stock"]
+                    logger.info(f"港股列表：原始{len(hk_stocks_raw)}只，过滤后{len(hk_stocks)}只股票")
+                    
                     if hk_stocks:
                         # 保存股票基本信息
                         try:
@@ -3912,13 +3920,19 @@ async def collect_kline_data_api(
         
         # 获取股票列表（单个市场）
         if market.upper() == "HK":
-            all_stocks = get_json("market:hk:spot") or []
+            all_stocks_raw = get_json("market:hk:spot") or []
+            # 过滤非股票数据
+            all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
             fetch_kline_func = fetch_hk_stock_kline
             fetch_spot_func = None  # 港股暂时不自动采集
         else:
-            all_stocks = get_json("market:a:spot") or []
+            all_stocks_raw = get_json("market:a:spot") or []
+            # 过滤非股票数据
+            all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
             fetch_kline_func = fetch_a_stock_kline
             fetch_spot_func = fetch_a_stock_spot
+        
+        logger.info(f"{market}股列表：原始{len(all_stocks_raw) if 'all_stocks_raw' in dir() else 0}只，过滤后{len(all_stocks)}只股票")
         
         # 如果没有数据，尝试先采集一次行情数据（仅A股）
         if not all_stocks and fetch_spot_func:
