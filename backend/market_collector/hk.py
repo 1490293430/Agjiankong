@@ -625,14 +625,12 @@ def fetch_hk_stock_kline(
     return_source: bool = False,  # 是否返回数据源名称
     stop_check: callable = None,  # 停止检查回调函数，返回True表示应该停止
 ) -> List[Dict[str, Any]] | tuple:
-    """获取港股K线数据（使用Yahoo Finance，国外VPS稳定）
-    
-    完全使用Yahoo Finance数据源，不再使用AKShare
+    """获取港股K线数据（优先使用东方财富，失败后回退到Yahoo Finance）
     
     Args:
         code: 股票代码（如：00700, 03690）
         period: 周期（daily, weekly, monthly, 1h/hourly - 1小时K线）
-        adjust: 复权类型（Yahoo Finance忽略此参数）
+        adjust: 复权类型
         start_date: 开始日期 YYYYMMDD（可选）
         end_date: 结束日期 YYYYMMDD（默认今天）
         force_full_refresh: 是否强制全量刷新
@@ -643,10 +641,6 @@ def fetch_hk_stock_kline(
     Returns:
         K线数据列表，或 (数据列表, 数据源名称) 元组（当 return_source=True）
     """
-    if not YFINANCE_AVAILABLE:
-        logger.error("yfinance不可用，无法获取港股K线数据")
-        return ([], None) if return_source else []
-    
     from common.db import get_kline_latest_date, save_kline_data, get_kline_from_db
     
     # 小时级别数据使用专门的处理逻辑
@@ -654,100 +648,183 @@ def fetch_hk_stock_kline(
     if is_hourly:
         logger.info(f"检测到小时K线请求 {code}, period={period}，使用小时数据处理逻辑")
         result = _fetch_hk_stock_kline_hourly(code, start_date, end_date, force_full_refresh, stop_check)
-        return (result, "Yahoo Finance(小时)") if return_source else result
+        return (result, "东方财富(小时)") if return_source else result
     
-    # 转换代码格式：确保是5位数字格式（如3690 -> 03690）
-    code_str = str(code).strip()
-    code_num = code_str.lstrip('0')
-    if not code_num:
-        code_num = '0'
-    code_5digit = code_num.zfill(5)
-    symbol = f"{code_5digit}.HK"
+    # 转换周期参数
+    eastmoney_period = "101"  # 默认日线
+    if period in ["weekly", "week"]:
+        eastmoney_period = "102"
+    elif period in ["monthly", "month"]:
+        eastmoney_period = "103"
     
+    result = []
+    source = None
+    
+    # 优先尝试东方财富数据源
     try:
-        ticker = yf.Ticker(symbol)
-        
-        # 获取数据（Yahoo Finance获取所有可用历史数据）
-        df = ticker.history(
-            interval="1d",
-            start="1970-01-01",  # 获取所有历史数据
-            auto_adjust=False
+        from market_collector.eastmoney_source import fetch_eastmoney_hk_kline
+        eastmoney_result = fetch_eastmoney_hk_kline(
+            code, eastmoney_period, adjust or "", 
+            start_date, end_date, limit=5000
         )
-        
-        if df.empty:
-            logger.warning(f"Yahoo Finance港股无数据: {code} (symbol: {symbol})")
-            return ([], None) if return_source else []
-        
-        # 重置索引，将Date列提取出来
-        df = df.reset_index()
-        
-        # 重命名列
-        df.rename(columns={
-            "Date": "trade_date",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Volume": "volume"
-        }, inplace=True)
-        
-        # 转换日期格式为YYYY-MM-DD
-        if "trade_date" in df.columns:
-            df["date"] = pd.to_datetime(df["trade_date"], errors='coerce').dt.strftime('%Y-%m-%d')
-            df["time"] = pd.to_datetime(df["trade_date"], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-        
-        # 转换数据类型
-        numeric_columns = ["open", "high", "low", "close", "volume"]
-        for col in numeric_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # 计算成交额（成交额 = 收盘价 * 成交量）
-        if "amount" not in df.columns:
-            df["amount"] = df["close"] * df["volume"]
-        
-        # 添加股票代码和市场标识
-        df["code"] = code  # 保持原始代码格式
-        df["market"] = "HK"
-        
-        # 过滤掉日期为空的数据
-        df = df[df["date"].notna() & (df["date"] != "")]
-        
-        # 如果指定了日期范围，进行过滤
-        if start_date:
-            start_str = start_date.replace("-", "") if "-" in start_date else start_date
-            try:
-                start_dt = datetime.strptime(start_str, "%Y%m%d")
-                df = df[pd.to_datetime(df["date"]) >= start_dt]
-            except Exception:
-                pass
-        
-        if end_date:
-            end_str = end_date.replace("-", "") if "-" in end_date else end_date
-            try:
-                end_dt = datetime.strptime(end_str, "%Y%m%d")
-                df = df[pd.to_datetime(df["date"]) <= end_dt]
-            except Exception:
-                pass
-        
-        # 转换为字典列表
-        result = df.to_dict("records")
-        
-        logger.info(f"Yahoo Finance港股K线数据获取成功: {code}, {len(result)}条")
-        
-        # 如果 skip_db=False，保存到数据库
-        if not skip_db:
-            try:
-                save_kline_data(result, period)
-                logger.info(f"港股K线数据已保存到数据库: {code}, {len(result)}条")
-            except Exception as e:
-                logger.warning(f"保存港股K线数据到数据库失败 {code}: {e}")
-        
-        return (result, "Yahoo Finance") if return_source else result
-        
+        if eastmoney_result and len(eastmoney_result) > 0:
+            # 转换日期格式为 YYYY-MM-DD
+            for item in eastmoney_result:
+                if 'date' in item and len(item['date']) == 8:
+                    item['date'] = f"{item['date'][:4]}-{item['date'][4:6]}-{item['date'][6:8]}"
+                item['market'] = 'HK'
+            result = eastmoney_result
+            source = "东方财富"
+            logger.info(f"东方财富港股K线数据获取成功: {code}, {len(result)}条")
     except Exception as e:
-        logger.error(f"Yahoo Finance港股K线数据获取失败 {code}: {e}", exc_info=True)
+        logger.warning(f"东方财富获取港股K线数据失败 {code}: {e}，尝试新浪财经")
+    
+    # 如果东方财富失败，尝试新浪财经（第二优先级）
+    if not result:
+        try:
+            from market_collector.sina_source import fetch_sina_hk_kline
+            sina_result = fetch_sina_hk_kline(code, period, adjust or "", start_date, end_date, limit=1000)
+            if sina_result and len(sina_result) > 0:
+                result = sina_result
+                source = "新浪财经"
+                logger.info(f"新浪财经港股K线数据获取成功: {code}, {len(result)}条")
+        except Exception as e:
+            logger.warning(f"新浪财经获取港股K线数据失败 {code}: {e}，尝试AKShare")
+    
+    # 如果新浪也失败，尝试 AKShare（第三优先级）
+    if not result:
+        try:
+            # 转换代码格式
+            code_str = str(code).strip().zfill(5)
+            
+            # 转换周期参数
+            ak_period = "daily"
+            if period in ["weekly", "week"]:
+                ak_period = "weekly"
+            elif period in ["monthly", "month"]:
+                ak_period = "monthly"
+            
+            df = ak.stock_hk_hist(
+                symbol=code_str,
+                period=ak_period,
+                start_date=start_date.replace("-", "") if start_date and "-" in start_date else start_date,
+                end_date=end_date.replace("-", "") if end_date and "-" in end_date else end_date,
+                adjust=""
+            )
+            
+            if not df.empty:
+                # 标准化数据格式
+                df = df.rename(columns={
+                    "日期": "date",
+                    "开盘": "open",
+                    "收盘": "close",
+                    "最高": "high",
+                    "最低": "low",
+                    "成交量": "volume",
+                    "成交额": "amount"
+                })
+                df["code"] = code
+                df["market"] = "HK"
+                df["date"] = pd.to_datetime(df["date"]).dt.strftime('%Y-%m-%d')
+                result = df.to_dict("records")
+                source = "AKShare"
+                logger.info(f"AKShare港股K线数据获取成功: {code}, {len(result)}条")
+        except Exception as e:
+            logger.warning(f"AKShare获取港股K线数据失败 {code}: {e}，尝试Yahoo Finance")
+    
+    # 如果AKShare也失败，回退到 Yahoo Finance（最后优先级）
+    if not result and YFINANCE_AVAILABLE:
+        try:
+            # 转换代码格式：确保是5位数字格式（如3690 -> 03690）
+            code_str = str(code).strip()
+            code_num = code_str.lstrip('0')
+            if not code_num:
+                code_num = '0'
+            code_5digit = code_num.zfill(5)
+            symbol = f"{code_5digit}.HK"
+            
+            ticker = yf.Ticker(symbol)
+            
+            # 获取数据（Yahoo Finance获取所有可用历史数据）
+            df = ticker.history(
+                interval="1d",
+                start="1970-01-01",  # 获取所有历史数据
+                auto_adjust=False
+            )
+            
+            if not df.empty:
+                # 重置索引，将Date列提取出来
+                df = df.reset_index()
+                
+                # 重命名列
+                df.rename(columns={
+                    "Date": "trade_date",
+                    "Open": "open",
+                    "High": "high",
+                    "Low": "low",
+                    "Close": "close",
+                    "Volume": "volume"
+                }, inplace=True)
+                
+                # 转换日期格式为YYYY-MM-DD
+                if "trade_date" in df.columns:
+                    df["date"] = pd.to_datetime(df["trade_date"], errors='coerce').dt.strftime('%Y-%m-%d')
+                    df["time"] = pd.to_datetime(df["trade_date"], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 转换数据类型
+                numeric_columns = ["open", "high", "low", "close", "volume"]
+                for col in numeric_columns:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # 计算成交额（成交额 = 收盘价 * 成交量）
+                if "amount" not in df.columns:
+                    df["amount"] = df["close"] * df["volume"]
+                
+                # 添加股票代码和市场标识
+                df["code"] = code  # 保持原始代码格式
+                df["market"] = "HK"
+                
+                # 过滤掉日期为空的数据
+                df = df[df["date"].notna() & (df["date"] != "")]
+                
+                # 如果指定了日期范围，进行过滤
+                if start_date:
+                    start_str_clean = start_date.replace("-", "") if "-" in start_date else start_date
+                    try:
+                        start_dt = datetime.strptime(start_str_clean, "%Y%m%d")
+                        df = df[pd.to_datetime(df["date"]) >= start_dt]
+                    except Exception:
+                        pass
+                
+                if end_date:
+                    end_str_clean = end_date.replace("-", "") if "-" in end_date else end_date
+                    try:
+                        end_dt = datetime.strptime(end_str_clean, "%Y%m%d")
+                        df = df[pd.to_datetime(df["date"]) <= end_dt]
+                    except Exception:
+                        pass
+                
+                # 转换为字典列表
+                result = df.to_dict("records")
+                source = "Yahoo Finance"
+                logger.info(f"Yahoo Finance港股K线数据获取成功: {code}, {len(result)}条")
+        except Exception as e:
+            logger.error(f"Yahoo Finance港股K线数据获取失败 {code}: {e}", exc_info=True)
+    
+    if not result:
+        logger.warning(f"港股K线数据获取失败（所有数据源）: {code}")
         return ([], None) if return_source else []
+    
+    # 如果 skip_db=False，保存到数据库
+    if not skip_db:
+        try:
+            save_kline_data(result, period)
+            logger.info(f"港股K线数据已保存到数据库: {code}, {len(result)}条")
+        except Exception as e:
+            logger.warning(f"保存港股K线数据到数据库失败 {code}: {e}")
+    
+    return (result, source) if return_source else result
 
 
 def _fetch_hk_stock_kline_hourly(
@@ -825,9 +902,9 @@ def _fetch_hk_stock_kline_hourly(
                 new_kline_data = result
                 logger.info(f"东方财富港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
         except Exception as e:
-            logger.warning(f"东方财富获取港股小时K线数据失败 {code}: {e}，尝试Yahoo Finance数据源")
+            logger.warning(f"东方财富获取港股小时K线数据失败 {code}: {e}，尝试新浪财经数据源")
         
-        # 如果东方财富失败，尝试Yahoo Finance数据源
+        # 如果东方财富失败，尝试新浪财经数据源（第二优先级）
         if not new_kline_data:
             # 检查是否应该停止采集
             if stop_check and stop_check():
@@ -835,14 +912,15 @@ def _fetch_hk_stock_kline_hourly(
                 return []
             
             try:
-                result = _fetch_hk_kline_yahoo(code, "1h", start_str_ymd, end_str_ymd)
+                from market_collector.sina_source import fetch_sina_hk_kline
+                result = fetch_sina_hk_kline(code, "1h", "", start_str_ymd, end_str_ymd, limit=1000)
                 if result and len(result) > 0:
                     new_kline_data = result
-                    logger.info(f"Yahoo Finance港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
+                    logger.info(f"新浪财经港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
             except Exception as e:
-                logger.warning(f"Yahoo Finance获取港股小时K线数据失败 {code}: {e}，尝试AKShare数据源")
+                logger.warning(f"新浪财经获取港股小时K线数据失败 {code}: {e}，尝试AKShare数据源")
         
-        # 如果Yahoo Finance也失败，尝试AKShare数据源
+        # 如果新浪也失败，尝试AKShare数据源（第三优先级）
         if not new_kline_data:
             # 检查是否应该停止采集
             if stop_check and stop_check():
@@ -857,35 +935,30 @@ def _fetch_hk_stock_kline_hourly(
                     start_date=start_str,
                     end_date=end_str
                 )
+                if not df.empty:
+                    # 标准化数据格式（AKShare数据源）
+                    new_kline_data = _standardize_hk_kline_data_minute(df, code)
+                    if new_kline_data:
+                        logger.info(f"AKShare港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
             except AttributeError:
-                logger.error(f"ak.stock_hk_hist_min_em 接口不存在，可能akshare版本不支持 {code}")
-                # 尝试从数据库返回已有数据
-                existing_data = get_kline_from_db(code, start_date, end_date or datetime.now().strftime("%Y%m%d"), "1h")
-                if existing_data:
-                    logger.info(f"接口不可用，返回数据库已有数据: {code}, {len(existing_data)}条")
-                    return existing_data
-                return []
+                logger.warning(f"ak.stock_hk_hist_min_em 接口不存在，可能akshare版本不支持 {code}")
             except Exception as e:
-                logger.error(f"获取港股小时K线数据失败 {code}: {e}", exc_info=True)
-                # 尝试从数据库返回已有数据
-                existing_data = get_kline_from_db(code, start_date, end_date or datetime.now().strftime("%Y%m%d"), "1h")
-                if existing_data:
-                    logger.info(f"获取失败，返回数据库已有数据: {code}, {len(existing_data)}条")
-                    return existing_data
+                logger.warning(f"AKShare获取港股小时K线数据失败 {code}: {e}，尝试Yahoo Finance数据源")
+        
+        # 如果AKShare也失败，尝试Yahoo Finance数据源（最后优先级）
+        if not new_kline_data:
+            # 检查是否应该停止采集
+            if stop_check and stop_check():
+                logger.info(f"港股小时K线采集被中断 {code}（用户停止）")
                 return []
             
-            # 如果AKShare数据源成功，处理数据
-            if df.empty:
-                logger.warning(f"港股小时K线数据获取为空(AKShare) {code}")
-                # 尝试从数据库返回已有数据
-                existing_data = get_kline_from_db(code, start_date, end_date or datetime.now().strftime("%Y%m%d"), "1h")
-                if existing_data:
-                    logger.info(f"数据源返回空，返回数据库已有数据: {code}, {len(existing_data)}条")
-                    return existing_data
-                return []
-            
-            # 标准化数据格式（AKShare数据源）
-            new_kline_data = _standardize_hk_kline_data_minute(df, code)
+            try:
+                result = _fetch_hk_kline_yahoo(code, "1h", start_str_ymd, end_str_ymd)
+                if result and len(result) > 0:
+                    new_kline_data = result
+                    logger.info(f"Yahoo Finance港股小时K线数据获取成功: {code}, {len(new_kline_data)}条")
+            except Exception as e:
+                logger.warning(f"Yahoo Finance获取港股小时K线数据失败 {code}: {e}")
         
         if not new_kline_data:
             logger.warning(f"港股小时K线数据标准化后为空 {code}")

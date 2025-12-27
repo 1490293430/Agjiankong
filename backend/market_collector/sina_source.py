@@ -580,3 +580,135 @@ def fetch_sina_kline(
     except Exception as e:
         logger.warning(f"[新浪K线] 获取 {code} K线数据失败: {e}")
         return []
+
+
+def fetch_sina_hk_kline(
+    code: str,
+    period: str = "daily",
+    adjust: str = "",
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 1000
+) -> List[Dict[str, Any]]:
+    """
+    从新浪财经获取港股K线数据
+    
+    Args:
+        code: 股票代码（如：00700）
+        period: 周期（daily, weekly, monthly, 1h）
+        adjust: 复权类型（暂不支持，新浪接口返回不复权数据）
+        start_date: 开始日期（YYYYMMDD）
+        end_date: 结束日期（YYYYMMDD）
+        limit: 获取的K线数量（最大1023）
+    
+    Returns:
+        K线数据列表
+    """
+    try:
+        # 转换周期参数
+        period_map = {
+            "daily": "day",
+            "day": "day",
+            "101": "day",
+            "weekly": "week",
+            "week": "week",
+            "102": "week",
+            "monthly": "month",
+            "month": "month",
+            "103": "month",
+            "1h": "60",
+            "hourly": "60",
+            "60": "60",
+        }
+        sina_period = period_map.get(period, "day")
+        
+        # 转换代码格式：00700 -> hk00700
+        code_str = str(code).zfill(5)  # 港股代码5位
+        sina_code = f"hk{code_str}"
+        
+        # 限制最大数量
+        limit = min(limit, 1023)
+        
+        # 构建请求URL
+        # 港股K线使用不同的scale参数
+        # 日线: 240, 周线: 1680, 月线: 7200, 60分钟: 60
+        if sina_period == "day":
+            scale = 240
+        elif sina_period == "week":
+            scale = 1680
+        elif sina_period == "month":
+            scale = 7200
+        else:
+            scale = int(sina_period)  # 分钟级别直接使用数字
+        
+        url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_code}&scale={scale}&ma=no&datalen={limit}"
+        
+        headers = {
+            "Referer": "http://finance.sina.com.cn",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        logger.info(f"[新浪港股K线] 获取 {code} {period} K线数据...")
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.encoding = 'utf-8'
+        
+        # 解析JSON数据
+        import json
+        data = json.loads(response.text)
+        
+        if not data:
+            logger.warning(f"[新浪港股K线] {code} 返回数据为空")
+            return []
+        
+        results = []
+        
+        # 转换日期格式用于过滤
+        filter_start = None
+        filter_end = None
+        if start_date:
+            filter_start = start_date.replace("-", "") if "-" in start_date else start_date
+        if end_date:
+            filter_end = end_date.replace("-", "") if "-" in end_date else end_date
+        
+        for item in data:
+            try:
+                # 解析日期/时间
+                date_str = item.get("day", "")
+                
+                # 获取日期并转换格式用于比较
+                item_date = date_str[:10] if len(date_str) >= 10 else date_str
+                item_date_cmp = item_date.replace("-", "") if "-" in item_date else item_date
+                
+                # 根据 start_date 和 end_date 过滤数据
+                if filter_start and item_date_cmp < filter_start:
+                    continue
+                if filter_end and item_date_cmp > filter_end:
+                    continue
+                
+                result = {
+                    "date": item_date,
+                    "time": date_str,
+                    "open": _safe_float(item.get("open", 0)),
+                    "high": _safe_float(item.get("high", 0)),
+                    "low": _safe_float(item.get("low", 0)),
+                    "close": _safe_float(item.get("close", 0)),
+                    "volume": _safe_float(item.get("volume", 0)),
+                    "amount": 0,  # 新浪接口不返回成交额
+                    "code": code,
+                    "market": "HK"
+                }
+                results.append(result)
+            except Exception as e:
+                logger.debug(f"[新浪港股K线] 解析数据失败: {e}")
+                continue
+        
+        # 按日期排序（从旧到新）
+        results.sort(key=lambda x: x.get("date", ""))
+        
+        logger.info(f"[新浪港股K线] {code} 获取成功，共 {len(results)} 条K线数据")
+        return results
+        
+    except Exception as e:
+        logger.warning(f"[新浪港股K线] 获取 {code} K线数据失败: {e}")
+        return []

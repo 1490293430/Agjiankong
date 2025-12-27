@@ -4,6 +4,139 @@ console.log('[全局] ========== app.js 开始加载 ==========');
 console.log('[全局] 当前时间:', new Date().toISOString());
 console.log('[全局] 页面URL:', window.location.href);
 
+// ========== UI配置管理（保存到服务器） ==========
+
+// UI配置缓存（避免频繁请求服务器）
+let uiConfigCache = null;
+let uiConfigLoaded = false;
+
+// 从服务器加载UI配置
+async function loadUIConfig() {
+    if (uiConfigLoaded && uiConfigCache) {
+        return uiConfigCache;
+    }
+    
+    try {
+        const res = await apiFetch(`${API_BASE}/api/config`);
+        if (!res.ok) {
+            console.warn('[UI配置] 加载失败:', res.status);
+            return null;
+        }
+        
+        const data = await res.json();
+        uiConfigCache = {
+            // AI分析页配置
+            ai_source_watchlist: data.ai_source_watchlist ?? true,
+            ai_source_selection: data.ai_source_selection ?? false,
+            // K线图配置
+            kline_chart_period: data.kline_chart_period ?? 'daily',
+            kline_ema_enabled: data.kline_ema_enabled ?? true,
+            kline_ema_period: data.kline_ema_period ?? 20,
+            kline_volume_visible: data.kline_volume_visible ?? true,
+            // 行情页配置
+            market_sort: data.market_sort ?? 'default',
+            market_filter_stock_only: data.market_filter_stock_only ?? false,
+        };
+        uiConfigLoaded = true;
+        console.log('[UI配置] 从服务器加载成功:', uiConfigCache);
+        return uiConfigCache;
+    } catch (e) {
+        console.warn('[UI配置] 加载异常:', e);
+        return null;
+    }
+}
+
+// 保存UI配置到服务器（防抖）
+let uiConfigSaveTimer = null;
+async function saveUIConfig(updates) {
+    // 更新本地缓存
+    if (uiConfigCache) {
+        Object.assign(uiConfigCache, updates);
+    }
+    
+    // 防抖：500ms内多次更新只发送一次请求
+    if (uiConfigSaveTimer) {
+        clearTimeout(uiConfigSaveTimer);
+    }
+    
+    uiConfigSaveTimer = setTimeout(async () => {
+        try {
+            console.log('[UI配置] 保存到服务器:', updates);
+            const res = await apiFetch(`${API_BASE}/api/config`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            });
+            
+            if (!res.ok) {
+                console.warn('[UI配置] 保存失败:', res.status);
+            } else {
+                console.log('[UI配置] 保存成功');
+            }
+        } catch (e) {
+            console.warn('[UI配置] 保存异常:', e);
+        }
+    }, 500);
+}
+
+// 获取UI配置值（优先从缓存，否则从localStorage兼容旧数据）
+function getUIConfigValue(key, defaultValue) {
+    if (uiConfigCache && uiConfigCache[key] !== undefined) {
+        return uiConfigCache[key];
+    }
+    
+    // 兼容旧的localStorage数据
+    const localStorageMap = {
+        'ai_source_watchlist': () => {
+            const saved = localStorage.getItem('aiSourceConfig');
+            if (saved) {
+                try { return JSON.parse(saved).watchlist; } catch(e) {}
+            }
+            return undefined;
+        },
+        'ai_source_selection': () => {
+            const saved = localStorage.getItem('aiSourceConfig');
+            if (saved) {
+                try { return JSON.parse(saved).selection; } catch(e) {}
+            }
+            return undefined;
+        },
+        'kline_chart_period': () => localStorage.getItem('klineChartPeriod'),
+        'kline_ema_enabled': () => {
+            const saved = localStorage.getItem('emaConfig');
+            if (saved) {
+                try { return JSON.parse(saved).enabled; } catch(e) {}
+            }
+            return undefined;
+        },
+        'kline_ema_period': () => {
+            const saved = localStorage.getItem('emaConfig');
+            if (saved) {
+                try { return JSON.parse(saved).values?.[0]; } catch(e) {}
+            }
+            return undefined;
+        },
+        'kline_volume_visible': () => {
+            const saved = localStorage.getItem('volumeVisible');
+            return saved !== null ? saved === 'true' : undefined;
+        },
+        'market_sort': () => localStorage.getItem('marketSort'),
+        'market_filter_stock_only': () => {
+            const saved = localStorage.getItem('filterStockOnly');
+            return saved !== null ? saved === 'true' : undefined;
+        },
+    };
+    
+    if (localStorageMap[key]) {
+        const localValue = localStorageMap[key]();
+        if (localValue !== undefined && localValue !== null) {
+            return localValue;
+        }
+    }
+    
+    return defaultValue;
+}
+
 // ========== TradingView 风格筛选器 ==========
 
 // 初始化 TradingView 风格筛选器
@@ -2483,7 +2616,7 @@ let isLoading = false;
 let hasMore = true;
 let currentMarket = 'a';
 let currentSort = 'default'; // 当前排序方式
-let filterStockOnly = localStorage.getItem('filterStockOnly') === 'true'; // 从localStorage恢复
+let filterStockOnly = false; // 默认值，会从服务器加载
 let allMarketData = []; // 存储所有行情数据（用于前端排序和过滤）
 
 // 已移除marketRefreshInterval，改用SSE实时推送
@@ -2618,15 +2751,21 @@ async function initMarket() {
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
     
-    // 初始化排序切换
-    // 从localStorage恢复排序状态
-    const savedSort = localStorage.getItem('marketSort') || 'default';
-    currentSort = savedSort;
+    // 从服务器加载UI配置
+    const uiConfig = await loadUIConfig();
+    if (uiConfig) {
+        currentSort = uiConfig.market_sort || 'default';
+        filterStockOnly = uiConfig.market_filter_stock_only || false;
+    } else {
+        // 兼容旧的localStorage数据
+        currentSort = localStorage.getItem('marketSort') || 'default';
+        filterStockOnly = localStorage.getItem('filterStockOnly') === 'true';
+    }
     
     // 初始化排序切换
     document.querySelectorAll('.sort-tab').forEach(tab => {
         // 恢复active状态
-        if (tab.getAttribute('data-sort') === savedSort) {
+        if (tab.getAttribute('data-sort') === currentSort) {
             document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
         }
@@ -2636,9 +2775,9 @@ async function initMarket() {
             document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             
-            // 更新排序方式并保存到localStorage
+            // 更新排序方式并保存到服务器
             currentSort = tab.getAttribute('data-sort');
-            localStorage.setItem('marketSort', currentSort);
+            saveUIConfig({ market_sort: currentSort });
             console.log('[行情] 切换排序:', currentSort);
             
             // 切换排序时，重置页码并重新从后端加载数据（后端会对全量数据排序后分页返回）
@@ -2649,12 +2788,12 @@ async function initMarket() {
     // 初始化"仅显示股票"过滤
     const filterStockOnlyCheckbox = document.getElementById('filter-stock-only');
     if (filterStockOnlyCheckbox) {
-        // 同步 checkbox 状态（filterStockOnly 已在全局初始化时从 localStorage 恢复）
+        // 同步 checkbox 状态
         filterStockOnlyCheckbox.checked = filterStockOnly;
         
         filterStockOnlyCheckbox.addEventListener('change', () => {
             filterStockOnly = filterStockOnlyCheckbox.checked;
-            localStorage.setItem('filterStockOnly', filterStockOnly);
+            saveUIConfig({ market_filter_stock_only: filterStockOnly });
             console.log('[行情] 切换过滤:', filterStockOnly ? '仅显示股票' : '显示全部');
             // 为确保切换过滤时列表立即生效且与后端数据同步，强制重置并重新加载第一页
             resetAndLoadMarket();
@@ -3210,15 +3349,15 @@ let currentKlineStockData = null;
 function initKlineModal() {
     const periodSelect = document.getElementById('chart-period');
     if (periodSelect) {
-        // 加载保存的周期选择
-        const savedPeriod = localStorage.getItem('klineChartPeriod') || 'daily';
+        // 从服务器配置或localStorage加载保存的周期选择
+        const savedPeriod = getUIConfigValue('kline_chart_period', 'daily');
         if (savedPeriod && ['1h', 'daily', 'weekly', 'monthly'].includes(savedPeriod)) {
             periodSelect.value = savedPeriod;
         }
         
         periodSelect.addEventListener('change', () => {
-            // 保存周期选择
-            localStorage.setItem('klineChartPeriod', periodSelect.value);
+            // 保存周期选择到服务器
+            saveUIConfig({ kline_chart_period: periodSelect.value });
             if (currentKlineCode) {
                 loadChart(currentKlineCode);
             }
@@ -3260,7 +3399,7 @@ function initKlineModal() {
 }
 
 // 初始化指标控制面板内容（独立函数，不依赖指标数据）
-function initIndicatorPanels() {
+async function initIndicatorPanels() {
     const volumeContainer = document.getElementById('volume-controls');
     const emaContainer = document.getElementById('ema-controls');
     if (!volumeContainer || !emaContainer) {
@@ -3268,18 +3407,28 @@ function initIndicatorPanels() {
         return;
     }
     
-    // 从localStorage加载配置
-    const savedEmaConfig = localStorage.getItem('emaConfig');
-    if (savedEmaConfig) {
-        try {
-            emaConfig = JSON.parse(savedEmaConfig);
-        } catch (e) {
-            console.warn('解析EMA配置失败:', e);
+    // 从服务器加载配置
+    const uiConfig = await loadUIConfig();
+    if (uiConfig) {
+        emaConfig.enabled = uiConfig.kline_ema_enabled ?? true;
+        if (uiConfig.kline_ema_period) {
+            emaConfig.values[0] = uiConfig.kline_ema_period;
         }
-    }
-    const savedVolumeVisible = localStorage.getItem('volumeVisible');
-    if (savedVolumeVisible !== null) {
-        volumeVisible = savedVolumeVisible === 'true';
+        volumeVisible = uiConfig.kline_volume_visible ?? true;
+    } else {
+        // 兼容旧的localStorage数据
+        const savedEmaConfig = localStorage.getItem('emaConfig');
+        if (savedEmaConfig) {
+            try {
+                emaConfig = JSON.parse(savedEmaConfig);
+            } catch (e) {
+                console.warn('解析EMA配置失败:', e);
+            }
+        }
+        const savedVolumeVisible = localStorage.getItem('volumeVisible');
+        if (savedVolumeVisible !== null) {
+            volumeVisible = savedVolumeVisible === 'true';
+        }
     }
     
     // 成交量控制内容
@@ -3314,7 +3463,7 @@ function initIndicatorPanels() {
         volumeToggle.parentNode.replaceChild(newVolumeToggle, volumeToggle);
         newVolumeToggle.addEventListener('change', function(e) {
             volumeVisible = e.target.checked;
-            localStorage.setItem('volumeVisible', volumeVisible);
+            saveUIConfig({ kline_volume_visible: volumeVisible });
             if (volumeSeries) {
                 volumeSeries.applyOptions({ visible: volumeVisible });
             }
@@ -3328,7 +3477,7 @@ function initIndicatorPanels() {
         emaToggle.parentNode.replaceChild(newEmaToggle, emaToggle);
         newEmaToggle.addEventListener('change', function(e) {
             emaConfig.enabled = e.target.checked;
-            localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
+            saveUIConfig({ kline_ema_enabled: emaConfig.enabled });
             const emaGroup = document.getElementById('ema-config-group');
             if (emaGroup) {
                 emaGroup.style.display = emaConfig.enabled ? '' : 'none';
@@ -3354,7 +3503,10 @@ function initIndicatorPanels() {
             if (raw !== period) {
                 e.target.value = period;
             }
-            localStorage.setItem('emaConfig', JSON.stringify(emaConfig));
+            // 保存第一个EMA周期到服务器
+            if (index === 0) {
+                saveUIConfig({ kline_ema_period: period });
+            }
             if (emaConfig.enabled) {
                 updateEMA();
             }
@@ -3433,10 +3585,10 @@ function openKlineModal(code, name, stockData = null) {
     currentKlineName = name;
     currentKlineStockData = stockData; // 保存stockData供loadChart使用
     
-    // 恢复保存的周期选择
+    // 恢复保存的周期选择（从服务器配置）
     const periodSelect = document.getElementById('chart-period');
     if (periodSelect) {
-        const savedPeriod = localStorage.getItem('klineChartPeriod') || 'daily';
+        const savedPeriod = getUIConfigValue('kline_chart_period', 'daily');
         if (savedPeriod && ['1h', 'daily', 'weekly', 'monthly'].includes(savedPeriod)) {
             periodSelect.value = savedPeriod;
         }
@@ -4248,9 +4400,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
     });
     
     // 为成交量创建独立的右侧价格轴，只占底部20%的空间
-    // 从localStorage加载成交量可见性设置
-    const savedVolumeVisible = localStorage.getItem('volumeVisible');
-    const initialVolumeVisible = savedVolumeVisible !== null ? savedVolumeVisible === 'true' : volumeVisible;
+    // 使用全局变量 volumeVisible（已从服务器配置加载）
+    const initialVolumeVisible = volumeVisible;
     
     volumeSeries = chart.addHistogramSeries({
         color: '#3b82f6',
@@ -4433,11 +4584,9 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         volumeSeries.setData(volumeData);
         console.log('[K线渲染] 成交量数据设置完成');
         
-        // 更新EMA和成交量显示状态
+        // 更新EMA和成交量显示状态（使用全局变量，已从服务器配置加载）
         if (volumeSeries) {
-            const savedVolumeVisible = localStorage.getItem('volumeVisible');
-            const isVisible = savedVolumeVisible !== null ? savedVolumeVisible === 'true' : volumeVisible;
-            volumeSeries.applyOptions({ visible: isVisible });
+            volumeSeries.applyOptions({ visible: volumeVisible });
         }
         
         // 先绘制EMA，然后设置初始可见范围
@@ -6753,7 +6902,7 @@ function loadMoreSelectedStocks() {
 window.loadMoreSelectedStocks = loadMoreSelectedStocks;
 
 // AI分析模块
-function initAI() {
+async function initAI() {
     console.log('[AI] initAI 开始初始化');
     const analyzeBtn = document.getElementById('analyze-btn');
     const codeInput = document.getElementById('ai-code-input');
@@ -6768,47 +6917,47 @@ function initAI() {
         selectionCheckbox: !!selectionCheckbox
     });
     
-    // 从localStorage加载选择框状态
+    // 从服务器加载选择框状态
     try {
-        const savedConfig = localStorage.getItem('aiSourceConfig');
-        console.log('[AI] 加载保存的配置:', savedConfig);
-        if (savedConfig) {
-            const config = JSON.parse(savedConfig);
-            console.log('[AI] 解析后的配置:', config);
+        const uiConfig = await loadUIConfig();
+        if (uiConfig) {
             if (watchlistCheckbox) {
-                watchlistCheckbox.checked = config.watchlist ?? true;
+                watchlistCheckbox.checked = uiConfig.ai_source_watchlist ?? true;
                 console.log('[AI] 设置自选股勾选状态:', watchlistCheckbox.checked);
             }
             if (selectionCheckbox) {
-                selectionCheckbox.checked = config.selection ?? false;
+                selectionCheckbox.checked = uiConfig.ai_source_selection ?? false;
                 console.log('[AI] 设置选股结果勾选状态:', selectionCheckbox.checked);
+            }
+        } else {
+            // 兼容旧的localStorage数据
+            const savedConfig = localStorage.getItem('aiSourceConfig');
+            console.log('[AI] 从localStorage加载配置:', savedConfig);
+            if (savedConfig) {
+                const config = JSON.parse(savedConfig);
+                if (watchlistCheckbox) {
+                    watchlistCheckbox.checked = config.watchlist ?? true;
+                }
+                if (selectionCheckbox) {
+                    selectionCheckbox.checked = config.selection ?? false;
+                }
             }
         }
     } catch (e) {
         console.warn('加载AI来源配置失败:', e);
     }
     
-    // 保存选择框状态的函数
-    const saveSourceConfig = () => {
-        const config = {
-            watchlist: watchlistCheckbox?.checked ?? true,
-            selection: selectionCheckbox?.checked ?? false
-        };
-        console.log('[AI] 保存配置:', config);
-        localStorage.setItem('aiSourceConfig', JSON.stringify(config));
-    };
-    
-    // 监听选择框变化
+    // 监听选择框变化，保存到服务器
     if (watchlistCheckbox) {
         watchlistCheckbox.addEventListener('change', () => {
             console.log('[AI] 自选股勾选状态变化:', watchlistCheckbox.checked);
-            saveSourceConfig();
+            saveUIConfig({ ai_source_watchlist: watchlistCheckbox.checked });
         });
     }
     if (selectionCheckbox) {
         selectionCheckbox.addEventListener('change', () => {
             console.log('[AI] 选股结果勾选状态变化:', selectionCheckbox.checked);
-            saveSourceConfig();
+            saveUIConfig({ ai_source_selection: selectionCheckbox.checked });
         });
     }
     

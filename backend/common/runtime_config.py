@@ -251,6 +251,47 @@ class RuntimeConfig(BaseModel):
         default=None,
         description="Tushare Pro API Token，用于获取A股数据",
     )
+    
+    # 前端UI配置（从localStorage迁移到服务器）
+    # AI分析页配置
+    ai_source_watchlist: bool = Field(
+        default=True,
+        description="AI分析是否使用自选股",
+    )
+    ai_source_selection: bool = Field(
+        default=False,
+        description="AI分析是否使用选股结果",
+    )
+    
+    # K线图配置
+    kline_chart_period: str = Field(
+        default="daily",
+        description="K线图默认周期：1h、daily、weekly、monthly",
+    )
+    kline_ema_enabled: bool = Field(
+        default=True,
+        description="K线图是否显示EMA",
+    )
+    kline_ema_period: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="K线图EMA周期",
+    )
+    kline_volume_visible: bool = Field(
+        default=True,
+        description="K线图是否显示成交量",
+    )
+    
+    # 行情页配置
+    market_sort: str = Field(
+        default="default",
+        description="行情排序方式：default、pct_desc、pct_asc、volume_desc、amount_desc",
+    )
+    market_filter_stock_only: bool = Field(
+        default=False,
+        description="行情页是否仅显示股票（过滤ETF/指数/基金）",
+    )
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -336,6 +377,21 @@ class RuntimeConfigUpdate(BaseModel):
     
     # Tushare 数据源配置
     tushare_token: Optional[str] = None
+    
+    # 前端UI配置
+    # AI分析页配置
+    ai_source_watchlist: Optional[bool] = None
+    ai_source_selection: Optional[bool] = None
+    
+    # K线图配置
+    kline_chart_period: Optional[str] = None
+    kline_ema_enabled: Optional[bool] = None
+    kline_ema_period: Optional[int] = Field(default=None, ge=1, le=200)
+    kline_volume_visible: Optional[bool] = None
+    
+    # 行情页配置
+    market_sort: Optional[str] = None
+    market_filter_stock_only: Optional[bool] = None
 
 
 def get_runtime_config() -> RuntimeConfig:
