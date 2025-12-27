@@ -93,13 +93,18 @@ def fetch_sh_index_kline(days: int = 365):
         # 写入ClickHouse
         client = get_clickhouse()
         
-        # 先删除旧数据
-        client.execute(f"ALTER TABLE kline_daily DELETE WHERE code = '1A0001' AND market = 'A'")
+        # 先删除旧数据（表名是kline，用period字段区分日线/小时线）
+        client.execute("ALTER TABLE kline DELETE WHERE code = '1A0001' AND market = 'A' AND period = 'daily'")
         print("已清除旧数据")
+        
+        # 添加period字段
+        for r in records:
+            r['period'] = 'daily'
+            r['time'] = r['date']  # 日线的time字段用date填充
         
         # 插入新数据
         df = pd.DataFrame(records)
-        client.insert_df("kline_daily", df)
+        client.insert_df("kline", df)
         
         print(f"已写入 {len(records)} 条K线数据到 kline_daily 表")
         return True
@@ -188,12 +193,16 @@ def fetch_sh_index_kline_hourly(days: int = 30):
         client = get_clickhouse()
         
         # 先删除旧数据
-        client.execute(f"ALTER TABLE kline_1h DELETE WHERE code = '1A0001' AND market = 'A'")
+        client.execute("ALTER TABLE kline DELETE WHERE code = '1A0001' AND market = 'A' AND period = '1h'")
         print("已清除旧的小时K线数据")
+        
+        # 添加period字段
+        for r in records:
+            r['period'] = '1h'
         
         # 插入新数据
         df = pd.DataFrame(records)
-        client.insert_df("kline_1h", df)
+        client.insert_df("kline", df)
         
         print(f"已写入 {len(records)} 条小时K线数据到 kline_1h 表")
         return True
