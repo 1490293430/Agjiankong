@@ -7658,7 +7658,7 @@ async function loadAIAnalysisHistory(page = 1) {
     }
 }
 
-// 下载AI请求历史记录（最近10次）
+// 下载AI请求历史记录（最近1次完整分析）
 async function downloadAIPreviewData() {
     const btn = document.getElementById('ai-preview-btn');
     const originalText = btn?.innerHTML;
@@ -7683,9 +7683,9 @@ async function downloadAIPreviewData() {
             return;
         }
         
-        // 构建下载内容
+        // 构建下载内容（只有1条记录，包含完整的分析数据）
         const content = {
-            _说明: '这是最近10次AI分析的完整请求数据，包括提示词和AI响应',
+            _说明: '这是最近一次AI分析的完整请求数据，包括所有股票的指标和分析结果',
             导出时间: new Date().toISOString(),
             记录数量: history.length,
             历史记录: history,
@@ -7702,7 +7702,8 @@ async function downloadAIPreviewData() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        showToast(`AI请求历史已下载（${history.length}条记录）`, 'success');
+        const totalStocks = history[0]?.total_stocks || history.length;
+        showToast(`AI请求历史已下载（${totalStocks}只股票）`, 'success');
         
     } catch (e) {
         console.error('下载AI历史失败:', e);

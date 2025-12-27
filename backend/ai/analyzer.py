@@ -15,27 +15,19 @@ from common.config import settings
 
 logger = get_logger(__name__)
 
-# AI请求历史记录（保留最近10次）
+# AI请求历史记录（只保留最近1次完整分析）
 AI_REQUEST_HISTORY_KEY = "ai:request:history"
-MAX_REQUEST_HISTORY = 10
+MAX_REQUEST_HISTORY = 1
 
 
 def _save_ai_request_history(request_data: Dict[str, Any]):
-    """保存AI请求数据到Redis（保留最近10次）"""
+    """保存AI请求数据到Redis（只保留最近1次完整分析）"""
     try:
-        from common.redis import get_json, set_json
+        from common.redis import set_json
         
-        history = get_json(AI_REQUEST_HISTORY_KEY) or []
-        
-        # 添加新记录
-        history.insert(0, request_data)
-        
-        # 只保留最近10次
-        if len(history) > MAX_REQUEST_HISTORY:
-            history = history[:MAX_REQUEST_HISTORY]
-        
-        set_json(AI_REQUEST_HISTORY_KEY, history)
-        logger.debug(f"AI请求历史已保存，当前共{len(history)}条记录")
+        # 只保留最近1次，直接覆盖
+        set_json(AI_REQUEST_HISTORY_KEY, [request_data])
+        logger.debug(f"AI请求历史已保存")
     except Exception as e:
         logger.warning(f"保存AI请求历史失败: {e}")
 
@@ -591,12 +583,13 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
         }
 
 
-def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool = False) -> List[Dict[str, Any]]:
+def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool = False, save_history: bool = False) -> List[Dict[str, Any]]:
     """使用 OpenAI 兼容接口批量分析多支股票（一次请求）
     
     Args:
         stocks_data: 股票数据列表，每个元素为 (stock, indicators, news) 的元组
         include_trading_points: 是否包含交易点位
+        save_history: 是否保存到历史记录（默认False，由调用方统一保存）
     
     Returns:
         分析结果列表，顺序与输入一致
@@ -670,33 +663,34 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
             .strip()
         )
         
-        # 记录AI请求历史（批量分析）
-        stocks_summary = [
-            {
-                "code": stock.get("code", ""),
-                "name": stock.get("name", ""),
-                "price": stock.get("price", 0),
-                "pct": stock.get("pct", 0),
-            }
-            for stock, indicators, news in stocks_data
-        ]
-        _save_ai_request_history({
-            "timestamp": datetime.now().isoformat(),
-            "type": "batch",
-            "stocks_count": len(stocks_data),
-            "stocks": stocks_summary,
-            "indicators_sample": stocks_data[0][1] if stocks_data else {},  # 只保存第一只股票的指标作为样本
-            "dynamic_params": dynamic_params,
-            "request": {
-                "url": url,
-                "model": ai_cfg["model"],
-                "temperature": payload["temperature"],
-                "prompt_length": len(prompt),
-            },
-            "prompt": prompt,
-            "response": content,
-            "include_trading_points": include_trading_points,
-        })
+        # 记录AI请求历史（批量分析）- 只在save_history=True时保存
+        if save_history:
+            stocks_summary = [
+                {
+                    "code": stock.get("code", ""),
+                    "name": stock.get("name", ""),
+                    "price": stock.get("price", 0),
+                    "pct": stock.get("pct", 0),
+                }
+                for stock, indicators, news in stocks_data
+            ]
+            _save_ai_request_history({
+                "timestamp": datetime.now().isoformat(),
+                "type": "batch",
+                "stocks_count": len(stocks_data),
+                "stocks": stocks_summary,
+                "indicators_sample": stocks_data[0][1] if stocks_data else {},  # 只保存第一只股票的指标作为样本
+                "dynamic_params": dynamic_params,
+                "request": {
+                    "url": url,
+                    "model": ai_cfg["model"],
+                    "temperature": payload["temperature"],
+                    "prompt_length": len(prompt),
+                },
+                "prompt": prompt,
+                "response": content,
+                "include_trading_points": include_trading_points,
+            })
         
         # 解析JSON数组
         try:

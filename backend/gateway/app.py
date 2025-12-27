@@ -1983,9 +1983,9 @@ async def preview_ai_data_api(
 
 @api_router.get("/ai/request-history")
 async def get_ai_request_history_api():
-    """获取AI请求历史记录（最近10次）
+    """获取AI请求历史记录（最近1次完整分析）
     
-    返回每次AI分析时发送的完整数据，包括提示词和AI响应
+    返回最近一次AI分析时发送的完整数据，包括所有股票的指标和分析结果
     """
     try:
         from ai.analyzer import get_ai_request_history
@@ -2358,6 +2358,60 @@ async def analyze_stock_batch_api(
                 get_redis().set(AI_ANALYSIS_CURRENT_BATCH_KEY, batch_id)
                 
                 logger.info(f"AI分析结果已保存到批次 {batch_id}，共 {len(batch_data)} 只股票")
+                
+                # 保存完整的AI请求历史（一次点击分析保存一条记录）
+                try:
+                    from ai.analyzer import _save_ai_request_history
+                    from ai.parameter_optimizer import get_dynamic_parameters
+                    
+                    # 收集所有股票的摘要信息
+                    all_stocks_summary = [
+                        {
+                            "code": stock.get("code", ""),
+                            "name": stock.get("name", ""),
+                            "price": stock.get("price", 0),
+                            "pct": stock.get("pct", 0),
+                        }
+                        for stock, indicators, news in stocks_data_list
+                    ]
+                    
+                    # 收集所有股票的指标
+                    all_indicators = {
+                        stock.get("code", ""): indicators
+                        for stock, indicators, news in stocks_data_list
+                    }
+                    
+                    # 收集所有分析结果
+                    all_responses = [
+                        {
+                            "code": item.get("code", ""),
+                            "name": item.get("name", ""),
+                            "success": item.get("success", False),
+                            "analysis": item.get("analysis"),
+                        }
+                        for item in results
+                    ]
+                    
+                    # 获取动态参数
+                    dynamic_params = {}
+                    if stocks_data_list:
+                        dynamic_params = get_dynamic_parameters(stocks_data_list[0][1])
+                    
+                    _save_ai_request_history({
+                        "timestamp": now,
+                        "type": "full_analysis",
+                        "batch_id": batch_id,
+                        "total_stocks": len(stocks_data_list),
+                        "success_count": len(batch_data),
+                        "batch_size": ai_batch_size,
+                        "stocks": all_stocks_summary,
+                        "indicators": all_indicators,
+                        "dynamic_params": dynamic_params,
+                        "results": all_responses,
+                    })
+                    logger.info(f"AI请求历史已保存，共 {len(stocks_data_list)} 只股票")
+                except Exception as e:
+                    logger.warning(f"保存AI请求历史失败: {e}")
         except Exception as e:
             logger.error(f"保存AI分析结果到Redis失败: {e}", exc_info=True)
 
