@@ -594,7 +594,8 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
         stock_codes = _get_stock_codes_from_cache()
         if stock_codes:
             before_count = len(kline_data)
-            kline_data = [item for item in kline_data if str(item.get('code', '')) in stock_codes]
+            # 保留股票 + 上证指数（代码1A0001，用于AI分析时参考大盘）
+            kline_data = [item for item in kline_data if str(item.get('code', '')) in stock_codes or str(item.get('code', '')) == '1A0001']
             filtered_count = before_count - len(kline_data)
             if filtered_count > 0:
                 logger.info(f"K线数据过滤非股票: {filtered_count}条，保留: {len(kline_data)}条")
