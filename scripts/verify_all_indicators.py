@@ -236,18 +236,20 @@ def get_all_indicators_from_db(limit: int = None) -> List[Dict]:
         
         client = get_clickhouse()
         
+        # 先获取列名
+        columns_result = client.execute("DESCRIBE indicators")
+        columns = [col[0] for col in columns_result]
+        
         # 获取最新日期的指标数据
         query = """
             SELECT *
-            FROM stock_indicators
-            WHERE date = (SELECT max(date) FROM stock_indicators)
+            FROM indicators
+            WHERE date = (SELECT max(date) FROM indicators)
         """
         if limit:
             query += f" LIMIT {limit}"
         
-        result = client.query(query)
-        rows = list(result.result_rows)
-        columns = result.column_names
+        rows = client.execute(query)
         
         indicators = []
         for row in rows:
@@ -257,6 +259,8 @@ def get_all_indicators_from_db(limit: int = None) -> List[Dict]:
         return indicators
     except Exception as e:
         print(f"获取指标数据失败: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -267,17 +271,19 @@ def get_hourly_indicators_from_db(limit: int = None) -> List[Dict]:
         
         client = get_clickhouse()
         
+        # 先获取列名
+        columns_result = client.execute("DESCRIBE indicators_hourly")
+        columns = [col[0] for col in columns_result]
+        
         query = """
             SELECT *
-            FROM stock_indicators_hourly
-            WHERE date = (SELECT max(date) FROM stock_indicators_hourly)
+            FROM indicators_hourly
+            WHERE date = (SELECT max(date) FROM indicators_hourly)
         """
         if limit:
             query += f" LIMIT {limit}"
         
-        result = client.query(query)
-        rows = list(result.result_rows)
-        columns = result.column_names
+        rows = client.execute(query)
         
         indicators = []
         for row in rows:
