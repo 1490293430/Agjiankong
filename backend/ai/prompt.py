@@ -203,9 +203,23 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 【信号类型说明】
 - "买入"：满足所有条件，可立即入场，必须返回buy_price/sell_price/stop_loss
 - "强烈看多"：多周期共振，信号强烈，但可能不完全满足入场条件，也需返回建议的buy_price/sell_price/stop_loss
-- "关注"：趋势向好但入场时机未到
-- "观望"：不满足条件
-- "回避"：趋势向下
+- "关注"：趋势向好但入场时机未到，需返回参考价格（ref_buy_price/ref_sell_price/ref_stop_loss）和等待条件（wait_conditions）
+- "观望"：不满足条件，不返回价格
+- "回避"：趋势向下，不返回价格
+
+【参考价格说明 - 仅"关注"信号需要】
+对于"关注"信号，必须提供：
+- ref_buy_price: 建议的入场参考价（如回调到MA20或斐波那契38.2%位）
+- ref_sell_price: 建议的止盈参考价（如布林带上轨）
+- ref_stop_loss: 建议的止损参考价（如斐波那契61.8%或近期低点）
+- wait_conditions: 需要等待的入场条件列表（具体、可量化）
+
+【wait_conditions 示例】
+- "小时线RSI回落至50以下后拐头向上"
+- "小时线MACD柱由负转正"
+- "股价回调至MA20({ma20}元)附近获得支撑"
+- "成交量放大至量比>1.5"
+- "小时线KDJ金叉（K上穿D）"
 
 【多周期共振规则（必须明确判断）】
 | 日线状态 | 小时线状态 | 信号 | 说明 |
@@ -299,9 +313,13 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
   "confidence": 0-100之间的整数（参考上述定义）,
   "score": 一个整数评分（-100到100，越高代表越看多）,
   "signal": "买入/强烈看多/关注/观望/回避",
-  "buy_price": 买入价（数字，signal为买入或强烈看多时必填，参考技术位计算，否则为null）,
-  "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，参考布林带上轨，否则为null）,
-  "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，参考斐波那契61.8%或近期低点，否则为null）,
+  "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
+  "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
+  "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
+  "ref_buy_price": 参考买入价（数字，仅signal为关注时必填，建议的入场价位，其他信号为null）,
+  "ref_sell_price": 参考止盈价（数字，仅signal为关注时必填，其他信号为null）,
+  "ref_stop_loss": 参考止损价（数字，仅signal为关注时必填，其他信号为null）,
+  "wait_conditions": ["等待条件1（具体可量化）", "等待条件2"],
   "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
   "advice": "一句话操作建议",
   "summary": "100字以内的综合总结，必须提及关键指标状态",
@@ -523,6 +541,19 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 | 多头 | 下跌中（MACD向下） | 关注 | 等待小时线企稳 |
 | 空头（价<MA60或MA60向下） | 任意 | 观望/回避 | 不符合做多条件 |
 
+【信号类型与价格返回规则】
+- "买入"/"强烈看多"：返回 buy_price/sell_price/stop_loss
+- "关注"：返回 ref_buy_price/ref_sell_price/ref_stop_loss 和 wait_conditions
+- "观望"/"回避"：不返回价格
+
+【wait_conditions 要求】
+仅对"关注"信号，必须提供具体、可量化的等待条件，例如：
+- "小时线RSI回落至50以下后拐头向上"
+- "小时线MACD柱由负转正"
+- "股价回调至MA20附近获得支撑"
+- "成交量放大至量比>1.5"
+- "日线RSI回落至70以下"
+
 【指标使用要求（必须在key_factors中体现）】
 1. RSI超买超卖：RSI>70必须说明"RSI超买"，RSI<30必须说明"RSI超卖"
 2. 成交量：vol_ratio<0.8必须说明"成交量不足"，>1.5说明"放量"
@@ -569,9 +600,13 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
     "confidence": 0-100之间的整数（参考上述定义）,
     "score": -100到100的整数评分,
     "signal": "买入/强烈看多/关注/观望/回避",
-    "buy_price": 买入价（数字，signal为买入或强烈看多时必填，参考技术位计算，否则为null）,
-    "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，参考布林带上轨或斐波那契位，否则为null）,
-    "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，参考斐波那契61.8%或近期低点，否则为null）,
+    "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
+    "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
+    "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
+    "ref_buy_price": 参考买入价（数字，仅signal为关注时必填，建议的入场价位，其他信号为null）,
+    "ref_sell_price": 参考止盈价（数字，仅signal为关注时必填，其他信号为null）,
+    "ref_stop_loss": 参考止损价（数字，仅signal为关注时必填，其他信号为null）,
+    "wait_conditions": ["等待条件1（具体可量化）", "等待条件2"],
     "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
     "advice": "一句话操作建议",
     "summary": "100字以内的综合总结，必须提及关键指标状态",

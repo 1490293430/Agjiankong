@@ -2525,6 +2525,13 @@ async def analyze_stock_batch_api(
             except Exception as e:
                 logger.error(f"发送 AI 分析通知失败: {e}", exc_info=True)
 
+        # 按信号优先级排序：买入 > 强烈看多 > 关注 > 观望 > 回避，同信号按置信度降序
+        signal_priority = {"买入": 0, "强烈看多": 1, "关注": 2, "观望": 3, "回避": 4}
+        results.sort(key=lambda x: (
+            signal_priority.get(x.get("analysis", {}).get("signal", "观望"), 3),
+            -x.get("analysis", {}).get("confidence", 0)
+        ))
+
         return {"code": 0, "data": results, "message": "success"}
     except Exception as e:
         logger.error(f"批量分析股票失败: {e}", exc_info=True)

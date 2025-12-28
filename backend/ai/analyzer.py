@@ -525,6 +525,10 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
                 "buy_price": None,
                 "sell_price": None,
                 "stop_loss": None,
+                "ref_buy_price": None,
+                "ref_sell_price": None,
+                "ref_stop_loss": None,
+                "wait_conditions": [],
                 "reason": "AI返回格式错误"
             }
 
@@ -551,16 +555,38 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
                 result["stop_loss"] = parsed.get("stop_loss")
                 result["reason"] = parsed.get("reason", "符合三重过滤趋势波段系统" if signal == "买入" else "多周期共振，信号强烈")
                 result["indicators"] = indicators  # 传递指标用于RSI检查
+                result["wait_conditions"] = []  # 买入信号无需等待条件
                 
                 # 只有买入信号才进行严格验证，强烈看多信号保留AI返回的建议价格
                 if signal == "买入":
                     validated = validate_trading_signals(result, dynamic_params=dynamic_params)
                     result = validated
+            elif signal in ["关注", "观望"]:
+                # 只有关注信号返回参考价格和等待条件，观望不返回
+                result["buy_price"] = None
+                result["sell_price"] = None
+                result["stop_loss"] = None
+                if signal == "关注":
+                    result["ref_buy_price"] = parsed.get("ref_buy_price")
+                    result["ref_sell_price"] = parsed.get("ref_sell_price")
+                    result["ref_stop_loss"] = parsed.get("ref_stop_loss")
+                    result["wait_conditions"] = parsed.get("wait_conditions", [])
+                    result["reason"] = parsed.get("reason", "趋势向好但入场时机未到，需等待条件满足")
+                else:
+                    result["ref_buy_price"] = None
+                    result["ref_sell_price"] = None
+                    result["ref_stop_loss"] = None
+                    result["wait_conditions"] = []
+                    result["reason"] = parsed.get("reason", "不符合三重过滤系统入场条件")
             else:
                 result["buy_price"] = None
                 result["sell_price"] = None
                 result["stop_loss"] = None
-                result["reason"] = parsed.get("reason", "不符合三重过滤系统入场条件")
+                result["ref_buy_price"] = None
+                result["ref_sell_price"] = None
+                result["ref_stop_loss"] = None
+                result["wait_conditions"] = []
+                result["reason"] = parsed.get("reason", "趋势向下，不符合做多条件")
             
             # 记录信号到监控系统
             _monitor.record_signal(result)
@@ -582,6 +608,10 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             "buy_price": None,
             "sell_price": None,
             "stop_loss": None,
+            "ref_buy_price": None,
+            "ref_sell_price": None,
+            "ref_stop_loss": None,
+            "wait_conditions": [],
             "reason": "API超时"
         }
     except Exception as e:
@@ -599,6 +629,10 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             "buy_price": None,
             "sell_price": None,
             "stop_loss": None,
+            "ref_buy_price": None,
+            "ref_sell_price": None,
+            "ref_stop_loss": None,
+            "wait_conditions": [],
             "reason": "AI接口错误"
         }
 
@@ -636,6 +670,10 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                 "buy_price": None,
                 "sell_price": None,
                 "stop_loss": None,
+                "ref_buy_price": None,
+                "ref_sell_price": None,
+                "ref_stop_loss": None,
+                "wait_conditions": [],
                 "reason": "AI未配置"
             }
             for stock, indicators, news in stocks_data
@@ -750,6 +788,10 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                         "buy_price": None,
                         "sell_price": None,
                         "stop_loss": None,
+                        "ref_buy_price": None,
+                        "ref_sell_price": None,
+                        "ref_stop_loss": None,
+                        "wait_conditions": [],
                         "reason": "AI返回结果数量不足"
                     })
                 # 截断多余的结果
@@ -789,16 +831,46 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                             "sell_price": result.get("sell_price"),
                             "stop_loss": result.get("stop_loss"),
                             "reason": result.get("reason", "符合三重过滤趋势波段系统" if signal == "买入" else "多周期共振，信号强烈"),
+                            "wait_conditions": [],
                         })
                         # 只有买入信号才进行严格验证，强烈看多信号保留AI返回的建议价格
                         if signal == "买入":
                             final_result = validate_trading_signals(final_result, dynamic_params)
+                    elif signal in ["关注", "观望"]:
+                        # 只有关注信号返回参考价格和等待条件，观望不返回
+                        if signal == "关注":
+                            final_result.update({
+                                "buy_price": None,
+                                "sell_price": None,
+                                "stop_loss": None,
+                                "ref_buy_price": result.get("ref_buy_price"),
+                                "ref_sell_price": result.get("ref_sell_price"),
+                                "ref_stop_loss": result.get("ref_stop_loss"),
+                                "wait_conditions": result.get("wait_conditions", []),
+                                "reason": result.get("reason", "趋势向好但入场时机未到，需等待条件满足"),
+                            })
+                        else:
+                            final_result.update({
+                                "buy_price": None,
+                                "sell_price": None,
+                                "stop_loss": None,
+                                "ref_buy_price": None,
+                                "ref_sell_price": None,
+                                "ref_stop_loss": None,
+                                "wait_conditions": [],
+                                "reason": result.get("reason", "不符合三重过滤系统入场条件"),
+                            })
                     else:
+                        # 回避信号
                         final_result.update({
                             "buy_price": None,
                             "sell_price": None,
                             "stop_loss": None,
-                            "reason": result.get("reason", "不符合三重过滤系统入场条件"),
+                            "ref_buy_price": None,
+                            "ref_sell_price": None,
+                            "ref_stop_loss": None,
+                            "wait_conditions": [],
+                            "reason": result.get("reason", "趋势向下，不符合做多条件"),
                         })
                 else:
                     # 不包含交易点位时，也要有这些字段（设为None），保持格式一致
@@ -831,6 +903,10 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                     "buy_price": None,
                     "sell_price": None,
                     "stop_loss": None,
+                    "ref_buy_price": None,
+                    "ref_sell_price": None,
+                    "ref_stop_loss": None,
+                    "wait_conditions": [],
                     "reason": "AI返回格式错误"
                 }
                 for stock, indicators, news in stocks_data
@@ -854,6 +930,10 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                 "buy_price": None,
                 "sell_price": None,
                 "stop_loss": None,
+                "ref_buy_price": None,
+                "ref_sell_price": None,
+                "ref_stop_loss": None,
+                "wait_conditions": [],
                 "reason": "API超时"
             }
             for stock, indicators, news in stocks_data
@@ -876,6 +956,10 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                 "buy_price": None,
                 "sell_price": None,
                 "stop_loss": None,
+                "ref_buy_price": None,
+                "ref_sell_price": None,
+                "ref_stop_loss": None,
+                "wait_conditions": [],
                 "reason": "AI接口错误"
             }
             for stock, indicators, news in stocks_data
