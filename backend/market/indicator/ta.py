@@ -750,13 +750,18 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     
     # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
     def convert_numpy_types(value):
+        # 跳过列表/数组类型（如 recent_5d_pct, recent_5d_vol 等）
+        if isinstance(value, (list, np.ndarray)):
+            return value
         if isinstance(value, np.integer):
             return int(value)
         elif isinstance(value, np.floating):
             return float(value)
         elif isinstance(value, np.bool_):
             return bool(value)
-        elif pd.isna(value):
+        elif value is None:
+            return None
+        elif isinstance(value, float) and pd.isna(value):
             return None
         return value
     

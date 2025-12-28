@@ -463,7 +463,7 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             "temperature": 0.2 if not include_trading_points else 0.3,
         }
 
-        resp = requests.post(url, headers=headers, json=payload, timeout=300)  # 5分钟超时
+        resp = requests.post(url, headers=headers, json=payload, timeout=None)  # 不限时
         resp.raise_for_status()
         data = resp.json()
 
@@ -672,7 +672,7 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
             "temperature": 0.2 if not include_trading_points else 0.3,
         }
         
-        resp = requests.post(url, headers=headers, json=payload, timeout=300)  # 5分钟超时（批量分析需要更长时间）
+        resp = requests.post(url, headers=headers, json=payload, timeout=None)  # 不限时（批量分析需要更长时间）
         resp.raise_for_status()
         data = resp.json()
         
