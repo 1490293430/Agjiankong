@@ -1252,6 +1252,16 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             ]]
         )
         
+        # 清理旧指标数据（只保留最近2天：今天和昨天）
+        try:
+            cutoff_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+            client.execute(
+                "ALTER TABLE indicators DELETE WHERE code = %(code)s AND market = %(market)s AND period = %(period)s AND date < %(cutoff)s",
+                {'code': code, 'market': market.upper(), 'period': period, 'cutoff': cutoff_date}
+            )
+        except Exception as cleanup_err:
+            logger.debug(f"清理旧指标数据失败 {code}: {cleanup_err}")
+        
         return True
     except Exception as e:
         logger.error(f"保存指标失败 {code}: {e}", exc_info=True)
@@ -1408,13 +1418,13 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
                 pass
 
 
-def get_indicator_history(code: str, market: str, days: int = 7, period: str = "daily") -> List[Dict[str, Any]]:
+def get_indicator_history(code: str, market: str, days: int = 2, period: str = "daily") -> List[Dict[str, Any]]:
     """获取最近N天的历史指标数据（用于AI分析趋势）
     
     Args:
         code: 股票代码
         market: 市场类型（A或HK）
-        days: 获取天数，默认7天
+        days: 获取天数，默认2天（只保留今天和昨天）
         period: K线周期，daily（日线）或 1h（小时线），默认 daily
     
     Returns:

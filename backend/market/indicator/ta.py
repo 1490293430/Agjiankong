@@ -6,13 +6,16 @@ import numpy as np
 from typing import Dict, Any, Optional, List
 
 
-def calculate_trend_direction(current_value: float, previous_value: float, threshold: Optional[float] = None) -> str:
+def calculate_trend_direction(current_value: float, previous_value: float, threshold: Optional[float] = None, lookback_values: Optional[List[float]] = None) -> str:
     """更稳健的趋势判断，避免微小波动干扰
+    
+    改进：支持多日回溯判断趋势，避免单日波动误判
     
     Args:
         current_value: 当前值
         previous_value: 前一个值
         threshold: 变化阈值（如果为None，尝试从动态参数获取，默认0.1%）
+        lookback_values: 可选的历史值列表（从旧到新），用于更准确的趋势判断
     
     Returns:
         "up" - 向上趋势
@@ -31,6 +34,24 @@ def calculate_trend_direction(current_value: float, previous_value: float, thres
         except Exception:
             threshold = 0.001  # 默认0.1%
     
+    # 如果提供了历史值列表，使用多日趋势判断
+    if lookback_values and len(lookback_values) >= 3:
+        # 计算最近几天的斜率方向
+        up_count = 0
+        down_count = 0
+        for i in range(1, len(lookback_values)):
+            if lookback_values[i] > lookback_values[i-1]:
+                up_count += 1
+            elif lookback_values[i] < lookback_values[i-1]:
+                down_count += 1
+        
+        # 多数决定趋势方向
+        if up_count > down_count and up_count >= len(lookback_values) // 2:
+            return "up"
+        elif down_count > up_count and down_count >= len(lookback_values) // 2:
+            return "down"
+    
+    # 单日变化判断
     change = (current_value - previous_value) / previous_value
     if change > threshold:
         return "up"
@@ -60,19 +81,29 @@ def ema(df: pd.DataFrame, n: int = 12, column: str = "close") -> pd.Series:
 
 
 def macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, pd.Series]:
-    """计算MACD指标
+    """计算MACD指标（中国A股标准）
+    
+    计算公式：
+    - DIF = EMA(fast) - EMA(slow)
+    - DEA = EMA(DIF, signal)
+    - MACD柱 = 2 * (DIF - DEA)  ← 中国股市标准，乘以2放大柱状图
+    
+    注意：国际标准是 MACD柱 = DIF - DEA（不乘以2）
+    中国标准乘以2是为了与同花顺、通达信等国内软件保持一致
     
     Returns:
         {
             "dif": DIF线,
             "dea": DEA线,
-            "macd": MACD柱
+            "macd": MACD柱（直方图，已乘以2）
         }
     """
     ema_fast = ema(df, fast)
     ema_slow = ema(df, slow)
     dif = ema_fast - ema_slow
     dea = dif.ewm(span=signal, adjust=False).mean()
+    # 中国A股标准：MACD柱 = 2 * (DIF - DEA)
+    # 与同花顺、通达信、东方财富等国内软件保持一致
     macd_value = 2 * (dif - dea)
     
     return {
@@ -437,13 +468,9 @@ def calculate_ma60_only(df: pd.DataFrame) -> Dict[str, Any] | None:
         "current_close": current_price
     }
     
-    # 计算MA60趋势（需要至少61根K线）
+    # 提供前一天的MA60值，让AI自己判断趋势
     if len(df) >= 61:
-        ma60_prev = float(ma60_series.iloc[-2])
-        trend = calculate_trend_direction(result["ma60"], ma60_prev)
-        result["ma60_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-    else:
-        result["ma60_trend"] = "未知"
+        result["ma60_prev"] = float(ma60_series.iloc[-2])
     
     return result
 
@@ -463,7 +490,7 @@ def calculate_multi_timeframe_indicators(
         hourly_df: 小时线数据DataFrame（可选）
     
     Returns:
-        包含多周期指标的字典
+        包含多周期指标的字典（只包含数值，不包含预判）
     """
     result = {}
     
@@ -473,20 +500,6 @@ def calculate_multi_timeframe_indicators(
         # 添加日线前缀
         for key, value in daily_indicators.items():
             result[f"daily_{key}"] = value
-        
-        # 日线趋势判断
-        result["daily_trend_direction"] = "未知"
-        ma60 = daily_indicators.get("ma60")
-        ma60_trend = daily_indicators.get("ma60_trend")
-        current_close = daily_indicators.get("current_close")
-        
-        if ma60 and current_close:
-            if current_close > ma60 and ma60_trend == "向上":
-                result["daily_trend_direction"] = "多头"
-            elif current_close < ma60 and ma60_trend == "向下":
-                result["daily_trend_direction"] = "空头"
-            else:
-                result["daily_trend_direction"] = "震荡"
     
     # 2. 计算小时线指标（小周期入场）
     if hourly_df is not None and len(hourly_df) >= 20:
@@ -494,62 +507,8 @@ def calculate_multi_timeframe_indicators(
         # 添加小时线前缀
         for key, value in hourly_indicators.items():
             result[f"hourly_{key}"] = value
-        
-        # 小时线趋势判断
-        result["hourly_trend_direction"] = "未知"
-        ma20 = hourly_indicators.get("ma20")
-        ma20_trend = hourly_indicators.get("ma20_trend")
-        current_close = hourly_indicators.get("current_close")
-        
-        if ma20 and current_close:
-            if current_close > ma20 and ma20_trend == "向上":
-                result["hourly_trend_direction"] = "多头"
-            elif current_close < ma20 and ma20_trend == "向下":
-                result["hourly_trend_direction"] = "空头"
-            else:
-                result["hourly_trend_direction"] = "震荡"
     
-    # 3. 多周期共振判断
-    if "daily_trend_direction" in result and "hourly_trend_direction" in result:
-        daily_trend = result["daily_trend_direction"]
-        hourly_trend = result["hourly_trend_direction"]
-        
-        if daily_trend == "多头" and hourly_trend == "多头":
-            result["multi_tf_signal"] = "强烈看多"
-            result["multi_tf_resonance"] = True
-        elif daily_trend == "空头" and hourly_trend == "空头":
-            result["multi_tf_signal"] = "强烈看空"
-            result["multi_tf_resonance"] = True
-        elif daily_trend == "多头" and hourly_trend in ["震荡", "空头"]:
-            result["multi_tf_signal"] = "等待回调买入"
-            result["multi_tf_resonance"] = False
-        elif daily_trend == "空头" and hourly_trend in ["震荡", "多头"]:
-            result["multi_tf_signal"] = "反弹做空或观望"
-            result["multi_tf_resonance"] = False
-        else:
-            result["multi_tf_signal"] = "观望"
-            result["multi_tf_resonance"] = False
-    
-    # 4. 入场时机判断（基于小时线）
-    if hourly_df is not None and len(hourly_df) >= 20:
-        hourly_rsi = result.get("hourly_rsi")
-        hourly_kdj_j = result.get("hourly_kdj_j")
-        hourly_macd_dif_trend = result.get("hourly_macd_dif_trend")
-        daily_trend = result.get("daily_trend_direction")
-        
-        entry_signals = []
-        
-        # 日线多头 + 小时线超卖 = 买入时机
-        if daily_trend == "多头":
-            if hourly_rsi and hourly_rsi < 30:
-                entry_signals.append("小时线RSI超卖")
-            if hourly_kdj_j and hourly_kdj_j < 20:
-                entry_signals.append("小时线KDJ超卖")
-            if hourly_macd_dif_trend == "向上":
-                entry_signals.append("小时线MACD拐头向上")
-        
-        result["entry_signals"] = entry_signals
-        result["entry_timing"] = "良好" if len(entry_signals) >= 2 else ("一般" if len(entry_signals) == 1 else "等待")
+    # 不再进行趋势预判和多周期共振判断，让AI自己分析
     
     return result
 
@@ -561,7 +520,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         df: 包含OHLCV数据的DataFrame
     
     Returns:
-        包含所有指标的字典
+        包含所有指标的字典（只包含数值，不包含预判）
     """
     if df.empty or len(df) < 2:
         return {}
@@ -592,38 +551,15 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     result["ma20"] = float(ma20_series.iloc[-1]) if len(df) >= 20 else None
     result["ma60"] = float(ma60_series.iloc[-1]) if len(df) >= 60 else None
     
-    # 均线趋势方向（使用稳健的趋势判断函数）
-    if len(df) >= 5:
-        ma5_prev = float(ma5_series.iloc[-2]) if len(df) >= 6 else None
-        if ma5_prev:
-            trend = calculate_trend_direction(result["ma5"], ma5_prev)
-            result["ma5_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-        else:
-            result["ma5_trend"] = "未知"
-    
-    if len(df) >= 10:
-        ma10_prev = float(ma10_series.iloc[-2]) if len(df) >= 11 else None
-        if ma10_prev:
-            trend = calculate_trend_direction(result["ma10"], ma10_prev)
-            result["ma10_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-        else:
-            result["ma10_trend"] = "未知"
-    
-    if len(df) >= 20:
-        ma20_prev = float(ma20_series.iloc[-2]) if len(df) >= 21 else None
-        if ma20_prev:
-            trend = calculate_trend_direction(result["ma20"], ma20_prev)
-            result["ma20_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-        else:
-            result["ma20_trend"] = "未知"
-    
-    if len(df) >= 60:
-        ma60_prev = float(ma60_series.iloc[-2]) if len(df) >= 61 else None
-        if ma60_prev:
-            trend = calculate_trend_direction(result["ma60"], ma60_prev)
-            result["ma60_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-        else:
-            result["ma60_trend"] = "未知"
+    # 提供前一天的MA值，让AI自己判断趋势方向
+    if len(df) >= 6:
+        result["ma5_prev"] = float(ma5_series.iloc[-2])
+    if len(df) >= 11:
+        result["ma10_prev"] = float(ma10_series.iloc[-2])
+    if len(df) >= 21:
+        result["ma20_prev"] = float(ma20_series.iloc[-2])
+    if len(df) >= 61:
+        result["ma60_prev"] = float(ma60_series.iloc[-2])
     
     # MACD
     if len(df) >= 26:
@@ -632,12 +568,10 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["macd_dea"] = float(macd_data["dea"].iloc[-1])
         result["macd"] = float(macd_data["macd"].iloc[-1])
         
-        # MACD趋势方向（使用稳健的趋势判断）
+        # 提供前一天的MACD值，让AI自己判断趋势
         if len(df) >= 27:
-            macd_dif_prev = float(macd_data["dif"].iloc[-2])
-            trend = calculate_trend_direction(result["macd_dif"], macd_dif_prev)
-            result["macd_dif_trend"] = "向上" if trend == "up" else ("向下" if trend == "down" else "持平")
-            result["macd_prev"] = float(macd_data["macd"].iloc[-2])  # 前一天的MACD柱，用于判断绿柱是否缩短
+            result["macd_dif_prev"] = float(macd_data["dif"].iloc[-2])
+            result["macd_prev"] = float(macd_data["macd"].iloc[-2])
     
     # RSI
     if len(df) >= 14:
@@ -696,8 +630,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         prev_width = float(boll_width.iloc[-2]) if len(df) >= 21 else current_width
         result["boll_width"] = current_width
         result["boll_width_prev"] = prev_width
-        result["boll_expanding"] = bool(current_width > prev_width)  # 开口，转换为Python bool
-        result["boll_contracting"] = bool(current_width < prev_width)  # 收口，转换为Python bool
+        # 移除预判，让AI自己判断开口/收口
     
     # EMA指数移动平均线
     if len(df) >= 12:
@@ -728,28 +661,17 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["adx"] = float(adx_data["adx"].iloc[-1])
         result["plus_di"] = float(adx_data["plus_di"].iloc[-1])
         result["minus_di"] = float(adx_data["minus_di"].iloc[-1])
-        # ADX趋势判断
+        # 提供前一天的ADX值，让AI自己判断趋势
         if len(df) >= 29:
-            adx_prev = float(adx_data["adx"].iloc[-2])
-            result["adx_prev"] = adx_prev
-            result["adx_rising"] = bool(result["adx"] > adx_prev)  # ADX上升表示趋势增强
+            result["adx_prev"] = float(adx_data["adx"].iloc[-2])
     
     # CCI顺势指标
     if len(df) >= 20:
         cci_series = cci(df, 20)
         result["cci"] = float(cci_series.iloc[-1])
-        # CCI状态判断
-        if result["cci"] > 100:
-            result["cci_status"] = "超买"
-        elif result["cci"] < -100:
-            result["cci_status"] = "超卖"
-        else:
-            result["cci_status"] = "正常"
-        # CCI趋势
+        # 提供前一天的CCI值，让AI自己判断状态和趋势
         if len(df) >= 21:
-            cci_prev = float(cci_series.iloc[-2])
-            result["cci_prev"] = cci_prev
-            result["cci_rising"] = bool(result["cci"] > cci_prev)
+            result["cci_prev"] = float(cci_series.iloc[-2])
     
     # 斐波那契回撤位
     if len(df) >= 20:
@@ -761,8 +683,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         result["fib_500"] = fib_data["fib_500"]
         result["fib_618"] = fib_data["fib_618"]
         result["fib_786"] = fib_data["fib_786"]
-        result["fib_trend"] = fib_data["trend"]
-        result["fib_current_level"] = fib_data["current_fib_level"]
+        # 移除预判，让AI自己判断趋势和当前区间
     
     # 一目均衡表（Ichimoku Cloud）
     if len(df) >= 52:
@@ -779,27 +700,18 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         if pd.notna(senkou_b):
             result["ichimoku_senkou_b"] = float(senkou_b)
         
-        # 判断价格与云层的关系
+        # 提供云层顶部和底部的数值，让AI自己判断价格与云层的关系
         current_close = float(latest["close"])
         if pd.notna(senkou_a) and pd.notna(senkou_b):
-            cloud_top = max(float(senkou_a), float(senkou_b))
-            cloud_bottom = min(float(senkou_a), float(senkou_b))
-            result["ichimoku_above_cloud"] = bool(current_close > cloud_top)  # 价格在云上
-            result["ichimoku_below_cloud"] = bool(current_close < cloud_bottom)  # 价格在云下
-            result["ichimoku_in_cloud"] = bool(cloud_bottom <= current_close <= cloud_top)  # 价格在云中
+            result["ichimoku_cloud_top"] = max(float(senkou_a), float(senkou_b))
+            result["ichimoku_cloud_bottom"] = min(float(senkou_a), float(senkou_b))
         
-        # 转换线与基准线的交叉判断
+        # 提供前一天的转换线和基准线值，让AI自己判断交叉
         if len(df) >= 53:
-            tenkan_prev = float(ichimoku_data["tenkan_sen"].iloc[-2])
-            kijun_prev = float(ichimoku_data["kijun_sen"].iloc[-2])
-            tenkan_curr = result["ichimoku_tenkan"]
-            kijun_curr = result["ichimoku_kijun"]
-            # 转换线上穿基准线（金叉）
-            result["ichimoku_tk_cross_up"] = bool(tenkan_prev <= kijun_prev and tenkan_curr > kijun_curr)
-            # 转换线下穿基准线（死叉）
-            result["ichimoku_tk_cross_down"] = bool(tenkan_prev >= kijun_prev and tenkan_curr < kijun_curr)
+            result["ichimoku_tenkan_prev"] = float(ichimoku_data["tenkan_sen"].iloc[-2])
+            result["ichimoku_kijun_prev"] = float(ichimoku_data["kijun_sen"].iloc[-2])
     
-    # ========== 历史5天趋势摘要（简洁版，用于AI分析） ==========
+    # ========== 历史5天数据（只提供数值，让AI自己判断趋势） ==========
     if len(df) >= 6:
         # 最近5天的涨跌幅列表
         recent_5_pct = []
@@ -812,25 +724,6 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
                     recent_5_pct.append(pct)
         result["recent_5d_pct"] = recent_5_pct  # 例如: [1.2, -0.5, 2.1, 0.3, -1.0]
         
-        # 连续涨跌天数
-        consecutive_up = 0
-        consecutive_down = 0
-        for pct in reversed(recent_5_pct):
-            if pct > 0:
-                if consecutive_down == 0:
-                    consecutive_up += 1
-                else:
-                    break
-            elif pct < 0:
-                if consecutive_up == 0:
-                    consecutive_down += 1
-                else:
-                    break
-            else:
-                break
-        result["consecutive_up_days"] = consecutive_up  # 连续上涨天数
-        result["consecutive_down_days"] = consecutive_down  # 连续下跌天数
-        
         # 5天累计涨跌幅
         if len(df) >= 6:
             close_5d_ago = float(df.iloc[-6]["close"])
@@ -838,56 +731,22 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Any]:
             if close_5d_ago > 0:
                 result["pct_5d"] = round((close_now - close_5d_ago) / close_5d_ago * 100, 2)
     
-    # 最近5天成交量变化趋势
+    # 最近5天成交量数据（只提供数值，让AI自己判断趋势）
     if len(df) >= 6 and "volume" in df.columns:
         recent_5_vol = [float(df.iloc[-i]["volume"]) for i in range(5, 0, -1)]
+        result["recent_5d_vol"] = recent_5_vol  # 最近5天的成交量列表
+        
+        # 计算成交量变化比例（数值）
         avg_vol_prev = sum(recent_5_vol[:3]) / 3 if len(recent_5_vol) >= 3 else recent_5_vol[0]
         avg_vol_recent = sum(recent_5_vol[-2:]) / 2 if len(recent_5_vol) >= 2 else recent_5_vol[-1]
-        
         if avg_vol_prev > 0:
-            vol_change = (avg_vol_recent - avg_vol_prev) / avg_vol_prev
-            if vol_change > 0.3:
-                result["vol_trend_5d"] = "明显放量"
-            elif vol_change > 0.1:
-                result["vol_trend_5d"] = "温和放量"
-            elif vol_change < -0.3:
-                result["vol_trend_5d"] = "明显缩量"
-            elif vol_change < -0.1:
-                result["vol_trend_5d"] = "温和缩量"
-            else:
-                result["vol_trend_5d"] = "持平"
+            result["vol_change_ratio"] = round((avg_vol_recent - avg_vol_prev) / avg_vol_prev, 2)
     
-    # MACD柱状图连续变化（判断是否连续放大/缩小）
+    # MACD柱状图最近5天的数值（让AI自己判断趋势）
     if len(df) >= 30:
         macd_data = macd(df)
-        macd_bars = macd_data["macd"].tail(5).tolist()
-        
-        # 判断MACD柱是否连续放大或缩小
-        macd_expanding = True  # 柱状图绝对值连续放大
-        macd_contracting = True  # 柱状图绝对值连续缩小
-        
-        for i in range(1, len(macd_bars)):
-            if abs(macd_bars[i]) <= abs(macd_bars[i-1]):
-                macd_expanding = False
-            if abs(macd_bars[i]) >= abs(macd_bars[i-1]):
-                macd_contracting = False
-        
-        # 判断红柱/绿柱
-        current_macd = macd_bars[-1] if macd_bars else 0
-        if current_macd > 0:
-            if macd_expanding:
-                result["macd_bar_trend"] = "红柱连续放大"
-            elif macd_contracting:
-                result["macd_bar_trend"] = "红柱连续缩小"
-            else:
-                result["macd_bar_trend"] = "红柱"
-        else:
-            if macd_expanding:
-                result["macd_bar_trend"] = "绿柱连续放大"
-            elif macd_contracting:
-                result["macd_bar_trend"] = "绿柱连续缩小"
-            else:
-                result["macd_bar_trend"] = "绿柱"
+        macd_bars = [round(float(v), 4) for v in macd_data["macd"].tail(5).tolist()]
+        result["recent_5d_macd"] = macd_bars  # 最近5天的MACD柱值
     
     # 确保所有值都是Python原生类型（防止numpy类型导致序列化错误）
     def convert_numpy_types(value):

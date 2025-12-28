@@ -71,16 +71,22 @@ class DynamicParameterOptimizer:
                 else:
                     scores["normal"] += 1
         
-        # 2. 趋势强度检测
-        ma5_trend = indicators.get("ma5_trend", "")
-        ma20_trend = indicators.get("ma20_trend", "")
-        ma60_trend = indicators.get("ma60_trend", "")
+        # 2. 趋势强度检测（使用当前值和前值比较来判断趋势方向）
+        ma5 = indicators.get("ma5")
+        ma5_prev = indicators.get("ma5_prev")
+        ma20 = indicators.get("ma20")
+        ma20_prev = indicators.get("ma20_prev")
+        ma60 = indicators.get("ma60")
+        ma60_prev = indicators.get("ma60_prev")
         
-        # 检查均线是否一致向上
-        up_trend_count = sum([
-            1 for trend in [ma5_trend, ma20_trend, ma60_trend] 
-            if trend == "向上"
-        ])
+        # 检查均线是否一致向上（当前值 > 前值）
+        up_trend_count = 0
+        if ma5 and ma5_prev and ma5 > ma5_prev:
+            up_trend_count += 1
+        if ma20 and ma20_prev and ma20 > ma20_prev:
+            up_trend_count += 1
+        if ma60 and ma60_prev and ma60 > ma60_prev:
+            up_trend_count += 1
         
         if up_trend_count >= 2:
             scores["trending"] += 2
@@ -107,11 +113,11 @@ class DynamicParameterOptimizer:
             else:
                 scores["normal"] += 1
         
-        # 5. MACD检测
+        # 5. MACD检测（使用当前值和前值比较来判断趋势方向）
         macd_dif = indicators.get("macd_dif")
-        macd_dif_trend = indicators.get("macd_dif_trend", "")
+        macd_dif_prev = indicators.get("macd_dif_prev")
         
-        if macd_dif and macd_dif_trend == "向上":
+        if macd_dif and macd_dif_prev and macd_dif > macd_dif_prev:
             if macd_dif > 0:
                 scores["trending"] += 1
             else:

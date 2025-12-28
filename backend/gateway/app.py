@@ -1043,7 +1043,12 @@ def _check_single_filter(filter_type: str, config: dict, stock: dict, indicators
     elif filter_type == "boll":
         condition = config.get("boll_condition", "expanding")
         if condition == "expanding":
-            return indicators.get("boll_expanding", False)
+            # 使用布林带宽度判断开口/收口
+            boll_width = indicators.get("boll_width")
+            boll_width_prev = indicators.get("boll_width_prev")
+            if boll_width is None or boll_width_prev is None:
+                return False
+            return boll_width > boll_width_prev  # 宽度增加表示开口
         elif condition == "above_mid":
             boll_middle = indicators.get("boll_middle")
             return boll_middle and current_price > boll_middle
@@ -1856,43 +1861,8 @@ async def analyze_stock_api(
                     if key not in ["code", "market", "date", "period", "update_time"]:
                         indicators[f"hourly_{key}"] = value
                 
-                # 添加趋势判断
-                indicators["daily_trend_direction"] = "未知"
-                ma60 = indicators.get("ma60")
-                ma60_trend = indicators.get("ma60_trend")
-                current_close = indicators.get("current_close")
-                if ma60 and current_close:
-                    if current_close > ma60 and ma60_trend == "向上":
-                        indicators["daily_trend_direction"] = "多头"
-                    elif current_close < ma60 and ma60_trend == "向下":
-                        indicators["daily_trend_direction"] = "空头"
-                    else:
-                        indicators["daily_trend_direction"] = "震荡"
-                
-                indicators["hourly_trend_direction"] = "未知"
-                hourly_ma20 = hourly_indicators.get("ma20")
-                hourly_ma20_trend = hourly_indicators.get("ma20_trend")
-                hourly_close = hourly_indicators.get("current_close")
-                if hourly_ma20 and hourly_close:
-                    if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
-                        indicators["hourly_trend_direction"] = "多头"
-                    elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
-                        indicators["hourly_trend_direction"] = "空头"
-                    else:
-                        indicators["hourly_trend_direction"] = "震荡"
-                
-                # 多周期共振判断
-                daily_trend = indicators.get("daily_trend_direction", "未知")
-                hourly_trend = indicators.get("hourly_trend_direction", "未知")
-                if daily_trend == "多头" and hourly_trend == "多头":
-                    indicators["multi_tf_signal"] = "强烈看多"
-                    indicators["multi_tf_resonance"] = True
-                elif daily_trend == "空头" and hourly_trend == "空头":
-                    indicators["multi_tf_signal"] = "强烈看空"
-                    indicators["multi_tf_resonance"] = True
-                else:
-                    indicators["multi_tf_signal"] = "观望"
-                    indicators["multi_tf_resonance"] = False
+                # 不再进行趋势预判，只提供数值数据，让AI自己判断
+                # 移除了 daily_trend_direction, hourly_trend_direction, multi_tf_signal, multi_tf_resonance
             else:
                 # 数据库没有小时线指标，记录警告但继续使用日线指标
                 logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
@@ -2046,43 +2016,8 @@ async def preview_ai_data_api(
                     if key not in ["code", "market", "date", "period", "update_time"]:
                         indicators[f"hourly_{key}"] = value
                 
-                # 添加趋势判断
-                indicators["daily_trend_direction"] = "未知"
-                ma60 = indicators.get("ma60")
-                ma60_trend = indicators.get("ma60_trend")
-                current_close = indicators.get("current_close")
-                if ma60 and current_close:
-                    if current_close > ma60 and ma60_trend == "向上":
-                        indicators["daily_trend_direction"] = "多头"
-                    elif current_close < ma60 and ma60_trend == "向下":
-                        indicators["daily_trend_direction"] = "空头"
-                    else:
-                        indicators["daily_trend_direction"] = "震荡"
-                
-                indicators["hourly_trend_direction"] = "未知"
-                hourly_ma20 = hourly_indicators.get("ma20")
-                hourly_ma20_trend = hourly_indicators.get("ma20_trend")
-                hourly_close = hourly_indicators.get("current_close")
-                if hourly_ma20 and hourly_close:
-                    if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
-                        indicators["hourly_trend_direction"] = "多头"
-                    elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
-                        indicators["hourly_trend_direction"] = "空头"
-                    else:
-                        indicators["hourly_trend_direction"] = "震荡"
-                
-                # 多周期共振判断
-                daily_trend = indicators.get("daily_trend_direction", "未知")
-                hourly_trend = indicators.get("hourly_trend_direction", "未知")
-                if daily_trend == "多头" and hourly_trend == "多头":
-                    indicators["multi_tf_signal"] = "强烈看多"
-                    indicators["multi_tf_resonance"] = True
-                elif daily_trend == "空头" and hourly_trend == "空头":
-                    indicators["multi_tf_signal"] = "强烈看空"
-                    indicators["multi_tf_resonance"] = True
-                else:
-                    indicators["multi_tf_signal"] = "观望"
-                    indicators["multi_tf_resonance"] = False
+                # 不再进行趋势预判，只提供数值数据，让AI自己判断
+                # 移除了 daily_trend_direction, hourly_trend_direction, multi_tf_signal, multi_tf_resonance
             else:
                 # 数据库没有小时线指标，记录警告
                 logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
@@ -2320,43 +2255,8 @@ async def analyze_stock_batch_api(
                             if key not in ["code", "market", "date", "period", "update_time"]:
                                 indicators[f"hourly_{key}"] = value
                         
-                        # 添加趋势判断
-                        indicators["daily_trend_direction"] = "未知"
-                        ma60 = indicators.get("ma60")
-                        ma60_trend = indicators.get("ma60_trend")
-                        current_close = indicators.get("current_close")
-                        if ma60 and current_close:
-                            if current_close > ma60 and ma60_trend == "向上":
-                                indicators["daily_trend_direction"] = "多头"
-                            elif current_close < ma60 and ma60_trend == "向下":
-                                indicators["daily_trend_direction"] = "空头"
-                            else:
-                                indicators["daily_trend_direction"] = "震荡"
-                        
-                        indicators["hourly_trend_direction"] = "未知"
-                        hourly_ma20 = hourly_indicators.get("ma20")
-                        hourly_ma20_trend = hourly_indicators.get("ma20_trend")
-                        hourly_close = hourly_indicators.get("current_close")
-                        if hourly_ma20 and hourly_close:
-                            if hourly_close > hourly_ma20 and hourly_ma20_trend == "向上":
-                                indicators["hourly_trend_direction"] = "多头"
-                            elif hourly_close < hourly_ma20 and hourly_ma20_trend == "向下":
-                                indicators["hourly_trend_direction"] = "空头"
-                            else:
-                                indicators["hourly_trend_direction"] = "震荡"
-                        
-                        # 多周期共振判断
-                        daily_trend = indicators.get("daily_trend_direction", "未知")
-                        hourly_trend = indicators.get("hourly_trend_direction", "未知")
-                        if daily_trend == "多头" and hourly_trend == "多头":
-                            indicators["multi_tf_signal"] = "强烈看多"
-                            indicators["multi_tf_resonance"] = True
-                        elif daily_trend == "空头" and hourly_trend == "空头":
-                            indicators["multi_tf_signal"] = "强烈看空"
-                            indicators["multi_tf_resonance"] = True
-                        else:
-                            indicators["multi_tf_signal"] = "观望"
-                            indicators["multi_tf_resonance"] = False
+                        # 不再进行趋势预判，只提供数值数据，让AI自己判断
+                        # 移除了 daily_trend_direction, hourly_trend_direction, multi_tf_signal, multi_tf_resonance
                     else:
                         # 数据库没有小时线指标，记录警告但继续使用日线指标
                         logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")

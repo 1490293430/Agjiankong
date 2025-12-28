@@ -21,9 +21,25 @@ MAX_REQUEST_HISTORY = 1
 
 
 def _save_ai_request_history(request_data: Dict[str, Any]):
-    """保存AI请求数据到Redis（只保留最近1次完整分析）"""
+    """保存AI请求数据到Redis（只保留最近1次完整分析）
+    
+    时间戳统一使用北京时间（Asia/Shanghai），格式为 ISO 8601
+    """
     try:
         from common.redis import set_json
+        from datetime import datetime, timezone, timedelta
+        
+        # 统一使用北京时间（UTC+8）
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        
+        # 确保时间戳使用北京时间
+        if "timestamp" not in request_data or not request_data["timestamp"]:
+            request_data["timestamp"] = now_beijing.isoformat()
+        
+        # 添加时区标识
+        request_data["timezone"] = "Asia/Shanghai"
+        request_data["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
         
         # 只保留最近1次，直接覆盖
         set_json(AI_REQUEST_HISTORY_KEY, [request_data])
@@ -63,7 +79,7 @@ def validate_trading_signals(signal_data: Dict[str, Any], dynamic_params: Option
     min_risk_reward = dynamic_params.get("min_risk_reward", 1.5)
     rsi_upper_limit = dynamic_params.get("rsi_upper_limit", 80)
     
-    # 如果不是买入信号，直接返回
+    # 如果不是买入信号，直接返回（建议价格由AI返回，不自动计算）
     if signal != "买入":
         return signal_data
     
@@ -136,18 +152,14 @@ def validate_trading_signals(signal_data: Dict[str, Any], dynamic_params: Option
         }
     
     # 验证单笔亏损金额（总资金1万，单笔最大亏损3%即300元）
-    # 假设全仓买入（10000元），计算单笔亏损金额
     TOTAL_CAPITAL = 10000.0
     MAX_LOSS_PCT = 0.03  # 3%
     MAX_LOSS_AMOUNT = TOTAL_CAPITAL * MAX_LOSS_PCT  # 300元
     
-    # 计算全仓买入时的亏损金额
-    # 全仓买入股数 = 10000 / buy_price
-    # 单笔亏损 = (buy_price - stop_loss) * (10000 / buy_price)
     if buy_price > 0:
-        max_shares = TOTAL_CAPITAL / buy_price  # 全仓可买入股数
-        loss_per_share = risk  # 每股亏损
-        total_loss = loss_per_share * max_shares  # 全仓时的总亏损
+        max_shares = TOTAL_CAPITAL / buy_price
+        loss_per_share = risk
+        total_loss = loss_per_share * max_shares
         
         if total_loss > MAX_LOSS_AMOUNT:
             logger.warning(f"单笔亏损金额过大: {total_loss:.2f}元，超过限制{MAX_LOSS_AMOUNT:.2f}元")
@@ -190,6 +202,13 @@ def validate_trading_signals(signal_data: Dict[str, Any], dynamic_params: Option
     signal_data["risk_reward_ratio"] = round(risk_reward_ratio, 2)
     signal_data["risk_pct"] = round((risk / buy_price) * 100, 2)
     signal_data["reward_pct"] = round((reward / buy_price) * 100, 2)
+    
+    # 量价配合验证（添加警告但不阻止交易）
+    indicators = signal_data.get("indicators", {})
+    vol_ratio = indicators.get("vol_ratio") or indicators.get("hourly_vol_ratio")
+    if vol_ratio and vol_ratio < 0.8:
+        signal_data["volume_warning"] = f"成交量偏低（量比{vol_ratio:.2f}），需关注量能配合"
+        logger.info(f"量价配合警告: 量比={vol_ratio:.2f}，建议关注成交量变化")
     
     return signal_data
 
@@ -525,17 +544,18 @@ def analyze_stock_with_ai(stock: dict, indicators: dict, news: list = None, incl
             signal = parsed.get("signal", "观望")
             result["signal"] = signal
             
-            # 只有买入信号时才返回交易点位
-            if signal == "买入":
+            # 买入信号或强烈看多信号都返回交易点位
+            if signal in ["买入", "强烈看多"]:
                 result["buy_price"] = parsed.get("buy_price")
                 result["sell_price"] = parsed.get("sell_price")
                 result["stop_loss"] = parsed.get("stop_loss")
-                result["reason"] = parsed.get("reason", "符合三重过滤趋势波段系统")
+                result["reason"] = parsed.get("reason", "符合三重过滤趋势波段系统" if signal == "买入" else "多周期共振，信号强烈")
                 result["indicators"] = indicators  # 传递指标用于RSI检查
                 
-                # 使用验证函数进行严格验证（传递动态参数）
-                validated = validate_trading_signals(result, dynamic_params=dynamic_params)
-                result = validated
+                # 只有买入信号才进行严格验证，强烈看多信号保留AI返回的建议价格
+                if signal == "买入":
+                    validated = validate_trading_signals(result, dynamic_params=dynamic_params)
+                    result = validated
             else:
                 result["buy_price"] = None
                 result["sell_price"] = None
@@ -762,16 +782,17 @@ def analyze_stocks_batch_with_ai(stocks_data: list, include_trading_points: bool
                 
                 if include_trading_points:
                     signal = final_result.get("signal", "观望")
-                    # 只有买入信号时才返回交易点位
-                    if signal == "买入":
+                    # 买入信号或强烈看多信号都返回交易点位
+                    if signal in ["买入", "强烈看多"]:
                         final_result.update({
                             "buy_price": result.get("buy_price"),
                             "sell_price": result.get("sell_price"),
                             "stop_loss": result.get("stop_loss"),
-                            "reason": result.get("reason", "符合三重过滤趋势波段系统"),
+                            "reason": result.get("reason", "符合三重过滤趋势波段系统" if signal == "买入" else "多周期共振，信号强烈"),
                         })
-                        # 验证交易信号（与单次分析保持一致）
-                        final_result = validate_trading_signals(final_result, dynamic_params)
+                        # 只有买入信号才进行严格验证，强烈看多信号保留AI返回的建议价格
+                        if signal == "买入":
+                            final_result = validate_trading_signals(final_result, dynamic_params)
                     else:
                         final_result.update({
                             "buy_price": None,

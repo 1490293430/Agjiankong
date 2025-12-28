@@ -274,6 +274,8 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
                     index_df["update_time"] = datetime.now().isoformat()
                     index_df["market"] = "A"
                     index_df["sec_type"] = "index"
+                    # 将上证指数代码从000001转换为1A0001（统一格式）
+                    index_df.loc[index_df["code"] == "000001", "code"] = "1A0001"
                     index_list = index_df.to_dict(orient="records")
                     logger.info(f"额外获取指数数据: {len(index_list)} 只")
             except Exception as e:

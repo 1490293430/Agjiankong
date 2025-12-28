@@ -66,6 +66,12 @@ def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
                         seen.add(item['code'])
                         unique_results.append(item)
                 
+                # 额外获取上证指数
+                sh_index = _fetch_sh_index()
+                if sh_index:
+                    unique_results.append(sh_index)
+                    logger.info("[东方财富] 上证指数获取成功")
+                
                 logger.info(f"[东方财富] A股获取完成，共 {len(unique_results)} 只股票（去重前: {len(all_results)}）")
                 return unique_results
             else:
@@ -161,6 +167,48 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
                 raise
     
     return [], ""
+
+
+def _fetch_sh_index() -> Dict[str, Any] | None:
+    """获取上证指数实时数据"""
+    try:
+        url = "https://push2.eastmoney.com/api/qt/stock/get"
+        params = {
+            "secid": "1.000001",  # 上证指数
+            "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b"
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://quote.eastmoney.com/"
+        }
+        
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        data = resp.json()
+        
+        if data.get("rc") != 0 or not data.get("data"):
+            return None
+        
+        d = data["data"]
+        return {
+            "code": "1A0001",
+            "name": d.get("f58", "上证指数"),
+            "price": d.get("f43", 0) / 100 if d.get("f43") else 0,
+            "pct": d.get("f170", 0) / 100 if d.get("f170") else 0,
+            "change": d.get("f169", 0) / 100 if d.get("f169") else 0,
+            "high": d.get("f44", 0) / 100 if d.get("f44") else 0,
+            "low": d.get("f45", 0) / 100 if d.get("f45") else 0,
+            "open": d.get("f46", 0) / 100 if d.get("f46") else 0,
+            "pre_close": d.get("f60", 0) / 100 if d.get("f60") else 0,
+            "volume": d.get("f47", 0),
+            "amount": d.get("f48", 0),
+            "update_time": datetime.now().isoformat(),
+            "market": "A",
+            "sec_type": "index"
+        }
+    except Exception as e:
+        logger.warning(f"[东方财富] 获取上证指数失败: {e}")
+        return None
 
 
 def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:

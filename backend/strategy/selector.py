@@ -248,7 +248,7 @@ def filter_stocks_by_criteria(
         if ma_enable and passed:
             ma_key = f"ma{ma_period}"
             ma_value = indicators.get(ma_key)
-            ma_trend = indicators.get(f"{ma_key}_trend", "")
+            ma_prev = indicators.get(f"{ma_key}_prev")
             
             if ma_value:
                 if ma_condition == "above":
@@ -260,8 +260,8 @@ def filter_stocks_by_criteria(
                     if current_price >= ma_value:
                         passed = False
                 elif ma_condition == "up":
-                    # MA向上
-                    if ma_trend not in ["向上", "up"]:
+                    # MA向上（当前值 > 前值）
+                    if ma_prev is None or ma_value <= ma_prev:
                         passed = False
             else:
                 passed = False
@@ -380,12 +380,13 @@ def filter_stocks_by_criteria(
             boll_middle = indicators.get("boll_middle")
             boll_upper = indicators.get("boll_upper")
             boll_lower = indicators.get("boll_lower")
-            boll_expanding = indicators.get("boll_expanding", False)
+            boll_width = indicators.get("boll_width")
+            boll_width_prev = indicators.get("boll_width_prev")
             
             if boll_middle:
                 if boll_condition == "expanding":
-                    # 布林带开口扩张
-                    if not boll_expanding:
+                    # 布林带开口扩张（当前宽度 > 前值宽度）
+                    if boll_width is None or boll_width_prev is None or boll_width <= boll_width_prev:
                         passed = False
                 elif boll_condition == "above_mid":
                     # 价格上穿中轨
@@ -455,13 +456,18 @@ def filter_stocks_by_criteria(
                 "ma10": indicators.get("ma10"),
                 "ma20": indicators.get("ma20"),
                 "ma60": indicators.get("ma60"),
-                "ma60_trend": indicators.get("ma60_trend"),
+                "ma5_prev": indicators.get("ma5_prev"),
+                "ma10_prev": indicators.get("ma10_prev"),
+                "ma20_prev": indicators.get("ma20_prev"),
+                "ma60_prev": indicators.get("ma60_prev"),
                 "vol_ratio": indicators.get("vol_ratio"),
                 "rsi": indicators.get("rsi"),
                 "williams_r": indicators.get("williams_r"),
                 "macd_dif": indicators.get("macd_dif"),
                 "macd_dea": indicators.get("macd_dea"),
                 "macd": indicators.get("macd"),
+                "macd_dif_prev": indicators.get("macd_dif_prev"),
+                "macd_prev": indicators.get("macd_prev"),
                 "kdj_k": indicators.get("kdj_k"),
                 "kdj_d": indicators.get("kdj_d"),
                 "kdj_j": indicators.get("kdj_j"),
@@ -469,8 +475,10 @@ def filter_stocks_by_criteria(
                 "boll_upper": indicators.get("boll_upper"),
                 "boll_middle": indicators.get("boll_middle"),
                 "boll_lower": indicators.get("boll_lower"),
-                "boll_expanding": indicators.get("boll_expanding"),
+                "boll_width": indicators.get("boll_width"),
+                "boll_width_prev": indicators.get("boll_width_prev"),
                 "adx": indicators.get("adx"),
+                "adx_prev": indicators.get("adx_prev"),
                 "ema12": indicators.get("ema12"),
                 "ema26": indicators.get("ema26"),
             }
