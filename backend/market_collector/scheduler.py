@@ -475,9 +475,9 @@ def main():
             hourly_kline_collect_job()
             
             # 不在交易时间内，检查是否需要执行收盘后批量计算指标
-            # 16:30 准时开始计算（通过 _last_batch_compute_market 防止重复执行）
+            # 17:00 准时开始计算（通过 _last_batch_compute_market 防止重复执行）
             
-            if current_hour == 16 and current_minute >= 30:
+            if current_hour == 17 and current_minute >= 0:
                 # 先执行快照转K线
                 snapshot_to_kline_job()
                 
