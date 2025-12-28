@@ -8729,6 +8729,27 @@ async function loadDbInfo() {
                     <span style="color: #22c55e; font-size: 12px;">✅ ${iv.summary}</span>
                 </div>`;
             }
+            
+            // 显示 MA_prev 统计
+            if (iv.ma_prev_stats) {
+                const mp = iv.ma_prev_stats;
+                const total = mp.total || 0;
+                if (total > 0) {
+                    const allComplete = mp.ma5_prev === total && mp.ma10_prev === total && mp.ma20_prev === total && mp.ma60_prev === total;
+                    const bgColor = allComplete ? 'rgba(34,197,94,0.1)' : 'rgba(59,130,246,0.1)';
+                    const borderColor = allComplete ? '#22c55e' : '#3b82f6';
+                    const textColor = allComplete ? '#22c55e' : '#60a5fa';
+                    
+                    html += `<div style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 8px 12px; margin-top: 4px;">`;
+                    html += `<div style="color: ${textColor}; font-size: 12px; font-weight: 600; margin-bottom: 4px;">📈 MA_prev 字段统计</div>`;
+                    html += `<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #94a3b8;">`;
+                    html += `<span>ma5_prev: <span style="color: ${mp.ma5_prev === total ? '#22c55e' : '#fbbf24'}">${mp.ma5_prev}/${total}</span></span>`;
+                    html += `<span>ma10_prev: <span style="color: ${mp.ma10_prev === total ? '#22c55e' : '#fbbf24'}">${mp.ma10_prev}/${total}</span></span>`;
+                    html += `<span>ma20_prev: <span style="color: ${mp.ma20_prev === total ? '#22c55e' : '#fbbf24'}">${mp.ma20_prev}/${total}</span></span>`;
+                    html += `<span>ma60_prev: <span style="color: ${mp.ma60_prev === total ? '#22c55e' : '#fbbf24'}">${mp.ma60_prev}/${total}</span></span>`;
+                    html += `</div></div>`;
+                }
+            }
         }
         
         html += '</div>';

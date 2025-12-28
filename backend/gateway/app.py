@@ -1490,11 +1490,53 @@ def validate_all_indicators(client) -> dict:
         for row in vol_warnings:
             warnings.append({"code": row[0], "field": "vol_ratio", "value": row[1], "message": f"成交量比异常高: {row[1]}"})
         
+        # 9. MA_prev 字段检查（检查是否有值）
+        ma_prev_stats = client.execute(f"""
+            SELECT 
+                countIf(ma5_prev > 0) as has_ma5_prev,
+                countIf(ma10_prev > 0) as has_ma10_prev,
+                countIf(ma20_prev > 0) as has_ma20_prev,
+                countIf(ma60_prev > 0) as has_ma60_prev,
+                count() as total
+            FROM indicators 
+            WHERE date = '{latest_date}'
+        """)
+        if ma_prev_stats and ma_prev_stats[0]:
+            row = ma_prev_stats[0]
+            has_ma5, has_ma10, has_ma20, has_ma60, total = row
+            # 如果有数据但 _prev 字段缺失超过10%，添加警告
+            if total > 0:
+                missing_ma5 = total - has_ma5
+                missing_ma10 = total - has_ma10
+                missing_ma20 = total - has_ma20
+                missing_ma60 = total - has_ma60
+                
+                if missing_ma5 > total * 0.1:
+                    warnings.append({"code": "-", "field": "ma5_prev", "value": f"{has_ma5}/{total}", "message": f"ma5_prev缺失: {missing_ma5}条"})
+                if missing_ma10 > total * 0.1:
+                    warnings.append({"code": "-", "field": "ma10_prev", "value": f"{has_ma10}/{total}", "message": f"ma10_prev缺失: {missing_ma10}条"})
+                if missing_ma20 > total * 0.1:
+                    warnings.append({"code": "-", "field": "ma20_prev", "value": f"{has_ma20}/{total}", "message": f"ma20_prev缺失: {missing_ma20}条"})
+                if missing_ma60 > total * 0.1:
+                    warnings.append({"code": "-", "field": "ma60_prev", "value": f"{has_ma60}/{total}", "message": f"ma60_prev缺失: {missing_ma60}条"})
+        
         # 统计各类错误数量
         error_counts = {}
         for err in errors:
             field = err["field"]
             error_counts[field] = error_counts.get(field, 0) + 1
+        
+        # MA_prev 统计信息
+        ma_prev_info = None
+        if ma_prev_stats and ma_prev_stats[0]:
+            row = ma_prev_stats[0]
+            ma_prev_info = {
+                "ma5_prev": row[0],
+                "ma10_prev": row[1],
+                "ma20_prev": row[2],
+                "ma60_prev": row[3],
+                "total": row[4]
+            }
         
         summary = f"验证{total_count}条数据，{len(errors)}个错误，{len(warnings)}个警告"
         if not errors and not warnings:
@@ -1508,6 +1550,7 @@ def validate_all_indicators(client) -> dict:
             "errors": errors[:20],  # 最多返回20个
             "warnings": warnings[:10],
             "error_counts": error_counts,
+            "ma_prev_stats": ma_prev_info,
             "summary": summary
         }
         
