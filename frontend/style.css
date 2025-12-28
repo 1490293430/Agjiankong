@@ -2012,6 +2012,15 @@ body.light-mode .ai-analysis-table tbody tr:hover {
 /* AI分析表格文字样式 */
 .ai-analysis-row {
     border-bottom: 1px solid #334155;
+    transition: background-color 0.15s ease;
+}
+
+.ai-analysis-row:hover {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+.ai-analysis-row[data-code] {
+    cursor: pointer;
 }
 
 .ai-stock-code {
@@ -2047,6 +2056,10 @@ body.light-mode .ai-analysis-table tbody tr:hover {
 
 body.light-mode .ai-analysis-row {
     border-bottom: 1px solid #e2e8f0;
+}
+
+body.light-mode .ai-analysis-row:hover {
+    background-color: rgba(59, 130, 246, 0.08);
 }
 
 body.light-mode .ai-stock-code {

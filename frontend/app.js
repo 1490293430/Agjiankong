@@ -7596,7 +7596,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             : '<span class="ai-empty-text">-</span>';
         
         return `
-            <tr class="ai-analysis-row">
+            <tr class="ai-analysis-row" data-code="${item.code}" data-name="${item.name || ''}" style="cursor: pointer;" title="点击查看K线图">
                 <td style="padding: 8px;">
                     <div class="ai-stock-code">${item.code}</div>
                     <div class="ai-stock-name">${item.name || '-'}</div>
@@ -7729,6 +7729,18 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             loadAIAnalysisHistory(currentPage + 1);
         });
     }
+    
+    // 绑定表格行点击事件（打开K线图）
+    const rows = container.querySelectorAll('.ai-analysis-row[data-code]');
+    rows.forEach(row => {
+        row.addEventListener('click', () => {
+            const code = row.getAttribute('data-code');
+            const name = row.getAttribute('data-name') || code;
+            if (code) {
+                openKlineModal(code, name, null);
+            }
+        });
+    });
 }
 
 // 从服务端加载历史AI分析结果
