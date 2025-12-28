@@ -2130,6 +2130,18 @@ async function computeIndicators(period) {
     const marketSelect = document.getElementById('indicator-market-select');
     const selectedMarket = marketSelect?.value || 'ALL';
     
+    // 获取用户选择的计算模式（增量/全量）
+    const modeSelect = document.getElementById('indicator-mode-select');
+    const isIncremental = modeSelect?.value !== 'full';
+    const modeName = isIncremental ? '增量' : '全量';
+    
+    // 全量计算时确认
+    if (!isIncremental) {
+        if (!confirm(`确定要全量计算${periodName}指标吗？\n\n全量计算会重新计算所有股票，耗时较长。`)) {
+            return;
+        }
+    }
+    
     // 禁用按钮
     if (computeDailyBtn) {
         computeDailyBtn.disabled = true;
@@ -2152,7 +2164,7 @@ async function computeIndicators(period) {
         const progressText = document.getElementById('indicator-progress-text');
         if (progressBar) progressBar.style.width = '0%';
         if (statusEl) {
-            statusEl.textContent = `正在初始化${periodName}指标计算...`;
+            statusEl.textContent = `正在初始化${periodName}指标${modeName}计算...`;
             statusEl.className = 'selection-status running';
         }
         if (progressText) progressText.textContent = '0%';
@@ -2172,7 +2184,7 @@ async function computeIndicators(period) {
     for (const market of markets) {
         try {
             const marketName = market === 'A' ? 'A股' : '港股';
-            const response = await apiFetch(`${API_BASE}/api/strategy/compute-indicators-async?market=${market}&period=${period}`, {
+            const response = await apiFetch(`${API_BASE}/api/strategy/compute-indicators-async?market=${market}&period=${period}&incremental=${isIncremental}`, {
                 method: 'POST'
             });
             const result = await response.json();

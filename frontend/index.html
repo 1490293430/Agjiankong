@@ -637,6 +637,10 @@
                             <option value="A">仅A股</option>
                             <option value="HK">仅港股</option>
                         </select>
+                        <select id="indicator-mode-select" class="market-select" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-size: 13px;" title="增量：跳过今天已计算的；全量：重新计算所有">
+                            <option value="incremental">增量计算</option>
+                            <option value="full">全量计算</option>
+                        </select>
                         <button id="compute-daily-btn" class="secondary-btn" title="计算所有股票的日线技术指标">📈 计算日线</button>
                         <button id="compute-hourly-btn" class="secondary-btn" title="计算所有股票的小时线技术指标">⏰ 计算小时线</button>
                         <button id="load-selected-btn" class="secondary-btn">📋 加载上次结果</button>

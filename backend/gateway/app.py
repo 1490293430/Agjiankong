@@ -1164,8 +1164,15 @@ def _broadcast_indicator_progress(task_id: str, progress_data: dict):
         logger.debug(f"广播指标计算进度失败: {e}")
 
 
-def _run_indicator_compute_task(task_id: str, market: str, period: str):
-    """执行指标计算任务（带进度推送）"""
+def _run_indicator_compute_task(task_id: str, market: str, period: str, incremental: bool = True):
+    """执行指标计算任务（带进度推送）
+    
+    Args:
+        task_id: 任务ID
+        market: 市场类型
+        period: K线周期
+        incremental: 是否增量更新（True=只计算未计算的，False=全量重新计算）
+    """
     import time
     from common.db import save_indicator, get_kline_from_db, get_indicator_date, get_kline_latest_date
     from market.indicator.ta import calculate_all_indicators
@@ -1173,6 +1180,7 @@ def _run_indicator_compute_task(task_id: str, market: str, period: str):
     
     start_time = time.time()
     period_name = "日线" if period == "daily" else "小时线"
+    mode_name = "增量" if incremental else "全量"
     
     try:
         # 获取股票列表
@@ -1204,7 +1212,7 @@ def _run_indicator_compute_task(task_id: str, market: str, period: str):
         _broadcast_indicator_progress(task_id, {
             "status": "running",
             "stage": "computing",
-            "message": f"开始计算{period_name}指标...",
+            "message": f"开始{mode_name}计算{period_name}指标...",
             "progress": 0,
             "total": total,
             "processed": 0,
@@ -1219,16 +1227,17 @@ def _run_indicator_compute_task(task_id: str, market: str, period: str):
             should_skip = False
             
             try:
-                # 增量更新：检查是否需要计算
-                indicator_date = get_indicator_date(code, market.upper(), period)
-                kline_latest_date = get_kline_latest_date(code, period)
-                
-                # 如果指标日期是今天，且K线最新日期也是今天（或更早），跳过
-                if indicator_date == today and kline_latest_date:
-                    indicator_date_ymd = indicator_date.replace("-", "") if indicator_date else None
-                    if indicator_date_ymd == today_ymd and kline_latest_date <= today_ymd:
-                        skipped_count += 1
-                        should_skip = True
+                # 增量更新：检查是否需要计算（全量模式不跳过）
+                if incremental:
+                    indicator_date = get_indicator_date(code, market.upper(), period)
+                    kline_latest_date = get_kline_latest_date(code, period)
+                    
+                    # 如果指标日期是今天，且K线最新日期也是今天（或更早），跳过
+                    if indicator_date == today and kline_latest_date:
+                        indicator_date_ymd = indicator_date.replace("-", "") if indicator_date else None
+                        if indicator_date_ymd == today_ymd and kline_latest_date <= today_ymd:
+                            skipped_count += 1
+                            should_skip = True
                 
                 if not should_skip:
                     # 获取K线数据
@@ -1335,10 +1344,13 @@ async def compute_indicators_async_api(
     market: str = Query("A", description="市场类型：A（A股）或HK（港股）"),
     period: str = Query("daily", description="K线周期：daily（日线）或 1h（小时线）"),
     task_id: str | None = Query(None, description="任务ID，用于进度追踪"),
+    incremental: bool = Query(True, description="是否增量更新：True（只计算未计算的）或 False（全量重新计算）"),
 ):
     """异步计算指标（通过SSE推送进度）
     
     用于前端触发指标计算，实时显示进度
+    - incremental=True: 增量模式，跳过今天已计算的股票
+    - incremental=False: 全量模式，重新计算所有股票
     """
     import uuid
     
@@ -1346,12 +1358,13 @@ async def compute_indicators_async_api(
         task_id = str(uuid.uuid4())
     
     period_name = "日线" if period == "daily" else "小时线"
+    mode_name = "增量" if incremental else "全量"
     
     # 初始化进度
     indicator_compute_progress[task_id] = {
         "status": "running",
         "stage": "init",
-        "message": f"正在初始化{period_name}指标计算...",
+        "message": f"正在初始化{period_name}指标{mode_name}计算...",
         "progress": 0,
         "elapsed_time": 0
     }
@@ -1360,7 +1373,7 @@ async def compute_indicators_async_api(
     import threading
     thread = threading.Thread(
         target=_run_indicator_compute_task,
-        args=(task_id, market, period),
+        args=(task_id, market, period, incremental),
         daemon=True
     )
     thread.start()
@@ -1368,7 +1381,7 @@ async def compute_indicators_async_api(
     return {
         "code": 0,
         "data": {"task_id": task_id},
-        "message": f"{period_name}指标计算任务已启动"
+        "message": f"{period_name}指标{mode_name}计算任务已启动"
     }
 
 
