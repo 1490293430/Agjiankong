@@ -8,7 +8,7 @@
 - 并发查询K线数据和计算指标，提高效率
 """
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from common.logger import get_logger
 from common.db import save_indicator, get_kline_from_db
 from common.redis import get_json
@@ -63,6 +63,14 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         period_name = "日线" if period == "daily" else "小时线"
         min_kline = MIN_KLINE_REQUIRED if period == "daily" else MIN_KLINE_REQUIRED_HOURLY
         
+        # 计算查询的起始日期（往前推足够多的天数，考虑节假日）
+        if period == "daily":
+            # 日线需要180根，考虑周末和节假日，往前推300天
+            start_date = (datetime.now() - timedelta(days=300)).strftime("%Y%m%d")
+        else:
+            # 小时线，往前推更多天（每天4根小时线）
+            start_date = (datetime.now() - timedelta(days=60)).strftime("%Y%m%d")
+        
         # 过滤需要计算的股票
         codes_to_compute = []
         skipped_count = 0
@@ -92,8 +100,8 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         def compute_single(code: str) -> tuple:
             """单只股票的查询和计算"""
             try:
-                # 查询K线数据
-                kline_data = get_kline_from_db(code, period, min_kline)
+                # 查询K线数据（使用日期范围）
+                kline_data = get_kline_from_db(code, start_date=start_date, period=period)
                 
                 if not kline_data or len(kline_data) < min_kline:
                     return ("failed", code, f"K线不足: {len(kline_data) if kline_data else 0}/{min_kline}")
