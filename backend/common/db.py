@@ -208,15 +208,11 @@ def init_tables():
             market String,
             date Date,
             period String DEFAULT 'daily',  -- K线周期：daily（日线）、1h（小时线）
-            -- 均线
+            -- 均线（只保留数值，趋势由AI判断）
             ma5 Float64,
             ma10 Float64,
             ma20 Float64,
             ma60 Float64,
-            ma5_trend String,
-            ma10_trend String,
-            ma20_trend String,
-            ma60_trend String,
             -- EMA指数移动平均线
             ema12 Float64,
             ema26 Float64,
@@ -224,7 +220,6 @@ def init_tables():
             macd_dif Float64,
             macd_dea Float64,
             macd Float64,
-            macd_dif_trend String,
             macd_prev Float64,
             -- RSI
             rsi Float64,
@@ -232,12 +227,10 @@ def init_tables():
             bias6 Float64,
             bias12 Float64,
             bias24 Float64,
-            -- 布林带
+            -- 布林带（只保留数值，开口/收口由AI判断）
             boll_upper Float64,
             boll_middle Float64,
             boll_lower Float64,
-            boll_expanding UInt8,
-            boll_contracting UInt8,
             boll_width Float64,
             boll_width_prev Float64,
             -- KDJ
@@ -247,28 +240,20 @@ def init_tables():
             -- 威廉指标
             williams_r Float64,
             williams_r_prev Float64,
-            -- ADX平均趋向指数
+            -- ADX平均趋向指数（只保留数值，趋势由AI判断）
             adx Float64,
             plus_di Float64,
             minus_di Float64,
             adx_prev Float64,
-            adx_rising UInt8,
-            -- CCI顺势指标
+            -- CCI顺势指标（只保留数值，状态由AI判断）
             cci Float64,
             cci_prev Float64,
-            cci_rising UInt8,
-            cci_status String,
-            -- 一目均衡表
+            -- 一目均衡表（只保留数值，云层关系由AI判断）
             ichimoku_tenkan Float64,
             ichimoku_kijun Float64,
             ichimoku_senkou_a Float64,
             ichimoku_senkou_b Float64,
-            ichimoku_above_cloud UInt8,
-            ichimoku_below_cloud UInt8,
-            ichimoku_in_cloud UInt8,
-            ichimoku_tk_cross_up UInt8,
-            ichimoku_tk_cross_down UInt8,
-            -- 斐波那契
+            -- 斐波那契（只保留数值，趋势由AI判断）
             fib_swing_high Float64,
             fib_swing_low Float64,
             fib_236 Float64,
@@ -276,8 +261,6 @@ def init_tables():
             fib_500 Float64,
             fib_618 Float64,
             fib_786 Float64,
-            fib_trend String,
-            fib_current_level String,
             -- 成交量
             vol_ratio Float64,
             -- 价格数据
@@ -363,22 +346,14 @@ def init_tables():
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS plus_di Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS minus_di Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS adx_prev Float64 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS adx_rising UInt8 DEFAULT 0")
             # CCI顺势指标
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS cci Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS cci_prev Float64 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS cci_rising UInt8 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS cci_status String DEFAULT ''")
             # 一目均衡表
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_tenkan Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_kijun Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_senkou_a Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_senkou_b Float64 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_above_cloud UInt8 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_below_cloud UInt8 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_in_cloud UInt8 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_tk_cross_up UInt8 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ichimoku_tk_cross_down UInt8 DEFAULT 0")
             # 斐波那契
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_swing_high Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_swing_low Float64 DEFAULT 0")
@@ -387,8 +362,6 @@ def init_tables():
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_500 Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_618 Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_786 Float64 DEFAULT 0")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_trend String DEFAULT ''")
-            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS fib_current_level String DEFAULT ''")
             # 近期低点
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS recent_low Float64 DEFAULT 0")
             logger.info("✓ indicators表高级指标字段已添加/确认存在")
@@ -1074,6 +1047,86 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
                 pass
 
 
+def batch_get_kline_from_db(codes: List[str], period: str = "daily") -> Dict[str, List[Dict[str, Any]]]:
+    """批量从ClickHouse数据库查询多只股票的K线数据
+    
+    Args:
+        codes: 股票代码列表
+        period: 周期（daily, 1h）
+    
+    Returns:
+        {code: [kline_data]} 字典
+    """
+    if not codes:
+        return {}
+    
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        
+        # 标准化period字段
+        period_normalized = period
+        if period in ['1h', 'hourly', '60']:
+            period_normalized = '1h'
+        elif period in ['daily', 'd', 'day']:
+            period_normalized = 'daily'
+        
+        # 构建IN查询
+        codes_str = ','.join([f"'{c}'" for c in codes])
+        
+        query = f"""
+            SELECT code, period, date, time, open, high, low, close, volume, amount
+            FROM kline FINAL
+            WHERE code IN ({codes_str}) AND period = %(period)s
+            ORDER BY code ASC, date ASC, time ASC
+        """
+        
+        result = client.execute(query, {'period': period_normalized})
+        
+        # 按code分组
+        kline_map: Dict[str, List[Dict[str, Any]]] = {code: [] for code in codes}
+        
+        for row in result:
+            code = row[0]
+            if code not in kline_map:
+                kline_map[code] = []
+            
+            date_str = row[2].strftime("%Y-%m-%d") if hasattr(row[2], 'strftime') else str(row[2])
+            time_str = row[3].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[3], 'strftime') else str(row[3])
+            
+            kline_dict = {
+                "code": code,
+                "period": row[1],
+                "date": date_str,
+                "time": time_str,
+                "open": float(row[4]),
+                "high": float(row[5]),
+                "low": float(row[6]),
+                "close": float(row[7]),
+                "volume": float(row[8]),
+                "amount": float(row[9]),
+            }
+            
+            # 判断市场类型
+            if len(str(code)) == 5 and str(code).startswith("0"):
+                kline_dict["market"] = "HK"
+            else:
+                kline_dict["market"] = "A"
+            
+            kline_map[code].append(kline_dict)
+        
+        return kline_map
+    except Exception as e:
+        logger.warning(f"批量查询K线数据失败: {e}")
+        return {code: [] for code in codes}
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
 def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any], period: str = "daily") -> bool:
     """保存技术指标到数据库
     
@@ -1115,7 +1168,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
                 return 0.0
         
         # 构建插入数据（确保所有Float64字段都是float类型，None转为0.0）
-        # 包含所有基础指标和高级指标
+        # 只保留数值字段，状态判断由AI完成
         insert_data = {
             "code": code,
             "market": market.upper(),
@@ -1126,10 +1179,6 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "ma10": to_float(indicators.get("ma10")),
             "ma20": to_float(indicators.get("ma20")),
             "ma60": to_float(indicators.get("ma60")),
-            "ma5_trend": indicators.get("ma5_trend", ""),
-            "ma10_trend": indicators.get("ma10_trend", ""),
-            "ma20_trend": indicators.get("ma20_trend", ""),
-            "ma60_trend": indicators.get("ma60_trend", ""),
             # EMA指数移动平均线
             "ema12": to_float(indicators.get("ema12")),
             "ema26": to_float(indicators.get("ema26")),
@@ -1137,7 +1186,6 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "macd_dif": to_float(indicators.get("macd_dif")),
             "macd_dea": to_float(indicators.get("macd_dea")),
             "macd": to_float(indicators.get("macd")),
-            "macd_dif_trend": indicators.get("macd_dif_trend", ""),
             "macd_prev": to_float(indicators.get("macd_prev")),
             # RSI
             "rsi": to_float(indicators.get("rsi")),
@@ -1149,8 +1197,6 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "boll_upper": to_float(indicators.get("boll_upper")),
             "boll_middle": to_float(indicators.get("boll_middle")),
             "boll_lower": to_float(indicators.get("boll_lower")),
-            "boll_expanding": 1 if indicators.get("boll_expanding") else 0,
-            "boll_contracting": 1 if indicators.get("boll_contracting") else 0,
             "boll_width": to_float(indicators.get("boll_width")),
             "boll_width_prev": to_float(indicators.get("boll_width_prev")),
             # KDJ
@@ -1165,22 +1211,14 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "plus_di": to_float(indicators.get("plus_di")),
             "minus_di": to_float(indicators.get("minus_di")),
             "adx_prev": to_float(indicators.get("adx_prev")),
-            "adx_rising": 1 if indicators.get("adx_rising") else 0,
             # CCI顺势指标
             "cci": to_float(indicators.get("cci")),
             "cci_prev": to_float(indicators.get("cci_prev")),
-            "cci_rising": 1 if indicators.get("cci_rising") else 0,
-            "cci_status": indicators.get("cci_status", ""),
             # 一目均衡表
             "ichimoku_tenkan": to_float(indicators.get("ichimoku_tenkan")),
             "ichimoku_kijun": to_float(indicators.get("ichimoku_kijun")),
             "ichimoku_senkou_a": to_float(indicators.get("ichimoku_senkou_a")),
             "ichimoku_senkou_b": to_float(indicators.get("ichimoku_senkou_b")),
-            "ichimoku_above_cloud": 1 if indicators.get("ichimoku_above_cloud") else 0,
-            "ichimoku_below_cloud": 1 if indicators.get("ichimoku_below_cloud") else 0,
-            "ichimoku_in_cloud": 1 if indicators.get("ichimoku_in_cloud") else 0,
-            "ichimoku_tk_cross_up": 1 if indicators.get("ichimoku_tk_cross_up") else 0,
-            "ichimoku_tk_cross_down": 1 if indicators.get("ichimoku_tk_cross_down") else 0,
             # 斐波那契
             "fib_swing_high": to_float(indicators.get("fib_swing_high")),
             "fib_swing_low": to_float(indicators.get("fib_swing_low")),
@@ -1189,8 +1227,6 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "fib_500": to_float(indicators.get("fib_500")),
             "fib_618": to_float(indicators.get("fib_618")),
             "fib_786": to_float(indicators.get("fib_786")),
-            "fib_trend": indicators.get("fib_trend", ""),
-            "fib_current_level": indicators.get("fib_current_level", ""),
             # 成交量
             "vol_ratio": to_float(indicators.get("vol_ratio")),
             # 价格数据
@@ -1205,22 +1241,20 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
         }
         
         # 执行插入（使用ReplacingMergeTree自动去重）
-        # 包含所有基础指标和高级指标字段
         client.execute(
             """
             INSERT INTO indicators 
             (code, market, date, period,
-             ma5, ma10, ma20, ma60, ma5_trend, ma10_trend, ma20_trend, ma60_trend,
+             ma5, ma10, ma20, ma60,
              ema12, ema26,
-             macd_dif, macd_dea, macd, macd_dif_trend, macd_prev, rsi,
+             macd_dif, macd_dea, macd, macd_prev, rsi,
              bias6, bias12, bias24,
-             boll_upper, boll_middle, boll_lower, boll_expanding, boll_contracting, boll_width, boll_width_prev,
+             boll_upper, boll_middle, boll_lower, boll_width, boll_width_prev,
              kdj_k, kdj_d, kdj_j, williams_r, williams_r_prev,
-             adx, plus_di, minus_di, adx_prev, adx_rising,
-             cci, cci_prev, cci_rising, cci_status,
-             ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b, 
-             ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
-             fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
+             adx, plus_di, minus_di, adx_prev,
+             cci, cci_prev,
+             ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
+             fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786,
              vol_ratio, high_20d, recent_low,
              current_price, current_open, current_high, current_low, current_close)
             VALUES
@@ -1228,24 +1262,20 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             [[
                 insert_data["code"], insert_data["market"], insert_data["date"], insert_data["period"],
                 insert_data["ma5"], insert_data["ma10"], insert_data["ma20"], insert_data["ma60"],
-                insert_data["ma5_trend"], insert_data["ma10_trend"], insert_data["ma20_trend"], insert_data["ma60_trend"],
                 insert_data["ema12"], insert_data["ema26"],
-                insert_data["macd_dif"], insert_data["macd_dea"], insert_data["macd"], insert_data["macd_dif_trend"],
+                insert_data["macd_dif"], insert_data["macd_dea"], insert_data["macd"],
                 insert_data["macd_prev"], insert_data["rsi"],
                 insert_data["bias6"], insert_data["bias12"], insert_data["bias24"],
                 insert_data["boll_upper"], insert_data["boll_middle"], insert_data["boll_lower"],
-                insert_data["boll_expanding"], insert_data["boll_contracting"], insert_data["boll_width"], insert_data["boll_width_prev"],
+                insert_data["boll_width"], insert_data["boll_width_prev"],
                 insert_data["kdj_k"], insert_data["kdj_d"], insert_data["kdj_j"],
                 insert_data["williams_r"], insert_data["williams_r_prev"],
-                insert_data["adx"], insert_data["plus_di"], insert_data["minus_di"], insert_data["adx_prev"], insert_data["adx_rising"],
-                insert_data["cci"], insert_data["cci_prev"], insert_data["cci_rising"], insert_data["cci_status"],
+                insert_data["adx"], insert_data["plus_di"], insert_data["minus_di"], insert_data["adx_prev"],
+                insert_data["cci"], insert_data["cci_prev"],
                 insert_data["ichimoku_tenkan"], insert_data["ichimoku_kijun"], 
                 insert_data["ichimoku_senkou_a"], insert_data["ichimoku_senkou_b"],
-                insert_data["ichimoku_above_cloud"], insert_data["ichimoku_below_cloud"], 
-                insert_data["ichimoku_in_cloud"], insert_data["ichimoku_tk_cross_up"], insert_data["ichimoku_tk_cross_down"],
                 insert_data["fib_swing_high"], insert_data["fib_swing_low"], 
                 insert_data["fib_236"], insert_data["fib_382"], insert_data["fib_500"], insert_data["fib_618"], insert_data["fib_786"],
-                insert_data["fib_trend"], insert_data["fib_current_level"],
                 insert_data["vol_ratio"], insert_data["high_20d"], insert_data["recent_low"],
                 insert_data["current_price"], insert_data["current_open"], insert_data["current_high"],
                 insert_data["current_low"], insert_data["current_close"]
@@ -1329,18 +1359,17 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
         client = _create_clickhouse_client()
         
         # 显式指定列名，避免 SELECT * 导致的列顺序问题
+        # 只保留数值字段，状态判断由AI完成
         columns_sql = """code, market, date, period, ma5, ma10, ma20, ma60,
-            ma5_trend, ma10_trend, ma20_trend, ma60_trend,
             ema12, ema26,
-            macd_dif, macd_dea, macd, macd_dif_trend, macd_prev, rsi,
+            macd_dif, macd_dea, macd, macd_prev, rsi,
             bias6, bias12, bias24,
-            boll_upper, boll_middle, boll_lower, boll_expanding, boll_contracting, boll_width, boll_width_prev,
+            boll_upper, boll_middle, boll_lower, boll_width, boll_width_prev,
             kdj_k, kdj_d, kdj_j, williams_r, williams_r_prev,
-            adx, plus_di, minus_di, adx_prev, adx_rising,
-            cci, cci_prev, cci_rising, cci_status,
+            adx, plus_di, minus_di, adx_prev,
+            cci, cci_prev,
             ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
-            ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
-            fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
+            fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786,
             vol_ratio, high_20d, recent_low,
             current_price, current_open, current_high, current_low, current_close,
             update_time"""
@@ -1372,20 +1401,18 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
             return None
         
         row = result[0]
-        # 转换为字典（根据表结构，包含高级指标）
+        # 转换为字典（只包含数值字段）
         columns = [
             "code", "market", "date", "period", "ma5", "ma10", "ma20", "ma60",
-            "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
             "ema12", "ema26",
-            "macd_dif", "macd_dea", "macd", "macd_dif_trend", "macd_prev", "rsi",
+            "macd_dif", "macd_dea", "macd", "macd_prev", "rsi",
             "bias6", "bias12", "bias24",
-            "boll_upper", "boll_middle", "boll_lower", "boll_expanding", "boll_contracting", "boll_width", "boll_width_prev",
+            "boll_upper", "boll_middle", "boll_lower", "boll_width", "boll_width_prev",
             "kdj_k", "kdj_d", "kdj_j", "williams_r", "williams_r_prev",
-            "adx", "plus_di", "minus_di", "adx_prev", "adx_rising",
-            "cci", "cci_prev", "cci_rising", "cci_status",
+            "adx", "plus_di", "minus_di", "adx_prev",
+            "cci", "cci_prev",
             "ichimoku_tenkan", "ichimoku_kijun", "ichimoku_senkou_a", "ichimoku_senkou_b",
-            "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud", "ichimoku_tk_cross_up", "ichimoku_tk_cross_down",
-            "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786", "fib_trend", "fib_current_level",
+            "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786",
             "vol_ratio", "high_20d", "recent_low",
             "current_price", "current_open", "current_high", "current_low", "current_close", 
             "update_time"
@@ -1395,11 +1422,6 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
         for i, col in enumerate(columns):
             if i < len(row):
                 value = row[i]
-                # 转换布尔类型
-                if col in ["boll_expanding", "boll_contracting", 
-                           "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud",
-                           "ichimoku_tk_cross_up", "ichimoku_tk_cross_down", "adx_rising", "cci_rising"]:
-                    value = bool(value) if value is not None else False
                 indicator_dict[col] = value
         
         # 添加bias别名（bias12也叫bias）
@@ -1434,11 +1456,11 @@ def get_indicator_history(code: str, market: str, days: int = 2, period: str = "
     try:
         client = _create_clickhouse_client()
         
-        # 只获取关键字段，减少数据量
+        # 只获取关键字段，减少数据量（移除状态字段，只保留数值）
         columns_sql = """date, 
             current_close, current_open, current_high, current_low, vol_ratio,
-            ma5, ma10, ma20, ma60, ma5_trend,
-            macd_dif, macd_dea, macd, macd_dif_trend,
+            ma5, ma10, ma20, ma60,
+            macd_dif, macd_dea, macd,
             rsi, kdj_k, kdj_d, kdj_j,
             boll_upper, boll_middle, boll_lower,
             williams_r, adx, cci"""
@@ -1461,8 +1483,8 @@ def get_indicator_history(code: str, market: str, days: int = 2, period: str = "
         
         columns = [
             "date", "close", "open", "high", "low", "vol_ratio",
-            "ma5", "ma10", "ma20", "ma60", "ma5_trend",
-            "macd_dif", "macd_dea", "macd", "macd_dif_trend",
+            "ma5", "ma10", "ma20", "ma60",
+            "macd_dif", "macd_dea", "macd",
             "rsi", "kdj_k", "kdj_d", "kdj_j",
             "boll_upper", "boll_middle", "boll_lower",
             "williams_r", "adx", "cci"
@@ -1513,19 +1535,17 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
     try:
         client = _create_clickhouse_client()
         
-        # 包含所有基础指标和高级指标的字段列表
+        # 只保留数值字段，状态判断由AI完成
         all_columns = """code, market, date, ma5, ma10, ma20, ma60,
-                    ma5_trend, ma10_trend, ma20_trend, ma60_trend,
                     ema12, ema26,
-                    macd_dif, macd_dea, macd, macd_dif_trend, macd_prev, rsi,
+                    macd_dif, macd_dea, macd, macd_prev, rsi,
                     bias6, bias12, bias24,
-                    boll_upper, boll_middle, boll_lower, boll_expanding, boll_contracting, boll_width, boll_width_prev,
+                    boll_upper, boll_middle, boll_lower, boll_width, boll_width_prev,
                     kdj_k, kdj_d, kdj_j, williams_r, williams_r_prev,
-                    adx, plus_di, minus_di, adx_prev, adx_rising,
-                    cci, cci_prev, cci_rising, cci_status,
+                    adx, plus_di, minus_di, adx_prev,
+                    cci, cci_prev,
                     ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
-                    ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud, ichimoku_tk_cross_up, ichimoku_tk_cross_down,
-                    fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786, fib_trend, fib_current_level,
+                    fib_swing_high, fib_swing_low, fib_236, fib_382, fib_500, fib_618, fib_786,
                     vol_ratio, high_20d, recent_low,
                     current_price, current_open, current_high, current_low, current_close, 
                     update_time"""
@@ -1557,20 +1577,18 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
         
         result = client.execute(query, params)
         
-        # 列顺序（包含所有基础指标和高级指标）
+        # 列顺序（只包含数值字段）
         columns = [
             "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
-            "ma5_trend", "ma10_trend", "ma20_trend", "ma60_trend",
             "ema12", "ema26",
-            "macd_dif", "macd_dea", "macd", "macd_dif_trend", "macd_prev", "rsi",
+            "macd_dif", "macd_dea", "macd", "macd_prev", "rsi",
             "bias6", "bias12", "bias24",
-            "boll_upper", "boll_middle", "boll_lower", "boll_expanding", "boll_contracting", "boll_width", "boll_width_prev",
+            "boll_upper", "boll_middle", "boll_lower", "boll_width", "boll_width_prev",
             "kdj_k", "kdj_d", "kdj_j", "williams_r", "williams_r_prev",
-            "adx", "plus_di", "minus_di", "adx_prev", "adx_rising",
-            "cci", "cci_prev", "cci_rising", "cci_status",
+            "adx", "plus_di", "minus_di", "adx_prev",
+            "cci", "cci_prev",
             "ichimoku_tenkan", "ichimoku_kijun", "ichimoku_senkou_a", "ichimoku_senkou_b",
-            "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud", "ichimoku_tk_cross_up", "ichimoku_tk_cross_down",
-            "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786", "fib_trend", "fib_current_level",
+            "fib_swing_high", "fib_swing_low", "fib_236", "fib_382", "fib_500", "fib_618", "fib_786",
             "vol_ratio", "high_20d", "recent_low",
             "current_price", "current_open", "current_high", "current_low", "current_close", 
             "update_time"
@@ -1585,11 +1603,6 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
                     value = row[i]
                     if col == "code":
                         code = value
-                    # 转换布尔类型
-                    if col in ["boll_expanding", "boll_contracting", 
-                               "ichimoku_above_cloud", "ichimoku_below_cloud", "ichimoku_in_cloud",
-                               "ichimoku_tk_cross_up", "ichimoku_tk_cross_down", "adx_rising", "cci_rising"]:
-                        value = bool(value) if value is not None else False
                     indicator_dict[col] = value
             
             if code:

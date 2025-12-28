@@ -1450,18 +1450,7 @@ def validate_all_indicators(client) -> dict:
         for row in boll_errors:
             errors.append({"code": row[0], "field": "boll", "value": f"U={row[1]}, M={row[2]}, L={row[3]}", "message": "布林带顺序错误"})
         
-        # 5. 一目均衡表云层状态检查 (只能有一个为true)
-        ichimoku_errors = client.execute(f"""
-            SELECT code, ichimoku_above_cloud, ichimoku_below_cloud, ichimoku_in_cloud FROM indicators 
-            WHERE date = '{latest_date}' 
-              AND (ichimoku_above_cloud + ichimoku_below_cloud + ichimoku_in_cloud) != 1
-              AND (ichimoku_tenkan > 0 OR ichimoku_kijun > 0)
-            LIMIT 10
-        """)
-        for row in ichimoku_errors:
-            errors.append({"code": row[0], "field": "ichimoku_cloud", "value": f"above={row[1]}, below={row[2]}, in={row[3]}", "message": "云层状态异常"})
-        
-        # 6. 价格一致性检查 (high >= low)
+        # 5. 价格一致性检查 (high >= low)
         price_errors = client.execute(f"""
             SELECT code, current_high, current_low FROM indicators 
             WHERE date = '{latest_date}' AND current_high < current_low AND current_high > 0

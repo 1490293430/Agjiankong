@@ -140,11 +140,16 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - MACD柱：当前{macd_current}，前值{macd_prev}
 - 最近5天MACD柱：{recent_5d_macd}
 
-【日线其他指标】
+【日线RSI/KDJ/CCI（超买超卖判断，必须在key_factors中说明）】
 - RSI：{rsi}（>70超买，<30超卖）
-- KDJ：K={kdj_k}，D={kdj_d}，J={kdj_j}
+- KDJ：K={kdj_k}，D={kdj_d}，J={kdj_j}（J>80超买，J<20超卖）
 - CCI：当前{cci}，前值{cci_prev}（>100超买，<-100超卖）
-- 成交量比：{vol_ratio}（>1.5放量，<0.5缩量）
+- 威廉%R：当前{indicators.get('williams_r')}，前值{indicators.get('williams_r_prev')}（>-20超买，<-80超卖）
+- 成交量比：{vol_ratio}（>1.5放量，<0.8缩量，必须在key_factors中说明）
+
+【日线ADX趋势强度】
+- ADX：当前{indicators.get('adx')}，前值{indicators.get('adx_prev')}（>25趋势明确，<20无趋势）
+- +DI：{indicators.get('plus_di')}，-DI：{indicators.get('minus_di')}
 
 【布林带数据】（请自行判断开口/收口：宽度增加为开口）
 - 上轨：{boll_upper}
@@ -159,14 +164,16 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 50%位：{fib_500}
 - 61.8%位：{fib_618}
 
-【小时线数据】
+【小时线数据（入场时机判断）】
 - 小时MA5：{indicators.get('hourly_ma5')}
 - 小时MA20：{indicators.get('hourly_ma20')}
 - 小时MACD DIF：{indicators.get('hourly_macd_dif')}
 - 小时MACD柱：{indicators.get('hourly_macd')}
-- 小时RSI：{indicators.get('hourly_rsi')}
-- 小时KDJ J值：{indicators.get('hourly_kdj_j')}
-- 小时成交量比：{indicators.get('hourly_vol_ratio')}
+- 小时RSI：{indicators.get('hourly_rsi')}（>70超买，<30超卖）
+- 小时KDJ：K={indicators.get('hourly_kdj_k')}，D={indicators.get('hourly_kdj_d')}，J={indicators.get('hourly_kdj_j')}
+- 小时CCI：{indicators.get('hourly_cci')}
+- 小时成交量比：{indicators.get('hourly_vol_ratio')}（⚠️重要：<0.8表示缩量，需在key_factors中说明）
+- 小时布林带上轨：{indicators.get('hourly_boll_upper')}
 
 【近5日历史数据】
 - 每日涨跌幅：{recent_5d_pct}（从早到近）
@@ -200,6 +207,21 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - "观望"：不满足条件
 - "回避"：趋势向下
 
+【多周期共振规则（必须明确判断）】
+| 日线状态 | 小时线状态 | 信号 | 说明 |
+|---------|-----------|------|------|
+| 多头（价>MA60且MA60向上） | 多头共振 | 强烈看多 | 最强信号，可立即入场 |
+| 多头 | 回调企稳（RSI<40后拐头） | 买入 | 最佳入场时机 |
+| 多头 | 下跌中（MACD向下） | 关注 | 等待小时线企稳 |
+| 空头（价<MA60或MA60向下） | 任意 | 观望/回避 | 不符合做多条件 |
+
+【指标使用要求（必须在key_factors中体现）】
+1. RSI超买超卖：RSI>70必须说明"RSI超买"，RSI<30必须说明"RSI超卖"
+2. 成交量：vol_ratio<0.8必须说明"成交量不足"，>1.5说明"放量"
+3. 小时线成交量：hourly_vol_ratio<0.8必须说明"小时线缩量"
+4. KDJ状态：J>80说明"KDJ超买"，J<20说明"KDJ超卖"
+5. CCI状态：CCI>100说明"CCI超买"，CCI<-100说明"CCI超卖"
+
 入场信号评分：
 - 满足5个条件：信号强度100%
 - 满足4个条件：信号强度80%
@@ -218,20 +240,23 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 可以同时持有多只股票，每只股票都是全仓买入（不限制交易股票数量）
 - 只做多，不做空（只买入，不卖出做空）
 
-必须计算并验证：
+【买卖价格计算规则（必须参考技术位）】
 
 1. 买入价（buy_price）：
-   - 建议为当前价格的99%（考虑滑点）或MA20支撑位附近
-   - 参考值：{ma20 if ma20 else 'N/A'}元
+   - 优先参考MA20支撑位：{ma20 if ma20 else 'N/A'}元
+   - 或斐波那契38.2%位：{fib_382 if fib_382 else 'N/A'}元
+   - 或斐波那契50%位：{fib_500 if fib_500 else 'N/A'}元
+   - 或当前价格的99%（考虑滑点）
 
 2. 止损价（stop_loss）：
-   - 设在 min(current_low={current_low if current_low else 'N/A'}, recent_low={recent_low if recent_low else 'N/A'}) * 0.98
+   - 优先参考斐波那契61.8%位：{fib_618 if fib_618 else 'N/A'}元
+   - 或近期最低价：{recent_low if recent_low else 'N/A'}元
    - 或设在买入价下方2-3%
    - 单笔最大亏损不超过300元（总资金的3%）
 
 3. 止盈价（sell_price）：
-   - 基于布林带上轨（{boll_upper if boll_upper else 'N/A'}元）
-   - 或基于风险回报比1:2（即 (sell_price - buy_price) / (buy_price - stop_loss) >= 2）
+   - 优先参考布林带上轨：{boll_upper if boll_upper else 'N/A'}元
+   - 或基于风险回报比1:{min_risk_reward}计算
    - 建议收益3-10%
 
 4. 仓位计算示例（基于10000元总资金，全仓买入）：
@@ -253,10 +278,17 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 
 【特别说明：强烈看多信号】
 当多周期共振（日线多头+小时线多头）且信号特别强时，即使不满足买入条件，也应返回signal="强烈看多"，并提供建议的交易点位：
-- buy_price: 建议买入价（当前价附近或回调支撑位）
-- sell_price: 建议止盈价
-- stop_loss: 建议止损价
+- buy_price: 建议买入价（参考MA20或斐波那契回撤位）
+- sell_price: 建议止盈价（参考布林带上轨）
+- stop_loss: 建议止损价（参考斐波那契61.8%或近期低点）
 这样用户可以参考这些建议价格进行决策。
+
+【confidence（置信度）定义】
+- 90-100：多周期强烈共振，所有指标一致，信号极强
+- 75-89：大部分指标一致，信号较强
+- 60-74：部分指标支持，信号中等
+- 40-59：指标分歧较大，信号较弱
+- 0-39：指标矛盾，信号很弱
 
 请严格返回 JSON 格式，不要输出任何多余文字：
 {{
@@ -264,16 +296,16 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
   "name": "{stock.get('name', '')}",
   "trend": "上涨/下跌/震荡/未知",
   "risk": "低/中/高/未知",
-  "confidence": 0-100之间的整数,
+  "confidence": 0-100之间的整数（参考上述定义）,
   "score": 一个整数评分（-100到100，越高代表越看多）,
   "signal": "买入/强烈看多/关注/观望/回避",
-  "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "key_factors": ["关键因素1", "关键因素2"],
+  "buy_price": 买入价（数字，signal为买入或强烈看多时必填，参考技术位计算，否则为null）,
+  "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，参考布林带上轨，否则为null）,
+  "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，参考斐波那契61.8%或近期低点，否则为null）,
+  "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
   "advice": "一句话操作建议",
-  "summary": "100字以内的综合总结",
-  "reason": "给出交易点位的理由（30字以内，说明为何符合三重过滤系统）"
+  "summary": "100字以内的综合总结，必须提及关键指标状态",
+  "reason": "给出交易点位的理由（30字以内，说明参考了哪个技术位）"
 }}
 """
     else:
@@ -386,19 +418,42 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 - MACD柱：当前{indicators.get('macd')}，前值{indicators.get('macd_prev')}
 - 最近5天MACD柱：{indicators.get('recent_5d_macd')}
 
-日线其他：
-- RSI：{indicators.get('rsi')}
-- 成交量比：{indicators.get('vol_ratio')}
-- 布林带上轨：{indicators.get('boll_upper')}
+日线RSI/KDJ/CCI（超买超卖判断）：
+- RSI：{indicators.get('rsi')}（>70超买，<30超卖，需在key_factors中说明）
+- KDJ：K={indicators.get('kdj_k')}，D={indicators.get('kdj_d')}，J={indicators.get('kdj_j')}
+- CCI：当前{indicators.get('cci')}，前值{indicators.get('cci_prev')}（>100超买，<-100超卖）
+- 威廉%R：当前{indicators.get('williams_r')}，前值{indicators.get('williams_r_prev')}（>-20超买，<-80超卖）
 
-小时线数据：
+日线ADX趋势强度：
+- ADX：当前{indicators.get('adx')}，前值{indicators.get('adx_prev')}（>25趋势明确，<20无趋势）
+- +DI：{indicators.get('plus_di')}，-DI：{indicators.get('minus_di')}
+
+日线布林带：
+- 上轨：{indicators.get('boll_upper')}
+- 中轨：{indicators.get('boll_middle')}
+- 下轨：{indicators.get('boll_lower')}
+- 带宽：当前{indicators.get('boll_width')}，前值{indicators.get('boll_width_prev')}
+
+日线斐波那契回撤位（用于计算止盈止损）：
+- 波段高点：{indicators.get('fib_swing_high')}
+- 波段低点：{indicators.get('fib_swing_low')}
+- 38.2%位：{indicators.get('fib_382')}
+- 50%位：{indicators.get('fib_500')}
+- 61.8%位：{indicators.get('fib_618')}
+
+日线成交量：
+- 成交量比：{indicators.get('vol_ratio')}（>1.5放量，<0.8缩量，需在key_factors中说明）
+
+小时线数据（入场时机判断）：
 - 小时MA5：{indicators.get('hourly_ma5')}
 - 小时MA20：{indicators.get('hourly_ma20')}
 - 小时MACD DIF：{indicators.get('hourly_macd_dif')}
 - 小时MACD柱：{indicators.get('hourly_macd')}
-- 小时RSI：{indicators.get('hourly_rsi')}
-- 小时KDJ J值：{indicators.get('hourly_kdj_j')}
-- 小时成交量比：{indicators.get('hourly_vol_ratio')}
+- 小时RSI：{indicators.get('hourly_rsi')}（>70超买，<30超卖）
+- 小时KDJ：K={indicators.get('hourly_kdj_k')}，D={indicators.get('hourly_kdj_d')}，J={indicators.get('hourly_kdj_j')}
+- 小时CCI：{indicators.get('hourly_cci')}
+- 小时成交量比：{indicators.get('hourly_vol_ratio')}（⚠️重要：<0.8表示缩量，需在key_factors中说明）
+- 小时布林带上轨：{indicators.get('hourly_boll_upper')}
 
 历史数据：
 - 近5日涨跌幅：{indicators.get('recent_5d_pct')}
@@ -408,6 +463,7 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 止损参考：
 - 当前最低价：{indicators.get('current_low')}元
 - 近期最低价：{indicators.get('recent_low')}元
+- 斐波那契61.8%位：{indicators.get('fib_618')}元
 
 相关资讯：
 {news_summary if news_summary else '  暂无相关资讯'}
@@ -439,27 +495,69 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 【分析要求 - 日线定趋势，小时线定进场】
 请对每支股票分别进行分析，使用三重过滤系统：
 
-1. 趋势过滤器（日线）：股价 > MA60 且 MA60趋势向上 → 确认可以做多
-2. 入场信号过滤器（小时线）：需满足{min_conditions}个以上条件：
-   - 小时MA5/MA20向上
-   - 小时MACD DIF向上或绿柱缩短
-   - 小时成交量比 > {vol_ratio_threshold}
-   - 小时KDJ J值<30或RSI<40后拐头（超卖回升）
-3. 风险控制过滤器：风险回报比 >= {min_risk_reward}，单笔最大亏损300元
+【第一步：趋势过滤器（日线）】
+判断条件（必须同时满足）：
+- 股价 > MA60
+- MA60趋势向上（当前MA60 > 前值MA60）
+→ 满足则确认可以做多，进入第二步
+→ 不满足则 signal="观望" 或 "回避"
 
-【多周期配合说明】
-- 日线多头 + 小时线回调企稳 = 最佳入场时机（回调买入）
-- 日线多头 + 小时线多头共振 = 强烈看多，可立即入场
-- 日线多头 + 小时线下跌中 = 等待小时线企稳
-- 日线空头 = 观望或回避
+【第二步：入场信号过滤器（小时线）】
+需满足{min_conditions}个以上条件：
+1. 小时MA5 > 小时MA20（短期均线在长期均线上方）
+2. 小时MACD DIF向上（当前DIF > 前值DIF）或MACD柱由负转正
+3. 小时成交量比 > {vol_ratio_threshold}（⚠️重要：<0.8为缩量，必须在key_factors中说明）
+4. 小时KDJ J值<30后拐头向上 或 小时RSI<40后拐头向上（超卖回升）
+5. 小时CCI从<-100回升至>-100（超卖反弹信号）
+
+【第三步：风险控制过滤器】
+- 风险回报比 >= {min_risk_reward}
+- 单笔最大亏损 <= 300元（总资金10000元的3%）
+- RSI < {rsi_upper_limit}（避免超买区入场）
+
+【多周期共振规则（必须明确判断）】
+| 日线状态 | 小时线状态 | 信号 | 说明 |
+|---------|-----------|------|------|
+| 多头（价>MA60且MA60向上） | 多头共振 | 强烈看多 | 最强信号，可立即入场 |
+| 多头 | 回调企稳（RSI<40后拐头） | 买入 | 最佳入场时机 |
+| 多头 | 下跌中（MACD向下） | 关注 | 等待小时线企稳 |
+| 空头（价<MA60或MA60向下） | 任意 | 观望/回避 | 不符合做多条件 |
+
+【指标使用要求（必须在key_factors中体现）】
+1. RSI超买超卖：RSI>70必须说明"RSI超买"，RSI<30必须说明"RSI超卖"
+2. 成交量：vol_ratio<0.8必须说明"成交量不足"，>1.5说明"放量"
+3. 小时线成交量：hourly_vol_ratio<0.8必须说明"小时线缩量"
+4. KDJ状态：J>80说明"KDJ超买"，J<20说明"KDJ超卖"
+5. CCI状态：CCI>100说明"CCI超买"，CCI<-100说明"CCI超卖"
+6. ADX趋势强度：ADX>25说明"趋势明确"，ADX<20说明"无明显趋势"
+
+【买卖价格计算规则（必须参考技术位）】
+1. 买入价（buy_price）：
+   - 优先参考MA20支撑位或斐波那契38.2%/50%回撤位
+   - 或当前价的99%（考虑滑点）
+   
+2. 止损价（stop_loss）：
+   - 优先参考斐波那契61.8%回撤位或近期最低价
+   - 或设在买入价下方2-3%
+   - 必须确保：单笔亏损 <= 300元
+   
+3. 止盈价（sell_price）：
+   - 优先参考布林带上轨或斐波那契扩展位
+   - 或基于风险回报比1:{min_risk_reward}计算
+   - 建议收益3-10%
+
+【confidence（置信度）定义】
+- 90-100：多周期强烈共振，所有指标一致，信号极强
+- 75-89：大部分指标一致，信号较强
+- 60-74：部分指标支持，信号中等
+- 40-59：指标分歧较大，信号较弱
+- 0-39：指标矛盾，信号很弱
 
 【重要规则】
 - 总资金10000元，每只股票全仓买入（不限制持仓数量）
 - 单笔最大亏损：总资金的3%（300元）
 - 只做多，不做空
-
-【特别说明：强烈看多信号】
-当多周期共振（日线多头+小时线多头）且信号特别强时，即使不满足买入条件，也应返回signal="强烈看多"，并提供建议的交易点位（buy_price、sell_price、stop_loss），供用户参考决策。
+- key_factors必须包含具体的指标数值和判断依据
 
 请严格返回 JSON 格式，返回一个数组，每支股票一个对象：
 [
@@ -468,16 +566,16 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
     "name": "股票名称",
     "trend": "上涨/下跌/震荡/未知",
     "risk": "低/中/高/未知",
-    "confidence": 0-100之间的整数,
+    "confidence": 0-100之间的整数（参考上述定义）,
     "score": -100到100的整数评分,
     "signal": "买入/强烈看多/关注/观望/回避",
-    "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "key_factors": ["关键因素1", "关键因素2"],
+    "buy_price": 买入价（数字，signal为买入或强烈看多时必填，参考技术位计算，否则为null）,
+    "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，参考布林带上轨或斐波那契位，否则为null）,
+    "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，参考斐波那契61.8%或近期低点，否则为null）,
+    "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
     "advice": "一句话操作建议",
-    "summary": "100字以内的综合总结",
-    "reason": "给出交易点位的理由（30字以内）"
+    "summary": "100字以内的综合总结，必须提及关键指标状态",
+    "reason": "给出交易点位的理由（30字以内，说明参考了哪个技术位）"
   }},
   ...
 ]
