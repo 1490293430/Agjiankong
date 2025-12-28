@@ -208,11 +208,15 @@ def init_tables():
             market String,
             date Date,
             period String DEFAULT 'daily',  -- K线周期：daily（日线）、1h（小时线）
-            -- 均线（只保留数值，趋势由AI判断）
+            -- 均线（当前值和前值，用于AI判断趋势方向）
             ma5 Float64,
             ma10 Float64,
             ma20 Float64,
             ma60 Float64,
+            ma5_prev Float64,
+            ma10_prev Float64,
+            ma20_prev Float64,
+            ma60_prev Float64,
             -- EMA指数移动平均线
             ema12 Float64,
             ema26 Float64,
@@ -329,6 +333,11 @@ def init_tables():
         
         # 为indicators表添加高级指标字段（如果表已存在但缺少这些字段）
         try:
+            # 均线前值（用于AI判断趋势方向）
+            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ma5_prev Float64 DEFAULT 0")
+            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ma10_prev Float64 DEFAULT 0")
+            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ma20_prev Float64 DEFAULT 0")
+            client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ma60_prev Float64 DEFAULT 0")
             # EMA指数移动平均线
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ema12 Float64 DEFAULT 0")
             client.execute("ALTER TABLE indicators ADD COLUMN IF NOT EXISTS ema26 Float64 DEFAULT 0")
@@ -1174,11 +1183,15 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             "market": market.upper(),
             "date": date_obj,  # 使用date对象而不是字符串
             "period": period,  # K线周期
-            # 均线
+            # 均线（当前值和前值）
             "ma5": to_float(indicators.get("ma5")),
             "ma10": to_float(indicators.get("ma10")),
             "ma20": to_float(indicators.get("ma20")),
             "ma60": to_float(indicators.get("ma60")),
+            "ma5_prev": to_float(indicators.get("ma5_prev")),
+            "ma10_prev": to_float(indicators.get("ma10_prev")),
+            "ma20_prev": to_float(indicators.get("ma20_prev")),
+            "ma60_prev": to_float(indicators.get("ma60_prev")),
             # EMA指数移动平均线
             "ema12": to_float(indicators.get("ema12")),
             "ema26": to_float(indicators.get("ema26")),
@@ -1245,7 +1258,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             """
             INSERT INTO indicators 
             (code, market, date, period,
-             ma5, ma10, ma20, ma60,
+             ma5, ma10, ma20, ma60, ma5_prev, ma10_prev, ma20_prev, ma60_prev,
              ema12, ema26,
              macd_dif, macd_dea, macd, macd_prev, rsi,
              bias6, bias12, bias24,
@@ -1262,6 +1275,7 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             [[
                 insert_data["code"], insert_data["market"], insert_data["date"], insert_data["period"],
                 insert_data["ma5"], insert_data["ma10"], insert_data["ma20"], insert_data["ma60"],
+                insert_data["ma5_prev"], insert_data["ma10_prev"], insert_data["ma20_prev"], insert_data["ma60_prev"],
                 insert_data["ema12"], insert_data["ema26"],
                 insert_data["macd_dif"], insert_data["macd_dea"], insert_data["macd"],
                 insert_data["macd_prev"], insert_data["rsi"],
@@ -1361,6 +1375,7 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
         # 显式指定列名，避免 SELECT * 导致的列顺序问题
         # 只保留数值字段，状态判断由AI完成
         columns_sql = """code, market, date, period, ma5, ma10, ma20, ma60,
+            ma5_prev, ma10_prev, ma20_prev, ma60_prev,
             ema12, ema26,
             macd_dif, macd_dea, macd, macd_prev, rsi,
             bias6, bias12, bias24,
@@ -1404,6 +1419,7 @@ def get_indicator(code: str, market: str, date: str | None = None, period: str =
         # 转换为字典（只包含数值字段）
         columns = [
             "code", "market", "date", "period", "ma5", "ma10", "ma20", "ma60",
+            "ma5_prev", "ma10_prev", "ma20_prev", "ma60_prev",
             "ema12", "ema26",
             "macd_dif", "macd_dea", "macd", "macd_prev", "rsi",
             "bias6", "bias12", "bias24",
@@ -1537,6 +1553,7 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
         
         # 只保留数值字段，状态判断由AI完成
         all_columns = """code, market, date, ma5, ma10, ma20, ma60,
+                    ma5_prev, ma10_prev, ma20_prev, ma60_prev,
                     ema12, ema26,
                     macd_dif, macd_dea, macd, macd_prev, rsi,
                     bias6, bias12, bias24,
@@ -1580,6 +1597,7 @@ def batch_get_indicators(codes: List[str], market: str, date: str | None = None)
         # 列顺序（只包含数值字段）
         columns = [
             "code", "market", "date", "ma5", "ma10", "ma20", "ma60",
+            "ma5_prev", "ma10_prev", "ma20_prev", "ma60_prev",
             "ema12", "ema26",
             "macd_dif", "macd_dea", "macd", "macd_prev", "rsi",
             "bias6", "bias12", "bias24",

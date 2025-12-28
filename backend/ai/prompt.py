@@ -305,25 +305,31 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 - 0-39：指标矛盾，信号很弱
 
 请严格返回 JSON 格式，不要输出任何多余文字：
+
+【输出简化规则】
+- signal为"买入"或"强烈看多"：返回完整字段
+- signal为"关注"：返回参考价格和等待条件
+- signal为"观望"或"回避"：只返回基础字段，省略价格和详细分析
+
 {{
   "code": "{stock.get('code', '')}",
   "name": "{stock.get('name', '')}",
-  "trend": "上涨/下跌/震荡/未知",
-  "risk": "低/中/高/未知",
-  "confidence": 0-100之间的整数（参考上述定义）,
-  "score": 一个整数评分（-100到100，越高代表越看多）,
   "signal": "买入/强烈看多/关注/观望/回避",
-  "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
-  "ref_buy_price": 参考买入价（数字，仅signal为关注时必填，建议的入场价位，其他信号为null）,
-  "ref_sell_price": 参考止盈价（数字，仅signal为关注时必填，其他信号为null）,
-  "ref_stop_loss": 参考止损价（数字，仅signal为关注时必填，其他信号为null）,
-  "wait_conditions": ["等待条件1（具体可量化）", "等待条件2"],
-  "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
-  "advice": "一句话操作建议",
-  "summary": "100字以内的综合总结，必须提及关键指标状态",
-  "reason": "给出交易点位的理由（30字以内，说明参考了哪个技术位）"
+  "trend": "上涨/下跌/震荡",
+  "risk": "低/中/高",
+  "confidence": 0-100整数,
+  "score": -100到100整数,
+  "key_factors": ["关键因素1", "关键因素2"],
+  "advice": "一句话建议",
+  "summary": "50字以内总结（观望/回避可更简短）",
+  "reason": "20字以内理由",
+  "buy_price": 数字或null,
+  "sell_price": 数字或null,
+  "stop_loss": 数字或null,
+  "ref_buy_price": 数字或null（仅关注信号）,
+  "ref_sell_price": 数字或null（仅关注信号）,
+  "ref_stop_loss": 数字或null（仅关注信号）,
+  "wait_conditions": []（仅关注信号需填写）
 }}
 """
     else:
@@ -588,34 +594,37 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 - 总资金10000元，每只股票全仓买入（不限制持仓数量）
 - 单笔最大亏损：总资金的3%（300元）
 - 只做多，不做空
-- key_factors必须包含具体的指标数值和判断依据
 
-请严格返回 JSON 格式，返回一个数组，每支股票一个对象：
+【输出简化规则】
+- "买入"/"强烈看多"：返回完整字段和交易价格
+- "关注"：返回参考价格和等待条件
+- "观望"/"回避"：只返回基础字段，key_factors限2条，summary限30字
+
+请严格返回 JSON 数组，每支股票一个对象：
 [
   {{
     "code": "股票代码",
     "name": "股票名称",
-    "trend": "上涨/下跌/震荡/未知",
-    "risk": "低/中/高/未知",
-    "confidence": 0-100之间的整数（参考上述定义）,
-    "score": -100到100的整数评分,
     "signal": "买入/强烈看多/关注/观望/回避",
-    "buy_price": 买入价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "sell_price": 止盈价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "stop_loss": 止损价（数字，signal为买入或强烈看多时必填，否则为null）,
-    "ref_buy_price": 参考买入价（数字，仅signal为关注时必填，建议的入场价位，其他信号为null）,
-    "ref_sell_price": 参考止盈价（数字，仅signal为关注时必填，其他信号为null）,
-    "ref_stop_loss": 参考止损价（数字，仅signal为关注时必填，其他信号为null）,
-    "wait_conditions": ["等待条件1（具体可量化）", "等待条件2"],
-    "key_factors": ["必须包含具体指标数值，如：日线RSI=65处于正常区间", "小时线成交量比=0.58严重缩量"],
-    "advice": "一句话操作建议",
-    "summary": "100字以内的综合总结，必须提及关键指标状态",
-    "reason": "给出交易点位的理由（30字以内，说明参考了哪个技术位）"
-  }},
-  ...
+    "trend": "上涨/下跌/震荡",
+    "risk": "低/中/高",
+    "confidence": 0-100整数,
+    "score": -100到100整数,
+    "key_factors": ["因素1", "因素2"],
+    "advice": "一句话建议",
+    "summary": "简短总结",
+    "reason": "理由",
+    "buy_price": null,
+    "sell_price": null,
+    "stop_loss": null,
+    "ref_buy_price": null,
+    "ref_sell_price": null,
+    "ref_stop_loss": null,
+    "wait_conditions": []
+  }}
 ]
 
-请确保返回的数组包含{len(stocks_data)}个对象，顺序与输入的股票顺序一致。
+返回{len(stocks_data)}个对象，顺序与输入一致。
 """
     else:
         prompt = f"""
