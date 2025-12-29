@@ -8620,26 +8620,24 @@ async function loadDbInfo() {
             let html = `<div style="background: rgba(${color},0.1); border-radius: 8px; padding: 12px; margin-bottom: 8px;">`;
             html += `<div style="font-weight: 600; color: rgb(${color}); margin-bottom: 10px;">${label} (${stockData.total_count}只)</div>`;
             
+            // 格式化更新时间的函数
+            const formatTime = (timeStr) => {
+                if (!timeStr) return '';
+                try {
+                    const t = new Date(timeStr);
+                    return t.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                } catch (e) {
+                    return timeStr;
+                }
+            };
+            
             // 日线
             if (stockData.daily) {
                 const daily = stockData.daily;
                 const isComplete = daily.stock_count >= stockData.total_count * 0.9;
                 const isLatest = daily.latest_date === today;
                 const completePct = ((daily.stock_count / stockData.total_count) * 100).toFixed(0);
-                
-                // 格式化更新时间
-                let updateTimeStr = '';
-                if (stockData.last_update_time) {
-                    try {
-                        const updateTime = new Date(stockData.last_update_time);
-                        updateTimeStr = updateTime.toLocaleString('zh-CN', { 
-                            month: '2-digit', day: '2-digit', 
-                            hour: '2-digit', minute: '2-digit' 
-                        });
-                    } catch (e) {
-                        updateTimeStr = stockData.last_update_time;
-                    }
-                }
+                const updateTimeStr = formatTime(daily.latest_update_time);
                 
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -8656,7 +8654,7 @@ async function loadDbInfo() {
                 </div>`;
                 if (updateTimeStr) {
                     html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-                        <span style="color: #64748b;">最近更新:</span>
+                        <span style="color: #64748b;">入库时间:</span>
                         <span style="color: #60a5fa;">${updateTimeStr}</span>
                     </div>`;
                 }
@@ -8671,6 +8669,7 @@ async function loadDbInfo() {
                 const hourly = stockData.hourly;
                 const dist = stockData.hourly_distribution;
                 const completePct = ((hourly.stock_count / stockData.total_count) * 100).toFixed(0);
+                const hourlyUpdateTimeStr = formatTime(hourly.latest_update_time);
                 
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -8685,6 +8684,12 @@ async function loadDbInfo() {
                     <span style="color: #64748b;">数据范围:</span>
                     <span style="color: #94a3b8;">${hourly.earliest_date} ~ ${hourly.latest_date}</span>
                 </div>`;
+                if (hourlyUpdateTimeStr) {
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
+                        <span style="color: #64748b;">入库时间:</span>
+                        <span style="color: #60a5fa;">${hourlyUpdateTimeStr}</span>
+                    </div>`;
+                }
                 if (dist && dist.total_stocks > 0) {
                     const pctMa60 = ((dist.enough_ma60 / dist.total_stocks) * 100).toFixed(1);
                     const isMa60Ok = dist.enough_ma60 >= dist.total_stocks * 0.8;
@@ -8712,19 +8717,33 @@ async function loadDbInfo() {
                         const isLatest = dailyInd.latest_date === today;
                         const dailyKlineCount = stockData.daily?.stock_count || 0;
                         const isComplete = dailyKlineCount > 0 && dailyInd.stock_count >= dailyKlineCount * 0.9;
+                        const updateTime = formatTime(dailyInd.latest_update_time);
                         html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
                             <span style="color: #64748b;">日线指标:</span>
                             <span>${dailyInd.stock_count}只 ${statusTag(isLatest, '最新', '待计算')} ${statusTag(isComplete, '完整', '不完整')}</span>
                         </div>`;
+                        if (updateTime) {
+                            html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 11px;">
+                                <span style="color: #64748b; padding-left: 8px;">└ 入库时间:</span>
+                                <span style="color: #60a5fa;">${updateTime}</span>
+                            </div>`;
+                        }
                     }
                     if (hourlyInd) {
                         const isLatest = hourlyInd.latest_date === today;
                         const hourlyKlineCount = stockData.hourly?.stock_count || 0;
                         const isComplete = hourlyKlineCount > 0 && hourlyInd.stock_count >= hourlyKlineCount * 0.9;
-                        html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                        const updateTime = formatTime(hourlyInd.latest_update_time);
+                        html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
                             <span style="color: #64748b;">小时指标:</span>
                             <span>${hourlyInd.stock_count}只 ${statusTag(isLatest, '最新', '待计算')} ${statusTag(isComplete, '完整', '不完整')}</span>
                         </div>`;
+                        if (updateTime) {
+                            html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                                <span style="color: #64748b; padding-left: 8px;">└ 入库时间:</span>
+                                <span style="color: #60a5fa;">${updateTime}</span>
+                            </div>`;
+                        }
                     }
                 }
             }

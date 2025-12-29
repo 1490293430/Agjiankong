@@ -577,24 +577,30 @@ def main():
                     batch_compute_indicators_job("HK")
             
             # 不在交易时间内，不采集数据，延长等待时间
-            # 估算下一个可能的交易开始时间
-            next_a_start = get_next_trading_start_time("A")
-            next_hk_start = get_next_trading_start_time("HK")
-            next_start = min(next_a_start, next_hk_start)
-            
-            if next_start.tzinfo:
-                from common.trading_hours import TZ_SHANGHAI
-                if now.tzinfo is None:
-                    now_tz = TZ_SHANGHAI.localize(now)
-                else:
-                    now_tz = now.astimezone(TZ_SHANGHAI)
+            # 但如果还没到17:30，需要短间隔检查以确保17:00的指标计算能触发
+            if current_hour < 17 or (current_hour == 17 and current_minute < 30):
+                # 17:30之前，每5分钟检查一次，确保17:00的任务能触发
+                logger.info(f"当前时间 {current_hour}:{current_minute:02d}，17:30前保持短间隔检查（5分钟）")
+                time.sleep(300)
             else:
-                now_tz = now
-            
-            wait_seconds = max(300, int((next_start - now_tz).total_seconds()))  # 至少等待5分钟
-            
-            logger.info(f"当前不在交易时间内，等待 {wait_seconds // 60} 分钟后重新检查（估算下次交易时间: {next_start.strftime('%Y-%m-%d %H:%M:%S')}）")
-            time.sleep(min(wait_seconds, 3600))  # 最多等待1小时，然后重新检查
+                # 17:30之后，可以长时间睡眠到下一个交易日
+                next_a_start = get_next_trading_start_time("A")
+                next_hk_start = get_next_trading_start_time("HK")
+                next_start = min(next_a_start, next_hk_start)
+                
+                if next_start.tzinfo:
+                    from common.trading_hours import TZ_SHANGHAI
+                    if now.tzinfo is None:
+                        now_tz = TZ_SHANGHAI.localize(now)
+                    else:
+                        now_tz = now.astimezone(TZ_SHANGHAI)
+                else:
+                    now_tz = now
+                
+                wait_seconds = max(300, int((next_start - now_tz).total_seconds()))
+                
+                logger.info(f"当前不在交易时间内且已过17:30，等待 {wait_seconds // 60} 分钟后重新检查（估算下次交易时间: {next_start.strftime('%Y-%m-%d %H:%M:%S')}）")
+                time.sleep(min(wait_seconds, 3600))  # 最多等待1小时，然后重新检查
 
 
 if __name__ == "__main__":

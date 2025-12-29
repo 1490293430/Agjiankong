@@ -1586,7 +1586,8 @@ async def get_db_info_api():
                 count() as total_records,
                 uniq(code) as stock_count,
                 min(date) as earliest_date,
-                max(date) as latest_date
+                max(date) as latest_date,
+                max(update_time) as latest_update_time
             FROM kline
             WHERE length(code) = 6 AND (code LIKE '6%' OR code LIKE '0%' OR code LIKE '3%' OR code LIKE '4%' OR code LIKE '8%')
             GROUP BY period
@@ -1600,7 +1601,8 @@ async def get_db_info_api():
                 count() as total_records,
                 uniq(code) as stock_count,
                 min(date) as earliest_date,
-                max(date) as latest_date
+                max(date) as latest_date,
+                max(update_time) as latest_update_time
             FROM kline
             WHERE length(code) = 5 OR (length(code) = 6 AND code LIKE '0%' AND code NOT LIKE '00%')
             GROUP BY period
@@ -1613,7 +1615,8 @@ async def get_db_info_api():
                 period,
                 count() as total_records,
                 uniq(code) as stock_count,
-                max(date) as latest_date
+                max(date) as latest_date,
+                max(update_time) as latest_update_time
             FROM indicators
             WHERE market = 'A'
             GROUP BY period
@@ -1626,7 +1629,8 @@ async def get_db_info_api():
                 period,
                 count() as total_records,
                 uniq(code) as stock_count,
-                max(date) as latest_date
+                max(date) as latest_date,
+                max(update_time) as latest_update_time
             FROM indicators
             WHERE market = 'HK'
             GROUP BY period
@@ -1710,12 +1714,13 @@ async def get_db_info_api():
         
         # 处理A股K线统计
         for row in a_kline_stats:
-            period, total_records, stock_count, earliest_date, latest_date = row
+            period, total_records, stock_count, earliest_date, latest_date, latest_update_time = row
             data = {
                 "total_records": total_records,
                 "stock_count": stock_count,
                 "earliest_date": str(earliest_date) if earliest_date else None,
-                "latest_date": str(latest_date) if latest_date else None
+                "latest_date": str(latest_date) if latest_date else None,
+                "latest_update_time": latest_update_time.strftime("%Y-%m-%d %H:%M:%S") if latest_update_time else None
             }
             if period == "daily":
                 result["a_stock"]["daily"] = data
@@ -1724,12 +1729,13 @@ async def get_db_info_api():
         
         # 处理港股K线统计
         for row in hk_kline_stats:
-            period, total_records, stock_count, earliest_date, latest_date = row
+            period, total_records, stock_count, earliest_date, latest_date, latest_update_time = row
             data = {
                 "total_records": total_records,
                 "stock_count": stock_count,
                 "earliest_date": str(earliest_date) if earliest_date else None,
-                "latest_date": str(latest_date) if latest_date else None
+                "latest_date": str(latest_date) if latest_date else None,
+                "latest_update_time": latest_update_time.strftime("%Y-%m-%d %H:%M:%S") if latest_update_time else None
             }
             if period == "daily":
                 result["hk_stock"]["daily"] = data
@@ -1738,20 +1744,22 @@ async def get_db_info_api():
         
         # 处理A股指标统计
         for row in a_indicator_stats:
-            period, total_records, stock_count, latest_date = row
+            period, total_records, stock_count, latest_date, latest_update_time = row
             result["a_stock"]["indicators"][period] = {
                 "total_records": total_records,
                 "stock_count": stock_count,
-                "latest_date": str(latest_date) if latest_date else None
+                "latest_date": str(latest_date) if latest_date else None,
+                "latest_update_time": latest_update_time.strftime("%Y-%m-%d %H:%M:%S") if latest_update_time else None
             }
         
         # 处理港股指标统计
         for row in hk_indicator_stats:
-            period, total_records, stock_count, latest_date = row
+            period, total_records, stock_count, latest_date, latest_update_time = row
             result["hk_stock"]["indicators"][period] = {
                 "total_records": total_records,
                 "stock_count": stock_count,
-                "latest_date": str(latest_date) if latest_date else None
+                "latest_date": str(latest_date) if latest_date else None,
+                "latest_update_time": latest_update_time.strftime("%Y-%m-%d %H:%M:%S") if latest_update_time else None
             }
         
         # 处理A股小时K线分布
