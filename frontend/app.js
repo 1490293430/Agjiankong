@@ -5606,7 +5606,7 @@ async function smartImportWatchlist() {
         }
         
         // 2. 提取中文字符序列，尝试匹配股票名称
-        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z]/g, ''); // 只保留中文和字母
+        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ''); // 只保留中文、字母和数字
         
         // 遍历所有股票名称，检查是否在输入中出现（模糊匹配）
         for (const [name, stock] of nameMap) {
@@ -5618,21 +5618,22 @@ async function smartImportWatchlist() {
                 continue;
             }
             
-            // 模糊匹配：去掉常见后缀再匹配
+            // 去掉常见后缀后匹配
             const shortName = name.replace(/(股份|集团|控股|科技|电子|医药|银行|证券|保险|地产|能源|汽车|通信|传媒|食品|材料|化工|机械|电气|建筑|交通|物流|旅游|教育|环保|农业|矿业|纺织|家电|软件|网络|生物|新能源|互联网|智能|数字|云|大数据)$/g, '');
             if (shortName.length >= 2 && cleanText.includes(shortName)) {
                 matched.push(stock);
                 continue;
             }
             
-            // 更宽松的匹配：检查名称的核心部分（前2-3个字）
-            if (name.length >= 2) {
-                const core = name.substring(0, Math.min(3, name.length));
-                if (cleanText.includes(core) && core.length >= 2) {
-                    // 额外验证：核心部分不能太常见
-                    const commonWords = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业'];
-                    if (!commonWords.includes(core) || cleanText.includes(name.substring(0, 4))) {
+            // 检查名称前2-4个字是否在输入中
+            for (let len = Math.min(4, name.length); len >= 2; len--) {
+                const prefix = name.substring(0, len);
+                if (cleanText.includes(prefix)) {
+                    // 避免太常见的前缀误匹配
+                    const commonPrefixes = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业', '中国银', '中国平'];
+                    if (!commonPrefixes.includes(prefix)) {
                         matched.push(stock);
+                        break;
                     }
                 }
             }
