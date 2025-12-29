@@ -8627,6 +8627,20 @@ async function loadDbInfo() {
                 const isLatest = daily.latest_date === today;
                 const completePct = ((daily.stock_count / stockData.total_count) * 100).toFixed(0);
                 
+                // 格式化更新时间
+                let updateTimeStr = '';
+                if (stockData.last_update_time) {
+                    try {
+                        const updateTime = new Date(stockData.last_update_time);
+                        updateTimeStr = updateTime.toLocaleString('zh-CN', { 
+                            month: '2-digit', day: '2-digit', 
+                            hour: '2-digit', minute: '2-digit' 
+                        });
+                    } catch (e) {
+                        updateTimeStr = stockData.last_update_time;
+                    }
+                }
+                
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="color: #334155; font-weight: 600;">📊 日线K线</span>
@@ -8636,10 +8650,16 @@ async function loadDbInfo() {
                     <span style="color: #64748b;">覆盖股票:</span>
                     <span>${daily.stock_count}只 (${completePct}%) ${statusTag(isComplete, '完整', '不完整')}</span>
                 </div>`;
-                html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 12px;">
                     <span style="color: #64748b;">数据范围:</span>
                     <span style="color: #94a3b8;">${daily.earliest_date} ~ ${daily.latest_date} ${statusTag(isLatest, '最新', '待更新')}</span>
                 </div>`;
+                if (updateTimeStr) {
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                        <span style="color: #64748b;">最近更新:</span>
+                        <span style="color: #60a5fa;">${updateTimeStr}</span>
+                    </div>`;
+                }
                 html += `</div>`;
             } else {
                 html += '<div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">📊 日线K线: 暂无数据</div>';

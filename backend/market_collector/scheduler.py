@@ -474,12 +474,32 @@ def main():
             # 不在交易时间内，也检查小时K线采集（处理收盘后的采集时间点）
             hourly_kline_collect_job()
             
-            # 不在交易时间内，检查是否需要执行收盘后批量计算指标
-            # 17:00 准时开始计算（通过 _last_batch_compute_market 防止重复执行）
+            # 不在交易时间内，检查是否需要执行收盘后任务
             
+            # A股收盘后立即转换（15:12后）
+            if current_hour == 15 and current_minute >= 12:
+                try:
+                    from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
+                    if should_convert_snapshot("A"):
+                        logger.info("[A股] 收盘后执行快照转K线")
+                        result = convert_snapshot_to_kline("A")
+                        logger.info(f"[A股] 快照转K线完成: {result}")
+                except Exception as e:
+                    logger.error(f"[A股] 快照转K线失败: {e}")
+            
+            # 港股收盘后立即转换（16:22后）
+            if current_hour == 16 and current_minute >= 22:
+                try:
+                    from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
+                    if should_convert_snapshot("HK"):
+                        logger.info("[港股] 收盘后执行快照转K线")
+                        result = convert_snapshot_to_kline("HK")
+                        logger.info(f"[港股] 快照转K线完成: {result}")
+                except Exception as e:
+                    logger.error(f"[港股] 快照转K线失败: {e}")
+            
+            # 17:00 执行批量计算指标
             if current_hour == 17 and current_minute >= 0:
-                # 先执行快照转K线
-                snapshot_to_kline_job()
                 
                 # 判断A股今天是否有交易
                 a_has_traded_today = False

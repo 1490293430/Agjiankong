@@ -1665,6 +1665,29 @@ async def get_db_info_api():
         
         client.disconnect()
         
+        # 获取快照更新时间（从Redis）
+        a_update_time = None
+        hk_update_time = None
+        try:
+            from common.redis import get_redis
+            redis_client = get_redis()
+            
+            # A股更新时间
+            a_time_str = redis_client.get("market:a:time")
+            if a_time_str:
+                if isinstance(a_time_str, bytes):
+                    a_time_str = a_time_str.decode('utf-8')
+                a_update_time = a_time_str
+            
+            # 港股更新时间
+            hk_time_str = redis_client.get("market:hk:time")
+            if hk_time_str:
+                if isinstance(hk_time_str, bytes):
+                    hk_time_str = hk_time_str.decode('utf-8')
+                hk_update_time = hk_time_str
+        except Exception as e:
+            logger.debug(f"获取快照更新时间失败: {e}")
+        
         # 整理结果
         result = {
             "a_stock": {
@@ -1672,14 +1695,16 @@ async def get_db_info_api():
                 "daily": None,
                 "hourly": None,
                 "hourly_distribution": None,
-                "indicators": {}
+                "indicators": {},
+                "last_update_time": a_update_time
             },
             "hk_stock": {
                 "total_count": hk_stock_count,
                 "daily": None,
                 "hourly": None,
                 "hourly_distribution": None,
-                "indicators": {}
+                "indicators": {},
+                "last_update_time": hk_update_time
             }
         }
         
