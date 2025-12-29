@@ -5542,10 +5542,12 @@ async function smartImportWatchlist() {
         let allStocks = [];
         try {
             // 从Redis缓存获取A股和港股数据
-            const aData = await fetch('/api/market/a/spot').then(r => r.json());
-            const hkData = await fetch('/api/market/hk/spot').then(r => r.json());
-            if (aData.success && aData.data) allStocks = allStocks.concat(aData.data);
-            if (hkData.success && hkData.data) allStocks = allStocks.concat(hkData.data);
+            const aRes = await apiFetch(`${API_BASE}/api/market/a/spot`);
+            const hkRes = await apiFetch(`${API_BASE}/api/market/hk/spot`);
+            const aData = await aRes.json();
+            const hkData = await hkRes.json();
+            if (aData.code === 0 && aData.data) allStocks = allStocks.concat(aData.data);
+            if (hkData.code === 0 && hkData.data) allStocks = allStocks.concat(hkData.data);
         } catch (e) {
             console.error('获取股票列表失败:', e);
         }
