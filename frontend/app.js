@@ -1445,8 +1445,17 @@ function handleWatchlistSync(action, data) {
     }
 }
 
+// 标记是否正在进行删除操作（防止SSE覆盖）
+let _isRemovingFromWatchlist = false;
+
 // 执行自选股同步更新（内部函数）
 function _doWatchlistSync(data) {
+    // 如果正在删除操作中，跳过SSE同步（防止恢复已删除的股票）
+    if (_isRemovingFromWatchlist) {
+        console.log('[SSE] ⏸️ 正在删除操作中，跳过同步');
+        return;
+    }
+    
     console.log('[SSE] ========== 执行自选股同步更新（无感刷新） ==========');
     const serverData = data || [];
     const localData = getWatchlist();
@@ -5590,6 +5599,9 @@ async function smartImportWatchlist() {
 
 // 从自选股移除（无感移除：立即删除，后台保存）
 async function removeFromWatchlist(code) {
+    // 设置标记，防止SSE同步覆盖
+    _isRemovingFromWatchlist = true;
+    
     // 如果当前在自选页，先找到对应的行
     const watchlistTab = document.getElementById('watchlist-tab');
     const isInWatchlistPage = watchlistTab && watchlistTab.classList.contains('active');
@@ -5662,8 +5674,13 @@ async function removeFromWatchlist(code) {
     // 后台异步保存到服务器（不阻塞UI）
     try {
         await saveWatchlist(newWatchlist);
+        // 保存成功，延迟清除标记（给SSE一点时间同步）
+        setTimeout(() => {
+            _isRemovingFromWatchlist = false;
+        }, 1000);
     } catch (error) {
         console.error('保存自选股到服务器失败:', error);
+        _isRemovingFromWatchlist = false; // 清除标记
         // 如果保存失败，恢复本地缓存和DOM
         localStorage.setItem('watchlist', JSON.stringify(watchlist));
         
