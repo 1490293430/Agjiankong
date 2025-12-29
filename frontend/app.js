@@ -5031,6 +5031,16 @@ const SYNC_COOLDOWN = 5000; // 5秒冷却时间
 function initWatchlist() {
     console.log('[自选] 初始化自选股模块');
     
+    // 绑定导入输入框的回车事件
+    const importInput = document.getElementById('watchlist-import-input');
+    if (importInput) {
+        importInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                smartImportWatchlist();
+            }
+        });
+    }
+    
     // 页面加载时从服务器同步自选股列表（带防抖）
     console.log('[自选] 开始从服务器同步自选股列表...');
     
@@ -5510,6 +5520,163 @@ async function addToWatchlist(code, name) {
     // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
     // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
     console.log('[自选] 添加完成，等待SSE推送更新（无感刷新）');
+}
+
+// 智能导入自选股（从输入框解析股票代码/名称）
+async function smartImportWatchlist() {
+    const input = document.getElementById('watchlist-import-input');
+    const btn = document.getElementById('watchlist-import-btn');
+    if (!input) return;
+    
+    const text = input.value.trim();
+    if (!text) {
+        alert('请输入股票代码或名称');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = '解析中...';
+    
+    try {
+        // 获取所有股票列表用于匹配
+        let allStocks = [];
+        try {
+            // 从Redis缓存获取A股和港股数据
+            const aData = await fetch('/api/market/a/spot').then(r => r.json());
+            const hkData = await fetch('/api/market/hk/spot').then(r => r.json());
+            if (aData.success && aData.data) allStocks = allStocks.concat(aData.data);
+            if (hkData.success && hkData.data) allStocks = allStocks.concat(hkData.data);
+        } catch (e) {
+            console.error('获取股票列表失败:', e);
+        }
+        
+        if (allStocks.length === 0) {
+            alert('无法获取股票列表，请稍后重试');
+            return;
+        }
+        
+        // 构建股票索引（代码->股票，名称->股票）
+        const codeMap = new Map();
+        const nameMap = new Map();
+        allStocks.forEach(s => {
+            const code = String(s.code || '').trim();
+            const name = String(s.name || '').trim();
+            if (code) codeMap.set(code, { code, name });
+            if (name) nameMap.set(name, { code, name });
+        });
+        
+        // 解析输入文本，提取可能的股票代码和名称
+        const matched = [];
+        const notFound = [];
+        
+        // 1. 提取所有连续数字（可能是股票代码）
+        const codePattern = /\d+/g;
+        let codeMatch;
+        while ((codeMatch = codePattern.exec(text)) !== null) {
+            let num = codeMatch[0];
+            // 尝试拆分连续数字为6位或5位代码
+            while (num.length >= 5) {
+                // 优先尝试6位（A股）
+                if (num.length >= 6) {
+                    const code6 = num.substring(0, 6);
+                    if (codeMap.has(code6)) {
+                        const stock = codeMap.get(code6);
+                        if (!matched.some(m => m.code === stock.code)) {
+                            matched.push(stock);
+                        }
+                        num = num.substring(6);
+                        continue;
+                    }
+                }
+                // 尝试5位（港股）
+                const code5 = num.substring(0, 5);
+                if (codeMap.has(code5)) {
+                    const stock = codeMap.get(code5);
+                    if (!matched.some(m => m.code === stock.code)) {
+                        matched.push(stock);
+                    }
+                    num = num.substring(5);
+                    continue;
+                }
+                // 都不匹配，跳过一位继续
+                num = num.substring(1);
+            }
+        }
+        
+        // 2. 提取中文字符序列，尝试匹配股票名称
+        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z]/g, ''); // 只保留中文和字母
+        
+        // 遍历所有股票名称，检查是否在输入中出现（模糊匹配）
+        for (const [name, stock] of nameMap) {
+            if (matched.some(m => m.code === stock.code)) continue; // 已匹配过
+            
+            // 精确匹配
+            if (cleanText.includes(name)) {
+                matched.push(stock);
+                continue;
+            }
+            
+            // 模糊匹配：去掉常见后缀再匹配
+            const shortName = name.replace(/(股份|集团|控股|科技|电子|医药|银行|证券|保险|地产|能源|汽车|通信|传媒|食品|材料|化工|机械|电气|建筑|交通|物流|旅游|教育|环保|农业|矿业|纺织|家电|软件|网络|生物|新能源|互联网|智能|数字|云|大数据)$/g, '');
+            if (shortName.length >= 2 && cleanText.includes(shortName)) {
+                matched.push(stock);
+                continue;
+            }
+            
+            // 更宽松的匹配：检查名称的核心部分（前2-3个字）
+            if (name.length >= 2) {
+                const core = name.substring(0, Math.min(3, name.length));
+                if (cleanText.includes(core) && core.length >= 2) {
+                    // 额外验证：核心部分不能太常见
+                    const commonWords = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业'];
+                    if (!commonWords.includes(core) || cleanText.includes(name.substring(0, 4))) {
+                        matched.push(stock);
+                    }
+                }
+            }
+        }
+        
+        if (matched.length === 0) {
+            alert('未能识别出任何股票，请检查输入内容');
+            return;
+        }
+        
+        // 添加到自选
+        const watchlist = getWatchlist();
+        let addedCount = 0;
+        let skippedCount = 0;
+        
+        for (const stock of matched) {
+            if (watchlist.some(s => s.code === stock.code)) {
+                skippedCount++;
+                continue;
+            }
+            watchlist.push({ code: stock.code, name: stock.name, addTime: Date.now() });
+            addedCount++;
+        }
+        
+        if (addedCount > 0) {
+            await saveWatchlist(watchlist);
+            window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'import' } }));
+            updateWatchlistButtonStates();
+        }
+        
+        // 显示结果
+        let msg = `识别到 ${matched.length} 只股票`;
+        if (addedCount > 0) msg += `，成功添加 ${addedCount} 只`;
+        if (skippedCount > 0) msg += `，${skippedCount} 只已在自选中`;
+        alert(msg);
+        
+        // 清空输入框
+        input.value = '';
+        
+    } catch (e) {
+        console.error('智能导入失败:', e);
+        alert('导入失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '导入';
+    }
 }
 
 // 从自选股移除（无感移除：立即删除，后台保存）
@@ -7566,12 +7733,12 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             }
             // 同类信号按评分从高到低排序
             return b._score - a._score;
-        })
-        .slice(0, 50);
+        });
+    // 注意：不再前端截取，后端已经分页
 
-    // 加载每只股票的胜率统计
+    // 加载每只股票的胜率统计（并行请求）
     const statsMap = {};
-    for (const item of successItems) {
+    const statsPromises = successItems.map(async (item) => {
         try {
             const res = await apiFetch(`${API_BASE}/api/trading/statistics?code=${item.code}`);
             if (res.ok) {
@@ -7581,9 +7748,10 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                 }
             }
         } catch (e) {
-            console.warn(`获取${item.code}统计失败:`, e);
+            // 忽略单个股票的统计获取失败
         }
-    }
+    });
+    await Promise.all(statsPromises);
 
     // 生成表格行HTML
     const tableRows = successItems.map(item => {
@@ -7715,23 +7883,19 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                 id="ai-prev-page-btn"
                 style="padding: 8px 16px; background: ${currentPage > 1 ? '#3b82f6' : '#334155'}; color: ${currentPage > 1 ? '#fff' : '#64748b'}; border: none; border-radius: 6px; cursor: ${currentPage > 1 ? 'pointer' : 'not-allowed'}; font-size: 14px;"
                 ${currentPage <= 1 ? 'disabled' : ''}
-            >
-                ← 上一页
-            </button>
+            >← 上一批</button>
             <span style="color: #94a3b8; font-size: 14px;">
-                第 ${currentPage} / ${totalPages} 页
+                第 ${currentPage} / ${totalPages} 批
                 ${batchTime ? `<span style="color: #64748b; margin-left: 8px;">(${batchTime})</span>` : ''}
             </span>
             <button 
                 id="ai-next-page-btn"
                 style="padding: 8px 16px; background: ${currentPage < totalPages ? '#3b82f6' : '#334155'}; color: ${currentPage < totalPages ? '#fff' : '#64748b'}; border: none; border-radius: 6px; cursor: ${currentPage < totalPages ? 'pointer' : 'not-allowed'}; font-size: 14px;"
                 ${currentPage >= totalPages ? 'disabled' : ''}
-            >
-                下一页 →
-            </button>
+            >下一批 →</button>
         </div>
-    ` : '';
-
+    ` : (batchTime ? `<div style="text-align: center; color: #64748b; font-size: 12px; margin-top: 8px;">${batchTime}</div>` : '');
+    
     container.innerHTML = `
         <div class="ai-analysis-container">
             <div class="ai-analysis-header">

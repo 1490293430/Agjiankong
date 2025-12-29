@@ -1356,6 +1356,64 @@ def get_indicator_date(code: str, market: str, period: str = "daily") -> str | N
                 pass
 
 
+def is_indicator_updated_after_close(code: str, market: str, period: str = "daily") -> bool:
+    """检查指标是否在当天收盘后更新过
+    
+    用于增量计算时判断是否需要重新计算：
+    - 日线：如果指标的update_time在当天收盘后，说明已经用最新数据计算过，可以跳过
+    - 小时线：如果指标的update_time在当天17:00后，说明已经用最新数据计算过，可以跳过
+    
+    Args:
+        code: 股票代码
+        market: 市场类型（A或HK）
+        period: K线周期
+    
+    Returns:
+        True表示已在收盘后更新，可以跳过；False表示需要重新计算
+    """
+    client = None
+    try:
+        client = _create_clickhouse_client()
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # 查询今天的指标及其更新时间
+        query = """
+            SELECT update_time FROM indicators
+            WHERE code = %(code)s AND market = %(market)s AND period = %(period)s AND date = %(date)s
+            ORDER BY update_time DESC
+            LIMIT 1
+        """
+        result = client.execute(query, {'code': code, 'market': market.upper(), 'period': period, 'date': today})
+        
+        if not result or len(result) == 0 or not result[0][0]:
+            return False  # 今天没有数据，需要计算
+        
+        update_time = result[0][0]
+        
+        # 判断阈值时间
+        if period == "daily":
+            # 日线：A股15:00后，港股16:00后
+            threshold_hour = 15 if market.upper() == "A" else 16
+        else:
+            # 小时线：统一17:00后（盘后批量计算时间）
+            threshold_hour = 17
+        
+        # 如果update_time在阈值时间后，说明已经用最新数据计算过
+        if hasattr(update_time, 'hour'):
+            return update_time.hour >= threshold_hour
+        
+        return False
+    except Exception as e:
+        logger.debug(f"检查指标更新时间失败 {code}: {e}")
+        return False
+    finally:
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+
 def get_indicator(code: str, market: str, date: str | None = None, period: str = "daily") -> Dict[str, Any] | None:
     """从数据库获取技术指标（获取最新日期的指标）
     

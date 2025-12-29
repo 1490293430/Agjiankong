@@ -37,8 +37,6 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         统计信息字典
     """
     try:
-        from common.db import get_indicator_date
-        
         # 获取股票列表
         if market.upper() == "HK":
             all_stocks = get_json("market:hk:spot") or []
@@ -75,14 +73,17 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         codes_to_compute = []
         skipped_count = 0
         
+        # 导入收盘后更新检查函数
+        from common.db import is_indicator_updated_after_close
+        
         for stock in target_stocks:
             code = str(stock.get("code", ""))
             if not code:
                 continue
             
             if incremental:
-                indicator_date = get_indicator_date(code, market.upper(), period)
-                if indicator_date == today:
+                # 检查是否在收盘后已更新（而不是只检查日期）
+                if is_indicator_updated_after_close(code, market.upper(), period):
                     skipped_count += 1
                     continue
             

@@ -237,8 +237,12 @@
 
         <!-- 自选股面板 -->
         <section id="watchlist-tab" class="tab-content">
-            <div class="watchlist-controls">
+            <div class="watchlist-controls" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <div style="color: #94a3b8; font-size: 14px;">自选股列表（<span id="watchlist-count">0</span>只）</div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="text" id="watchlist-import-input" placeholder="输入股票代码或名称，批量导入" style="padding: 4px 8px; border: 1px solid #334155; border-radius: 4px; background: #1e293b; color: #e2e8f0; font-size: 12px; width: 200px;">
+                    <button id="watchlist-import-btn" onclick="smartImportWatchlist()" style="padding: 4px 10px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">导入</button>
+                </div>
             </div>
             <div id="watchlist-container" class="watchlist-container">
                 <div class="watchlist-placeholder">

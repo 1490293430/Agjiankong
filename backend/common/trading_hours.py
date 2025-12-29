@@ -15,15 +15,15 @@ logger = get_logger(__name__)
 TZ_SHANGHAI = pytz.timezone("Asia/Shanghai")  # A股时区
 TZ_HONGKONG = pytz.timezone("Asia/Hong_Kong")  # 港股时区
 
-# A股交易时间段（延长到15:12，确保收盘数据完整）
+# A股交易时间段（延长收盘时间，确保收盘数据完整）
 A_STOCK_TRADING_WINDOWS = [
-    (time(9, 30), time(11, 30)),   # 上午
+    (time(9, 30), time(11, 35)),   # 上午（延长5分钟，确保11:30收盘数据）
     (time(13, 0), time(15, 12)),   # 下午（延长12分钟）
 ]
 
-# 港股交易时间段（延长到16:22，确保收盘数据完整）
+# 港股交易时间段（延长收盘时间，确保收盘数据完整）
 HK_STOCK_TRADING_WINDOWS = [
-    (time(9, 30), time(12, 0)),    # 上午
+    (time(9, 30), time(12, 5)),    # 上午（延长5分钟，确保12:00收盘数据）
     (time(13, 0), time(16, 22)),   # 下午（延长22分钟）
 ]
 
