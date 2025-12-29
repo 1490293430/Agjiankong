@@ -749,7 +749,7 @@ async function loadIndicatorStats() {
         // 构建显示内容
         let html = '<div class="indicator-stats-row">';
         
-        // 最新计算时间
+        // 最新计算日期
         if (data.latest_date) {
             html += `<span class="indicator-stats-item">
                 <span class="indicator-stats-label">📅 指标日期:</span>
@@ -757,7 +757,34 @@ async function loadIndicatorStats() {
             </span>`;
         }
         
-        if (data.latest_update_time) {
+        // 分市场分周期的更新时间
+        if (data.update_times) {
+            const ut = data.update_times;
+            html += `<span class="indicator-stats-item">
+                <span class="indicator-stats-label">🕐 更新时间:</span>
+                <span class="indicator-stats-value" style="font-size: 11px;">`;
+            
+            // A股日线
+            if (ut.A_daily?.time) {
+                html += `A日线 ${ut.A_daily.time}`;
+            }
+            // A股小时线
+            if (ut.A_1h?.time) {
+                html += ` | A时线 ${ut.A_1h.time}`;
+            }
+            // 港股日线
+            if (ut.HK_daily?.time) {
+                html += ` | 港日线 ${ut.HK_daily.time}`;
+            }
+            // 港股小时线
+            if (ut.HK_1h?.time) {
+                html += ` | 港时线 ${ut.HK_1h.time}`;
+            }
+            
+            html += `</span>
+            </span>`;
+        } else if (data.latest_update_time) {
+            // 兼容旧格式
             html += `<span class="indicator-stats-item">
                 <span class="indicator-stats-label">🕐 更新时间:</span>
                 <span class="indicator-stats-value">${data.latest_update_time}</span>
@@ -7301,6 +7328,7 @@ function buildAIAnalysisHtml(data, code, name, planId = null, stats = null) {
     // 信号颜色
     const signal = data.signal || '';
     const signalColor = {
+        '强烈看多': '#10b981',
         '买入': '#10b981',
         '关注': '#3b82f6',
         '观望': '#f59e0b',
@@ -7375,7 +7403,7 @@ function buildAIAnalysisHtml(data, code, name, planId = null, stats = null) {
             </div>
             
             <!-- 交易点位 -->
-            ${data.signal === '买入' && data.buy_price ? `
+            ${(data.signal === '买入' || data.signal === '强烈看多') && data.buy_price ? `
             <div class="ai-section" style="background: linear-gradient(135deg, #065f46 0%, #064e3b 100%); border: 2px solid #10b981; border-radius: 8px; padding: 16px;">
                 <h3 class="ai-section-title" style="color: #10b981; margin-bottom: 12px;">💰 AI交易点位</h3>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px;">
@@ -7403,7 +7431,19 @@ function buildAIAnalysisHtml(data, code, name, planId = null, stats = null) {
                 </div>
                 ` : ''}
             </div>
-            ` : data.signal && data.signal !== '买入' ? `
+            ` : data.signal === '关注' && data.ref_buy_price ? `
+            <div class="ai-section" style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; border-radius: 8px; padding: 16px;">
+                <h3 class="ai-section-title" style="color: #3b82f6;">👀 关注价格</h3>
+                <div style="font-size: 16px; color: #60a5fa; font-weight: 600; margin: 8px 0;">
+                    关注入场价：¥${data.ref_buy_price.toFixed(2)}
+                </div>
+                ${data.wait_conditions && data.wait_conditions.length > 0 ? `
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 8px;">
+                    等待条件：${data.wait_conditions.join('；')}
+                </div>
+                ` : ''}
+            </div>
+            ` : data.signal && data.signal !== '买入' && data.signal !== '强烈看多' ? `
             <div class="ai-section" style="background: rgba(148, 163, 184, 0.1); border: 1px solid #334155; border-radius: 8px; padding: 16px;">
                 <h3 class="ai-section-title">💡 交易建议</h3>
                 <div style="color: #94a3b8; font-size: 14px;">
@@ -7501,9 +7541,10 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     const failedItems = items.filter(item => !item || !item.success || !item.analysis);
 
     // 排序规则：
-    // 1. 买入信号优先
+    // 1. 强烈看多和买入信号优先
     // 2. 同类信号按评分从高到低排序
     const signalPriority = {
+        '强烈看多': 0,
         '买入': 0,
         '关注': 1,
         '观望': 2,
@@ -7517,7 +7558,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             _score: (item.analysis && typeof item.analysis.score === 'number') ? item.analysis.score : 0,
         }))
         .sort((a, b) => {
-            // 先按信号优先级排序（买入 > 关注 > 观望 > 回避）
+            // 先按信号优先级排序（强烈看多/买入 > 关注 > 观望 > 回避）
             const priorityA = signalPriority[a._signal] ?? 99;
             const priorityB = signalPriority[b._signal] ?? 99;
             if (priorityA !== priorityB) {
@@ -7551,6 +7592,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
         
         const signal = analysis.signal || '未知';
         const signalColor = {
+            '强烈看多': '#10b981',
             '买入': '#10b981',
             '关注': '#3b82f6',
             '观望': '#f59e0b',
@@ -7580,18 +7622,25 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             : '<span style="color: #94a3b8;">-</span>';
         
         // 交易点位显示
-        const tradingPointsHtml = analysis.signal === '买入' && analysis.buy_price
-            ? `
+        let tradingPointsHtml = '<span style="color: #94a3b8;">-</span>';
+        if ((analysis.signal === '买入' || analysis.signal === '强烈看多') && analysis.buy_price) {
+            tradingPointsHtml = `
                 <div style="display: flex; flex-direction: column; gap: 2px; font-size: 11px;">
                     <div><span style="color: #94a3b8;">买:</span> <span style="color: #10b981; font-weight: 600;">¥${analysis.buy_price.toFixed(2)}</span></div>
                     <div><span style="color: #94a3b8;">盈:</span> <span style="color: #3b82f6; font-weight: 600;">¥${analysis.sell_price.toFixed(2)}</span></div>
                     <div><span style="color: #94a3b8;">损:</span> <span style="color: #ef4444; font-weight: 600;">¥${analysis.stop_loss.toFixed(2)}</span></div>
                 </div>
-            `
-            : '<span style="color: #94a3b8;">-</span>';
+            `;
+        } else if (analysis.signal === '关注' && analysis.ref_buy_price) {
+            tradingPointsHtml = `
+                <div style="font-size: 11px;">
+                    <span style="color: #3b82f6; font-weight: 600;">关注: ¥${analysis.ref_buy_price.toFixed(2)}</span>
+                </div>
+            `;
+        }
         
-        // 交易理由
-        const reasonHtml = analysis.reason 
+        // 交易理由（观望和回避不显示）
+        const reasonHtml = (analysis.signal === '买入' || analysis.signal === '强烈看多' || analysis.signal === '关注') && analysis.reason 
             ? `<div class="ai-reason-text">${analysis.reason}</div>`
             : '<span class="ai-empty-text">-</span>';
         

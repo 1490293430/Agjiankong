@@ -1655,6 +1655,7 @@ def get_indicator_stats(market: str = "A") -> Dict[str, Any]:
         - computed_stocks: 已计算指标的股票数
         - coverage_rate: 覆盖率
         - missing_indicators: 缺失指标的字段列表
+        - update_times: 分市场分周期的更新时间
     """
     client = None
     try:
@@ -1687,6 +1688,27 @@ def get_indicator_stats(market: str = "A") -> Dict[str, Any]:
                 latest_date = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, 'strftime') else str(latest_date)
             if latest_update_time:
                 latest_update_time = latest_update_time.strftime("%Y-%m-%d %H:%M:%S") if hasattr(latest_update_time, 'strftime') else str(latest_update_time)
+        
+        # 1.1 获取分市场分周期的更新时间
+        update_times_query = """
+            SELECT 
+                market,
+                period,
+                max(date) as latest_date,
+                max(update_time) as latest_update_time
+            FROM indicators
+            GROUP BY market, period
+            ORDER BY market, period
+        """
+        update_times_result = client.execute(update_times_query)
+        update_times = {}
+        for row in update_times_result:
+            m, p, d, t = row
+            key = f"{m}_{p}"  # 如 A_daily, A_1h, HK_daily, HK_1h
+            update_times[key] = {
+                "date": d.strftime("%Y-%m-%d") if hasattr(d, 'strftime') else str(d) if d else None,
+                "time": t.strftime("%m-%d %H:%M") if hasattr(t, 'strftime') else str(t) if t else None
+            }
         
         # 2. 获取已计算指标的股票数（按最新日期）
         computed_stocks = 0
@@ -1762,7 +1784,8 @@ def get_indicator_stats(market: str = "A") -> Dict[str, Any]:
             "computed_stocks": computed_stocks,
             "coverage_rate": coverage_rate,
             "missing_indicators": missing_indicators,
-            "market": market.upper()
+            "market": market.upper(),
+            "update_times": update_times
         }
     except Exception as e:
         logger.error(f"获取指标统计失败: {e}", exc_info=True)
@@ -1774,6 +1797,7 @@ def get_indicator_stats(market: str = "A") -> Dict[str, Any]:
             "coverage_rate": 0,
             "missing_indicators": [],
             "market": market.upper(),
+            "update_times": {},
             "error": str(e)
         }
     finally:

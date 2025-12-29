@@ -307,9 +307,9 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
 请严格返回 JSON 格式，不要输出任何多余文字：
 
 【输出简化规则】
-- signal为"买入"或"强烈看多"：返回完整字段
-- signal为"关注"：返回参考价格和等待条件
-- signal为"观望"或"回避"：只返回基础字段，省略价格和详细分析
+- "买入"/"强烈看多"：返回完整字段和交易价格（buy_price/sell_price/stop_loss）
+- "关注"：只返回关注价格（ref_buy_price）和简短等待条件，不返回详细分析
+- "观望"/"回避"：只返回signal/trend/risk/score/confidence，不返回reason/summary/key_factors/价格
 
 {{
   "code": "{stock.get('code', '')}",
@@ -319,17 +319,15 @@ def build_stock_analysis_prompt(stock: dict, indicators: dict, news: list = None
   "risk": "低/中/高",
   "confidence": 0-100整数,
   "score": -100到100整数,
-  "key_factors": ["关键因素1", "关键因素2"],
-  "advice": "一句话建议",
-  "summary": "50字以内总结（观望/回避可更简短）",
-  "reason": "20字以内理由",
-  "buy_price": 数字或null,
-  "sell_price": 数字或null,
-  "stop_loss": 数字或null,
-  "ref_buy_price": 数字或null（仅关注信号）,
-  "ref_sell_price": 数字或null（仅关注信号）,
-  "ref_stop_loss": 数字或null（仅关注信号）,
-  "wait_conditions": []（仅关注信号需填写）
+  "key_factors": ["关键因素1", "关键因素2"]（观望/回避不返回）,
+  "advice": "一句话建议"（观望/回避不返回）,
+  "summary": "50字以内总结"（观望/回避不返回）,
+  "reason": "20字以内理由"（观望/回避不返回）,
+  "buy_price": 数字（仅买入/强烈看多）,
+  "sell_price": 数字（仅买入/强烈看多）,
+  "stop_loss": 数字（仅买入/强烈看多）,
+  "ref_buy_price": 数字（仅关注，关注的入场价格）,
+  "wait_conditions": ["等待条件"]（仅关注，限1-2条）
 }}
 """
     else:
@@ -596,9 +594,9 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
 - 只做多，不做空
 
 【输出简化规则】
-- "买入"/"强烈看多"：返回完整字段和交易价格
-- "关注"：返回参考价格和等待条件
-- "观望"/"回避"：只返回基础字段，key_factors限2条，summary限30字
+- "买入"/"强烈看多"：返回完整字段和交易价格（buy_price/sell_price/stop_loss）
+- "关注"：只返回关注价格（ref_buy_price）和简短等待条件，不返回详细分析
+- "观望"/"回避"：只返回signal/trend/risk/score/confidence，不返回reason/summary/key_factors/价格
 
 请严格返回 JSON 数组，每支股票一个对象：
 [
@@ -610,17 +608,15 @@ def build_stocks_batch_analysis_prompt(stocks_data: list, include_trading_points
     "risk": "低/中/高",
     "confidence": 0-100整数,
     "score": -100到100整数,
-    "key_factors": ["因素1", "因素2"],
-    "advice": "一句话建议",
-    "summary": "简短总结",
-    "reason": "理由",
-    "buy_price": null,
-    "sell_price": null,
-    "stop_loss": null,
-    "ref_buy_price": null,
-    "ref_sell_price": null,
-    "ref_stop_loss": null,
-    "wait_conditions": []
+    "key_factors": ["因素1", "因素2"]（观望/回避不返回）,
+    "advice": "一句话建议"（观望/回避不返回）,
+    "summary": "简短总结"（观望/回避不返回）,
+    "reason": "理由"（观望/回避不返回）,
+    "buy_price": 数字（仅买入/强烈看多）,
+    "sell_price": 数字（仅买入/强烈看多）,
+    "stop_loss": 数字（仅买入/强烈看多）,
+    "ref_buy_price": 数字（仅关注，关注的入场价格）,
+    "wait_conditions": ["等待条件"]（仅关注，限1-2条）
   }}
 ]
 
