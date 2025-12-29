@@ -111,20 +111,19 @@ async def search_stocks(
     q: str = Query(..., min_length=1, description="搜索关键词（股票代码或名称）"),
     market: str = Query("all", description="市场：all/A/HK")
 ):
-    """搜索股票（根据代码或名称模糊匹配）
+    """搜索股票（根据代码或名称匹配）
     
-    用于智能导入自选股等场景，支持：
-    - 股票代码精确匹配
-    - 股票名称模糊匹配（包含即可）
-    - 去掉ST前缀后匹配
+    用于智能导入自选股，匹配规则：
+    - 股票代码：精确匹配或在输入中连续出现
+    - 股票名称：完整名称在输入中出现（去掉ST前缀后）
     """
     try:
         results = []
         
-        # 清理搜索词
-        q = q.strip()
-        # 去掉特殊分隔符
+        # 清理搜索词，去掉特殊符号但保留中文、字母、数字
         q_clean = ''.join(c for c in q if c.isalnum() or '\u4e00' <= c <= '\u9fa5')
+        if not q_clean:
+            return {"code": 0, "data": [], "message": "无有效搜索内容"}
         
         # 获取股票数据
         markets_to_search = []
@@ -135,49 +134,59 @@ async def search_stocks(
             hk_data = get_json("market:hk:spot") or []
             markets_to_search.append(("HK", hk_data))
         
+        # 先提取输入中的所有数字序列（可能是股票代码）
+        import re
+        code_candidates = re.findall(r'\d+', q)
+        
         for mkt, data in markets_to_search:
             if not isinstance(data, list):
                 continue
             for item in data:
                 code = str(item.get('code', '')).strip()
                 name = str(item.get('name', '')).strip()
-                
-                # 去掉ST前缀
-                pure_name = name
-                for prefix in ['*ST', 'ST', 'N', 'C', 'XD', 'XR', 'DR']:
-                    if pure_name.startswith(prefix):
-                        pure_name = pure_name[len(prefix):].strip()
-                        break
+                if not code or not name:
+                    continue
                 
                 matched = False
                 
-                # 代码匹配
-                if code and code in q_clean:
-                    matched = True
-                
-                # 名称匹配（完整名称或去ST后的名称）
-                if not matched and name and name in q_clean:
-                    matched = True
-                if not matched and pure_name and len(pure_name) >= 2 and pure_name in q_clean:
-                    matched = True
-                
-                # 名称前缀匹配（2-4个字）
-                if not matched and pure_name:
-                    for length in range(min(4, len(pure_name)), 1, -1):
-                        prefix = pure_name[:length]
-                        if prefix in q_clean:
-                            # 排除常见前缀
-                            common = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业', '上海', '北京', '深圳', '广州']
-                            if prefix not in common:
+                # 1. 代码精确匹配（在数字序列中查找）
+                for num_seq in code_candidates:
+                    if code in num_seq or num_seq == code:
+                        # 检查是否是连续的代码匹配
+                        if len(code) == 6:  # A股
+                            idx = num_seq.find(code)
+                            if idx >= 0:
+                                matched = True
+                                break
+                        elif len(code) == 5:  # 港股
+                            idx = num_seq.find(code)
+                            if idx >= 0:
                                 matched = True
                                 break
                 
+                # 2. 名称完整匹配（去掉ST等前缀后）
+                if not matched:
+                    pure_name = name
+                    for prefix in ['*ST', 'ST', 'N', 'C', 'XD', 'XR', 'DR']:
+                        if pure_name.upper().startswith(prefix):
+                            pure_name = pure_name[len(prefix):].strip()
+                            break
+                    
+                    # 只匹配完整名称（至少3个字）
+                    if len(pure_name) >= 3 and pure_name in q_clean:
+                        matched = True
+                    # 或者原始名称完整匹配
+                    elif len(name) >= 3 and name in q_clean:
+                        matched = True
+                
                 if matched:
-                    results.append({
-                        "code": code,
-                        "name": name,
-                        "market": mkt
-                    })
+                    # 避免重复
+                    if not any(r['code'] == code for r in results):
+                        results.append({
+                            "code": code,
+                            "name": name,
+                            "market": mkt
+                        })
         
         return {
             "code": 0,
