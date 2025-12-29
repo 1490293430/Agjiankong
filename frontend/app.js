@@ -5538,12 +5538,12 @@ async function smartImportWatchlist() {
     btn.textContent = '解析中...';
     
     try {
-        // 获取所有股票列表用于匹配
+        // 获取所有股票列表用于匹配（需要获取全部数据）
         let allStocks = [];
         try {
-            // 从Redis缓存获取A股和港股数据
-            const aRes = await apiFetch(`${API_BASE}/api/market/a/spot`);
-            const hkRes = await apiFetch(`${API_BASE}/api/market/hk/spot`);
+            // 从Redis缓存获取A股和港股数据（设置大的page_size获取全部）
+            const aRes = await apiFetch(`${API_BASE}/api/market/a/spot?page_size=10000`);
+            const hkRes = await apiFetch(`${API_BASE}/api/market/hk/spot?page_size=10000`);
             const aData = await aRes.json();
             const hkData = await hkRes.json();
             console.log('[导入] A股数据:', aData.code, aData.data?.length);
@@ -5577,8 +5577,8 @@ async function smartImportWatchlist() {
         // 解析输入文本，提取可能的股票代码和名称
         const matched = [];
         
-        // 清理输入文本，只保留中文、字母和数字
-        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
+        // 清理输入文本，只保留常用中文、字母和数字（排除特殊符号如灬）
+        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').replace(/灬/g, '');
         console.log('[导入] 清理后文本:', cleanText);
         
         // 1. 提取所有连续数字（可能是股票代码）
