@@ -5538,118 +5538,17 @@ async function smartImportWatchlist() {
     btn.textContent = '解析中...';
     
     try {
-        // 获取所有股票列表用于匹配（需要获取全部数据）
-        let allStocks = [];
-        try {
-            // 从Redis缓存获取A股和港股数据（设置大的page_size获取全部）
-            const aRes = await apiFetch(`${API_BASE}/api/market/a/spot?page_size=10000`);
-            const hkRes = await apiFetch(`${API_BASE}/api/market/hk/spot?page_size=10000`);
-            const aData = await aRes.json();
-            const hkData = await hkRes.json();
-            console.log('[导入] A股数据:', aData.code, aData.data?.length);
-            console.log('[导入] 港股数据:', hkData.code, hkData.data?.length);
-            if (aData.code === 0 && aData.data) allStocks = allStocks.concat(aData.data);
-            if (hkData.code === 0 && hkData.data) allStocks = allStocks.concat(hkData.data);
-        } catch (e) {
-            console.error('获取股票列表失败:', e);
-        }
+        // 使用后端搜索API直接匹配股票
+        const res = await apiFetch(`${API_BASE}/api/market/search?q=${encodeURIComponent(text)}`);
+        const data = await res.json();
         
-        console.log('[导入] 总股票数:', allStocks.length);
-        
-        if (allStocks.length === 0) {
-            alert('无法获取股票列表，请稍后重试');
-            return;
-        }
-        
-        // 构建股票索引（代码->股票，名称->股票）
-        const codeMap = new Map();
-        const nameMap = new Map();
-        allStocks.forEach(s => {
-            const code = String(s.code || '').trim();
-            const name = String(s.name || '').trim();
-            if (code) codeMap.set(code, { code, name });
-            if (name) nameMap.set(name, { code, name });
-        });
-        
-        console.log('[导入] nameMap大小:', nameMap.size);
-        console.log('[导入] 输入文本:', text);
-        
-        // 解析输入文本，提取可能的股票代码和名称
-        const matched = [];
-        
-        // 清理输入文本，只保留常用中文、字母和数字（排除特殊符号如灬）
-        const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').replace(/灬/g, '');
-        console.log('[导入] 清理后文本:', cleanText);
-        
-        // 1. 提取所有连续数字（可能是股票代码）
-        const codePattern = /\d+/g;
-        let codeMatch;
-        while ((codeMatch = codePattern.exec(text)) !== null) {
-            let num = codeMatch[0];
-            while (num.length >= 5) {
-                // 优先尝试6位（A股）
-                if (num.length >= 6) {
-                    const code6 = num.substring(0, 6);
-                    if (codeMap.has(code6)) {
-                        const stock = codeMap.get(code6);
-                        if (!matched.some(m => m.code === stock.code)) {
-                            matched.push(stock);
-                            console.log('[导入] 匹配代码:', code6, stock.name);
-                        }
-                        num = num.substring(6);
-                        continue;
-                    }
-                }
-                // 尝试5位（港股）
-                const code5 = num.substring(0, 5);
-                if (codeMap.has(code5)) {
-                    const stock = codeMap.get(code5);
-                    if (!matched.some(m => m.code === stock.code)) {
-                        matched.push(stock);
-                        console.log('[导入] 匹配代码:', code5, stock.name);
-                    }
-                    num = num.substring(5);
-                    continue;
-                }
-                num = num.substring(1);
-            }
-        }
-        
-        // 2. 遍历所有股票，检查名称是否在输入中出现
-        for (const [name, stock] of nameMap) {
-            if (matched.some(m => m.code === stock.code)) continue;
-            
-            // 去掉股票名称中的特殊前缀（ST、*ST、N、C等）
-            const pureName = name.replace(/^(\*ST|ST|N|C|XD|XR|DR)/i, '').trim();
-            
-            // 检查清理后的名称是否在输入中
-            if (pureName.length >= 2 && cleanText.includes(pureName)) {
-                matched.push(stock);
-                console.log('[导入] 匹配名称(完整):', name, '->', pureName);
-                continue;
-            }
-            
-            // 检查名称前2-4个字是否在输入中（去掉ST前缀后）
-            for (let len = Math.min(4, pureName.length); len >= 2; len--) {
-                const prefix = pureName.substring(0, len);
-                if (cleanText.includes(prefix)) {
-                    // 避免太短或太常见的前缀
-                    const commonPrefixes = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业', '上海', '北京', '深圳', '广州'];
-                    if (!commonPrefixes.includes(prefix)) {
-                        matched.push(stock);
-                        console.log('[导入] 匹配名称(前缀):', name, '->', prefix);
-                        break;
-                    }
-                }
-            }
-        }
-        
-        console.log('[导入] 匹配结果:', matched.length, '只');
-        
-        if (matched.length === 0) {
+        if (data.code !== 0 || !data.data || data.data.length === 0) {
             alert('未能识别出任何股票，请检查输入内容');
             return;
         }
+        
+        const matched = data.data;
+        console.log('[导入] 匹配结果:', matched.length, '只');
         
         // 添加到自选
         const watchlist = getWatchlist();

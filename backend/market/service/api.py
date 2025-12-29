@@ -106,6 +106,89 @@ def _apply_sort(data: List[Dict[str, Any]], sort: str) -> List[Dict[str, Any]]:
     return data
 
 
+@router.get("/search")
+async def search_stocks(
+    q: str = Query(..., min_length=1, description="搜索关键词（股票代码或名称）"),
+    market: str = Query("all", description="市场：all/A/HK")
+):
+    """搜索股票（根据代码或名称模糊匹配）
+    
+    用于智能导入自选股等场景，支持：
+    - 股票代码精确匹配
+    - 股票名称模糊匹配（包含即可）
+    - 去掉ST前缀后匹配
+    """
+    try:
+        results = []
+        
+        # 清理搜索词
+        q = q.strip()
+        # 去掉特殊分隔符
+        q_clean = ''.join(c for c in q if c.isalnum() or '\u4e00' <= c <= '\u9fa5')
+        
+        # 获取股票数据
+        markets_to_search = []
+        if market in ["all", "A"]:
+            a_data = get_json("market:a:spot") or []
+            markets_to_search.append(("A", a_data))
+        if market in ["all", "HK"]:
+            hk_data = get_json("market:hk:spot") or []
+            markets_to_search.append(("HK", hk_data))
+        
+        for mkt, data in markets_to_search:
+            if not isinstance(data, list):
+                continue
+            for item in data:
+                code = str(item.get('code', '')).strip()
+                name = str(item.get('name', '')).strip()
+                
+                # 去掉ST前缀
+                pure_name = name
+                for prefix in ['*ST', 'ST', 'N', 'C', 'XD', 'XR', 'DR']:
+                    if pure_name.startswith(prefix):
+                        pure_name = pure_name[len(prefix):].strip()
+                        break
+                
+                matched = False
+                
+                # 代码匹配
+                if code and code in q_clean:
+                    matched = True
+                
+                # 名称匹配（完整名称或去ST后的名称）
+                if not matched and name and name in q_clean:
+                    matched = True
+                if not matched and pure_name and len(pure_name) >= 2 and pure_name in q_clean:
+                    matched = True
+                
+                # 名称前缀匹配（2-4个字）
+                if not matched and pure_name:
+                    for length in range(min(4, len(pure_name)), 1, -1):
+                        prefix = pure_name[:length]
+                        if prefix in q_clean:
+                            # 排除常见前缀
+                            common = ['中国', '中信', '中金', '华夏', '国泰', '招商', '平安', '工商', '建设', '农业', '上海', '北京', '深圳', '广州']
+                            if prefix not in common:
+                                matched = True
+                                break
+                
+                if matched:
+                    results.append({
+                        "code": code,
+                        "name": name,
+                        "market": mkt
+                    })
+        
+        return {
+            "code": 0,
+            "data": results,
+            "message": f"找到 {len(results)} 只股票"
+        }
+    except Exception as e:
+        logger.error(f"搜索股票失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
+
+
 @router.get("/a/spot")
 async def get_a_stock_spot(
     page: int = Query(1, ge=1, description="页码，从1开始"),
