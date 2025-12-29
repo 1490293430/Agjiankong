@@ -7734,29 +7734,10 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             // 同类信号按评分从高到低排序
             return b._score - a._score;
         });
-    // 注意：不再前端截取，后端已经分页
-
-    // 加载每只股票的胜率统计（并行请求）
-    const statsMap = {};
-    const statsPromises = successItems.map(async (item) => {
-        try {
-            const res = await apiFetch(`${API_BASE}/api/trading/statistics?code=${item.code}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.code === 0 && data.data) {
-                    statsMap[item.code] = data.data;
-                }
-            }
-        } catch (e) {
-            // 忽略单个股票的统计获取失败
-        }
-    });
-    await Promise.all(statsPromises);
 
     // 生成表格行HTML
     const tableRows = successItems.map(item => {
         const analysis = item.analysis;
-        const stats = statsMap[item.code];
         
         const signal = analysis.signal || '未知';
         const signalColor = {
@@ -7783,11 +7764,6 @@ async function renderAIAnalysisBatch(items, pagination = null) {
         
         const scoreColor = analysis.score >= 0 ? '#10b981' : '#ef4444';
         const confidenceColor = (analysis.confidence || 0) >= 70 ? '#10b981' : (analysis.confidence || 0) >= 50 ? '#f59e0b' : '#ef4444';
-        
-        // 胜率显示
-        const winRateHtml = stats && stats.total > 0 
-            ? `<span style="color: ${stats.win_rate >= 60 ? '#10b981' : stats.win_rate >= 50 ? '#f59e0b' : '#ef4444'}; font-weight: 600;">${stats.win_rate}%</span>`
-            : '<span style="color: #94a3b8;">-</span>';
         
         // 交易点位显示
         let tradingPointsHtml = '<span style="color: #94a3b8;">-</span>';
@@ -7836,9 +7812,6 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                 <td style="padding: 8px; text-align: center;">
                     ${tradingPointsHtml}
                 </td>
-                <td style="padding: 8px; text-align: center;">
-                    ${winRateHtml}
-                </td>
                 <td style="padding: 8px;">
                     <div class="ai-advice-text">
                         ${analysis.advice || '暂无建议'}
@@ -7854,7 +7827,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     const failedHtml = failedItems.length
         ? `
         <tr style="background: rgba(239, 68, 68, 0.1);">
-            <td colspan="10" style="padding: 8px; color: #ef4444; font-weight: 600;">
+            <td colspan="9" style="padding: 8px; color: #ef4444; font-weight: 600;">
                 ⚠️ 分析失败的股票 (${failedItems.length}只)
             </td>
         </tr>
@@ -7864,7 +7837,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                     <span style="color: #e5e7eb;">${item.code || '-'}</span>
                     ${item.name ? ` <span style="color: #94a3b8;">（${item.name}）</span>` : ''}
                 </td>
-                <td colspan="9" style="padding: 8px; color: #ef4444;">
+                <td colspan="8" style="padding: 8px; color: #ef4444;">
                     ${item.message || '分析失败'}
                 </td>
             </tr>
@@ -7912,7 +7885,6 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                             <th style="text-align: center; padding: 8px;">评分</th>
                             <th style="text-align: center; padding: 8px;">置信度</th>
                             <th style="text-align: center; padding: 8px;">交易点位</th>
-                            <th style="text-align: center; padding: 8px;">胜率</th>
                             <th style="text-align: left; padding: 8px;">操作建议</th>
                             <th style="text-align: left; padding: 8px;">交易理由</th>
                         </tr>
