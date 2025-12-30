@@ -285,26 +285,28 @@ def _collect_hourly_kline_for_market(market: str):
         market: "A" 或 "HK"
     """
     import concurrent.futures
-    from common.redis import get_json
-    from common.db import save_kline_data
+    from common.db import save_kline_data, get_clickhouse
     from common.runtime_config import get_runtime_config
     from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
     
-    # 从Redis获取股票列表
-    redis_key = f"market:{market.lower()}:spot"
-    spot_data = get_json(redis_key)
-    
-    if not spot_data:
-        logger.warning(f"[{market}] 无法获取股票列表，跳过小时K线采集")
+    # 从数据库获取股票列表
+    try:
+        client = get_clickhouse()
+        # 查询数据库中有日K线数据的股票代码
+        query = """
+            SELECT DISTINCT code 
+            FROM kline 
+            WHERE market = %(market)s AND period = 'daily'
+        """
+        result = client.execute(query, {"market": market})
+        codes = [row[0] for row in result if row[0]]
+    except Exception as e:
+        logger.error(f"[{market}] 从数据库获取股票列表失败: {e}")
         return
     
-    # 根据配置决定是否只采集股票
-    config = get_runtime_config()
-    if config.collect_stock_only:
-        # 只获取股票代码（过滤ETF/指数/基金）
-        codes = [item.get("code") for item in spot_data if item.get("code") and item.get("sec_type") == "stock"]
-    else:
-        codes = [item.get("code") for item in spot_data if item.get("code")]
+    if not codes:
+        logger.warning(f"[{market}] 数据库中无股票数据，跳过小时K线采集")
+        return
     
     logger.info(f"[{market}] 准备并发采集 {len(codes)} 只股票的小时K线")
     

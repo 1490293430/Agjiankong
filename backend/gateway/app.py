@@ -3620,14 +3620,13 @@ async def collect_batch_single_stock_kline_api(
     market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（同时采集A股和港股）"),
     period: str = Query("daily", description="周期：daily, weekly, monthly"),
 ):
-    """单个批量采集K线数据（使用Redis快照数据列表，循环采集）
+    """单个批量采集K线数据（使用东方财富股票列表，循环采集）
     
     说明：
-    - 直接从Redis快照（market:a:spot, market:hk:spot）获取股票代码列表
+    - 直接从东方财富获取股票代码列表
     - 每次采集指定数量的股票
     - 先采集A股，再采集港股
     - 后台异步执行，避免阻塞
-    - 如果Redis中没有数据，返回错误
     """
     try:
         from market_collector.cn import fetch_a_stock_kline
@@ -3652,33 +3651,39 @@ async def collect_batch_single_stock_kline_api(
             total_failed = 0
             total_processed = 0
             
-            # 从Redis快照获取股票代码列表
+            # 从东方财富获取股票代码列表
             a_codes = []
             hk_codes = []
             
             # 获取A股代码列表
             if market.upper() in ["A", "ALL"]:
                 try:
-                    a_stocks_redis = get_json("market:a:spot") or []
-                    if a_stocks_redis:
-                        a_codes = [s.get("code") for s in a_stocks_redis if s.get("code")]
-                        logger.info(f"从Redis获取A股代码列表：{len(a_codes)}只")
+                    from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot
+                    a_stocks = fetch_eastmoney_a_stock_spot()
+                    if a_stocks:
+                        # 过滤只保留股票 + 上证指数（1A0001）
+                        a_codes = [s.get("code") for s in a_stocks if s.get("code") and 
+                                   (s.get("sec_type") == "stock" or 
+                                    (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001"))]
+                        logger.info(f"从东方财富获取A股代码列表：{len(a_codes)}只股票")
                     else:
-                        logger.warning("Redis中A股快照数据为空")
+                        logger.warning("东方财富A股数据为空")
                 except Exception as e:
-                    logger.error(f"从Redis获取A股代码列表失败: {e}")
+                    logger.error(f"从东方财富获取A股代码列表失败: {e}")
             
             # 获取港股代码列表
             if market.upper() in ["HK", "ALL"]:
                 try:
-                    hk_stocks_redis = get_json("market:hk:spot") or []
-                    if hk_stocks_redis:
-                        hk_codes = [s.get("code") for s in hk_stocks_redis if s.get("code")]
-                        logger.info(f"从Redis获取港股代码列表：{len(hk_codes)}只")
+                    from market_collector.eastmoney_source import fetch_eastmoney_hk_stock_spot
+                    hk_stocks, _ = fetch_eastmoney_hk_stock_spot()
+                    if hk_stocks:
+                        # 过滤只保留股票
+                        hk_codes = [s.get("code") for s in hk_stocks if s.get("code") and s.get("sec_type") == "stock"]
+                        logger.info(f"从东方财富获取港股代码列表：{len(hk_codes)}只股票")
                     else:
-                        logger.warning("Redis中港股快照数据为空")
+                        logger.warning("东方财富港股数据为空")
                 except Exception as e:
-                    logger.error(f"从Redis获取港股代码列表失败: {e}")
+                    logger.error(f"从东方财富获取港股代码列表失败: {e}")
             
             total_stocks = len(a_codes) + len(hk_codes)
             
@@ -4045,16 +4050,16 @@ async def collect_kline_data_api(
     """批量采集K线数据到ClickHouse（手动触发）
     
     说明：
-    - 从Redis获取股票列表
+    - 从东方财富获取股票列表
     - 批量采集每只股票的K线数据并保存到ClickHouse
     - 后台异步执行，避免阻塞
     - market参数支持"A"、"HK"或"ALL"（同时采集A股和港股）
     - period参数支持"daily"（日线）或"1h"（小时线）
     """
     try:
-        from common.redis import get_json
         from market_collector.cn import fetch_a_stock_kline, fetch_a_stock_spot
         from market_collector.hk import fetch_hk_stock_kline
+        from market_collector.eastmoney_source import fetch_eastmoney_a_stock_spot, fetch_eastmoney_hk_stock_spot
         
         # 标准化 period 参数
         period = period.lower() if period else "daily"
@@ -4068,14 +4073,10 @@ async def collect_kline_data_api(
                 from common.db import save_stock_info_batch
                 # 先采集A股
                 try:
-                    a_stocks_raw = get_json("market:a:spot") or []
-                    if not a_stocks_raw:
-                        logger.info("检测到A股行情数据为空，先执行一次行情采集...")
-                        fetch_a_stock_spot()
-                        a_stocks_raw = get_json("market:a:spot") or []
-                    
-                    # 过滤非股票数据（ETF/指数/基金等）
-                    a_stocks = [s for s in a_stocks_raw if s.get("sec_type") == "stock"]
+                    a_stocks_raw = fetch_eastmoney_a_stock_spot()
+                    # 过滤非股票数据（ETF/指数/基金等），保留上证指数
+                    a_stocks = [s for s in a_stocks_raw if s.get("sec_type") == "stock" or 
+                               (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001")]
                     logger.info(f"A股列表：原始{len(a_stocks_raw)}只，过滤后{len(a_stocks)}只股票")
                     
                     if a_stocks:
@@ -4092,7 +4093,7 @@ async def collect_kline_data_api(
                 
                 # 再采集港股
                 try:
-                    hk_stocks_raw = get_json("market:hk:spot") or []
+                    hk_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
                     # 过滤非股票数据
                     hk_stocks = [s for s in hk_stocks_raw if s.get("sec_type") == "stock"]
                     logger.info(f"港股列表：原始{len(hk_stocks_raw)}只，过滤后{len(hk_stocks)}只股票")
@@ -4119,35 +4120,24 @@ async def collect_kline_data_api(
         
         # 获取股票列表（单个市场）
         if market.upper() == "HK":
-            all_stocks_raw = get_json("market:hk:spot") or []
+            all_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
             # 过滤非股票数据
             all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
             fetch_kline_func = fetch_hk_stock_kline
-            fetch_spot_func = None  # 港股暂时不自动采集
         else:
-            all_stocks_raw = get_json("market:a:spot") or []
-            # 过滤非股票数据
-            all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
+            all_stocks_raw = fetch_eastmoney_a_stock_spot()
+            # 过滤非股票数据，保留上证指数
+            all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock" or 
+                         (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001")]
             fetch_kline_func = fetch_a_stock_kline
-            fetch_spot_func = fetch_a_stock_spot
         
-        logger.info(f"{market}股列表：原始{len(all_stocks_raw) if 'all_stocks_raw' in dir() else 0}只，过滤后{len(all_stocks)}只股票")
-        
-        # 如果没有数据，尝试先采集一次行情数据（仅A股）
-        if not all_stocks and fetch_spot_func:
-            logger.info(f"检测到{market}股行情数据为空，先执行一次行情采集...")
-            try:
-                fetch_spot_func()
-                # 重新获取数据
-                all_stocks = get_json("market:a:spot") or []
-            except Exception as e:
-                logger.warning(f"自动采集行情数据失败: {e}")
+        logger.info(f"{market}股列表：原始{len(all_stocks_raw)}只，过滤后{len(all_stocks)}只股票")
         
         if not all_stocks:
             return {
                 "code": 1,
                 "data": {},
-                "message": f"未获取到{market}股行情数据。请先调用 /api/market/spot/collect 接口采集行情数据，或等待行情采集程序自动采集"
+                "message": f"未获取到{market}股行情数据，请检查网络连接"
             }
         
         # 保存股票基本信息到数据库

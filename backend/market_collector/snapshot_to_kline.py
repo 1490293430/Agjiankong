@@ -1,182 +1,172 @@
 """
-快照转日K线模块
+收盘后K线采集模块
 
-收盘后将实时快照数据转换为当日K线并入库
-- A股：15:30 后执行（收盘时间15:00，延后30分钟确保数据完整）
-- 港股：16:30 后执行（收盘时间16:00，延后30分钟确保数据完整）
+收盘后从东方财富获取最近5天的日K线数据并入库
+- A股：15:12 后执行
+- 港股：16:22 后执行
 """
-from datetime import datetime, date, time
-from typing import List, Dict, Any, Optional
-import pytz
+from datetime import datetime, time
+from typing import Dict, Any, List
+import concurrent.futures
 
 from common.logger import get_logger
-from common.redis import get_json, set_json, get_redis
+from common.redis import get_redis
 from common.db import save_kline_data
 from common.trading_hours import is_trading_day, TZ_SHANGHAI, TZ_HONGKONG
 
 logger = get_logger(__name__)
 
-# Redis key 用于记录已转换的日期
-KLINE_CONVERTED_KEY_A = "kline:converted:a"
-KLINE_CONVERTED_KEY_HK = "kline:converted:hk"
+# Redis key 用于记录已采集的日期
+KLINE_COLLECTED_KEY_A = "kline:collected:a"
+KLINE_COLLECTED_KEY_HK = "kline:collected:hk"
 
-# 收盘后延迟时间（分钟）- 实际执行时间
-# A股15:00收盘，15:12后执行
-# 港股16:00收盘，16:22后执行
-A_STOCK_CONVERT_TIME = time(15, 12)
-HK_STOCK_CONVERT_TIME = time(16, 22)
+# 收盘后执行时间
+A_STOCK_COLLECT_TIME = time(15, 12)
+HK_STOCK_COLLECT_TIME = time(16, 22)
 
 
-def _get_converted_date(market: str) -> Optional[str]:
-    """获取已转换的日期"""
-    key = KLINE_CONVERTED_KEY_A if market == "A" else KLINE_CONVERTED_KEY_HK
+def _get_collected_date(market: str) -> str | None:
+    """获取已采集的日期"""
+    key = KLINE_COLLECTED_KEY_A if market == "A" else KLINE_COLLECTED_KEY_HK
     try:
-        return get_redis().get(key)
+        result = get_redis().get(key)
+        if result and isinstance(result, bytes):
+            return result.decode()
+        return result
     except Exception:
         return None
 
 
-def _set_converted_date(market: str, date_str: str):
-    """设置已转换的日期"""
-    key = KLINE_CONVERTED_KEY_A if market == "A" else KLINE_CONVERTED_KEY_HK
+def _set_collected_date(market: str, date_str: str):
+    """设置已采集的日期"""
+    key = KLINE_COLLECTED_KEY_A if market == "A" else KLINE_COLLECTED_KEY_HK
     try:
-        # 保存7天，避免重复转换
         get_redis().set(key, date_str, ex=7 * 24 * 3600)
     except Exception as e:
-        logger.warning(f"设置已转换日期失败: {e}")
+        logger.warning(f"设置已采集日期失败: {e}")
 
 
 def should_convert_snapshot(market: str) -> bool:
-    """判断是否应该执行快照转K线
+    """判断是否应该执行K线采集
     
     条件：
     1. 今天是交易日
-    2. 当前时间已过收盘延迟时间（A股15:30，港股16:30）
-    3. 今天还没有转换过
+    2. 当前时间已过收盘延迟时间
+    3. 今天还没有采集过
     """
     tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
     now = datetime.now(tz)
     today = now.date()
     today_str = today.strftime("%Y%m%d")
     
-    # 检查是否是交易日
     if not is_trading_day(market, today):
         return False
     
-    # 检查是否已过收盘延迟时间
-    if market == "A":
-        convert_time = A_STOCK_CONVERT_TIME  # 15:02
-    else:
-        convert_time = HK_STOCK_CONVERT_TIME  # 16:12
-    
-    if now.time() < convert_time:
+    collect_time = A_STOCK_COLLECT_TIME if market == "A" else HK_STOCK_COLLECT_TIME
+    if now.time() < collect_time:
         return False
     
-    # 检查今天是否已转换
-    converted_date = _get_converted_date(market)
-    if converted_date and converted_date.decode() if isinstance(converted_date, bytes) else converted_date == today_str:
+    collected_date = _get_collected_date(market)
+    if collected_date == today_str:
         return False
     
     return True
 
 
 def convert_snapshot_to_kline(market: str) -> Dict[str, Any]:
-    """将快照数据转换为日K线并入库
+    """从东方财富获取最近5天K线数据并入库
     
     Args:
         market: "A" 或 "HK"
     
     Returns:
-        {
-            "success": bool,
-            "count": int,  # 转换的股票数量
-            "message": str
-        }
+        {"success": bool, "count": int, "message": str}
     """
     tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
     now = datetime.now(tz)
-    today = now.date()
-    today_str = today.strftime("%Y%m%d")
-    today_formatted = today.strftime("%Y-%m-%d")
+    today_str = now.strftime("%Y%m%d")
     
-    logger.info(f"[{market}] 开始将快照转换为日K线: {today_formatted}")
+    logger.info(f"[{market}] 开始采集最近5天K线数据")
     
-    # 获取快照数据
-    redis_key = f"market:{market.lower()}:spot"
-    snapshot_data = get_json(redis_key)
-    
-    if not snapshot_data:
-        logger.warning(f"[{market}] 快照数据为空，无法转换")
-        return {"success": False, "count": 0, "message": "快照数据为空"}
-    
-    # 转换为K线格式
-    kline_data = []
-    skipped = 0
-    
-    for item in snapshot_data:
-        try:
-            code = str(item.get("code", "")).strip()
-            if not code:
-                skipped += 1
-                continue
-            
-            # 获取价格数据
-            open_price = float(item.get("open", 0) or 0)
-            high_price = float(item.get("high", 0) or 0)
-            low_price = float(item.get("low", 0) or 0)
-            close_price = float(item.get("price", 0) or item.get("close", 0) or 0)
-            volume = float(item.get("volume", 0) or 0)
-            amount = float(item.get("amount", 0) or 0)
-            
-            # 跳过无效数据（价格为0或成交量为0的可能是停牌股）
-            if close_price <= 0:
-                skipped += 1
-                continue
-            
-            # 如果开盘价为0，使用收盘价
-            if open_price <= 0:
-                open_price = close_price
-            if high_price <= 0:
-                high_price = close_price
-            if low_price <= 0:
-                low_price = close_price
-            
-            kline_item = {
-                "code": code,
-                "date": today_formatted,
-                "open": open_price,
-                "high": high_price,
-                "low": low_price,
-                "close": close_price,
-                "volume": volume,
-                "amount": amount,
-                "market": market
-            }
-            kline_data.append(kline_item)
-            
-        except Exception as e:
-            logger.debug(f"[{market}] 转换股票数据失败: {e}")
-            skipped += 1
-            continue
-    
-    if not kline_data:
-        logger.warning(f"[{market}] 没有有效的K线数据可转换")
-        return {"success": False, "count": 0, "message": "没有有效数据"}
-    
-    # 保存到数据库
+    # 从ClickHouse数据库获取股票列表
     try:
-        success = save_kline_data(kline_data, "daily")
+        from common.db import get_clickhouse
+        client = get_clickhouse()
+        # 查询数据库中有日K线数据的股票代码
+        query = """
+            SELECT DISTINCT code 
+            FROM kline 
+            WHERE market = %(market)s AND period = 'daily'
+        """
+        result = client.execute(query, {"market": market})
+        codes = [row[0] for row in result if row[0]]
+    except Exception as e:
+        logger.error(f"[{market}] 从数据库获取股票列表失败: {e}")
+        return {"success": False, "count": 0, "message": f"获取股票列表失败: {e}"}
+    
+    if not codes:
+        logger.warning(f"[{market}] 数据库中无股票数据")
+        return {"success": False, "count": 0, "message": "数据库中无股票数据"}
+    
+    logger.info(f"[{market}] 从数据库获取到 {len(codes)} 只股票")
+    
+    logger.info(f"[{market}] 准备采集 {len(codes)} 只股票的K线")
+    
+    # 导入K线获取函数
+    if market == "A":
+        from market_collector.eastmoney_source import fetch_eastmoney_a_kline as fetch_kline
+    else:
+        from market_collector.eastmoney_source import fetch_eastmoney_hk_kline as fetch_kline
+    
+    # 并发获取K线数据
+    all_kline_data = []
+    success_count = 0
+    failed_count = 0
+    
+    def fetch_single(code: str) -> List[Dict]:
+        """获取单只股票的K线"""
+        try:
+            klines = fetch_kline(code, period="daily", limit=5)
+            if klines:
+                # 添加market字段
+                for k in klines:
+                    k["market"] = market
+                return klines
+        except Exception as e:
+            logger.debug(f"[{market}] 获取 {code} K线失败: {e}")
+        return []
+    
+    # 使用10个线程并发
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_single, code): code for code in codes}
+        
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                klines = future.result()
+                if klines:
+                    all_kline_data.extend(klines)
+                    success_count += 1
+                else:
+                    failed_count += 1
+            except Exception:
+                failed_count += 1
+    
+    if not all_kline_data:
+        logger.warning(f"[{market}] 没有获取到K线数据")
+        return {"success": False, "count": 0, "message": "没有获取到K线数据"}
+    
+    # 保存到数据库（重复数据会被自动丢弃，因为有主键约束）
+    try:
+        success = save_kline_data(all_kline_data, "daily")
         if success:
-            # 标记今天已转换
-            _set_converted_date(market, today_str)
-            logger.info(f"[{market}] 快照转K线完成: 成功={len(kline_data)}只, 跳过={skipped}只")
+            _set_collected_date(market, today_str)
+            logger.info(f"[{market}] K线采集完成: 成功={success_count}只, 失败={failed_count}只, 总K线={len(all_kline_data)}条")
             return {
                 "success": True,
-                "count": len(kline_data),
-                "message": f"成功转换{len(kline_data)}只股票的日K线"
+                "count": success_count,
+                "message": f"成功采集{success_count}只股票的K线"
             }
         else:
-            logger.error(f"[{market}] 保存K线数据失败")
             return {"success": False, "count": 0, "message": "保存数据库失败"}
     except Exception as e:
         logger.error(f"[{market}] 保存K线数据异常: {e}")
@@ -184,21 +174,19 @@ def convert_snapshot_to_kline(market: str) -> Dict[str, Any]:
 
 
 def auto_convert_snapshot_to_kline():
-    """自动检查并执行快照转K线（由定时任务调用）"""
+    """自动检查并执行K线采集（由定时任务调用）"""
     results = {}
     
-    # 检查A股
     if should_convert_snapshot("A"):
-        logger.info("[A股] 满足转换条件，开始执行快照转K线")
+        logger.info("[A股] 满足采集条件，开始采集K线")
         results["A"] = convert_snapshot_to_kline("A")
     else:
-        results["A"] = {"success": True, "count": 0, "message": "不需要转换"}
+        results["A"] = {"success": True, "count": 0, "message": "不需要采集"}
     
-    # 检查港股
     if should_convert_snapshot("HK"):
-        logger.info("[港股] 满足转换条件，开始执行快照转K线")
+        logger.info("[港股] 满足采集条件，开始采集K线")
         results["HK"] = convert_snapshot_to_kline("HK")
     else:
-        results["HK"] = {"success": True, "count": 0, "message": "不需要转换"}
+        results["HK"] = {"success": True, "count": 0, "message": "不需要采集"}
     
     return results
