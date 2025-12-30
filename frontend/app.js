@@ -6580,6 +6580,7 @@ async function collectSingleBatchKline() {
     const batchSizeInput = document.getElementById('single-batch-size-input');
     const marketSelect = document.getElementById('collect-market-select');
     const periodSelect = document.getElementById('collect-period-select');
+    const modeSelect = document.getElementById('collect-mode-select');
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('single-batch-collect-kline-btn');
     
@@ -6592,6 +6593,7 @@ async function collectSingleBatchKline() {
     const batchSize = parseInt(batchSizeInput.value) || 10;
     const market = marketSelect?.value || 'ALL';
     const period = periodSelect?.value || 'daily';
+    const mode = modeSelect?.value || 'incremental';
     
     if (batchSize < 1 || batchSize > 100) {
         if (statusEl) {
@@ -6603,17 +6605,18 @@ async function collectSingleBatchKline() {
     
     btn.disabled = true;
     btn.textContent = '采集中...';
+    const modeText = mode === 'full' ? '全量' : '增量';
     if (statusEl) {
         statusEl.innerHTML = `
             <div style="margin-top: 10px;">
-                <div style="color: #60a5fa; margin-bottom: 5px; font-weight: 500;">正在启动单个批量采集...</div>
-                <div style="color: #94a3b8; font-size: 11px;">正在从akshare获取股票列表，请稍候</div>
+                <div style="color: #60a5fa; margin-bottom: 5px; font-weight: 500;">正在启动单个批量采集（${modeText}模式）...</div>
+                <div style="color: #94a3b8; font-size: 11px;">正在获取股票列表，请稍候</div>
             </div>
         `;
     }
     
     try {
-        const response = await apiFetch(`${API_BASE}/api/market/kline/collect/batch-single?batch_size=${batchSize}&market=${market}&period=${period}`, {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect/batch-single?batch_size=${batchSize}&market=${market}&period=${period}&mode=${mode}`, {
             method: 'POST'
         });
         
@@ -6668,6 +6671,7 @@ async function collectKlineData(market = null, maxCount = null) {
     const marketSelect = document.getElementById('collect-market-select');
     const periodSelect = document.getElementById('collect-period-select');
     const maxCountInput = document.getElementById('collect-max-count-input');
+    const modeSelect = document.getElementById('collect-mode-select');
     
     // 如果没有传入参数，从UI获取
     if (market === null) {
@@ -6677,6 +6681,7 @@ async function collectKlineData(market = null, maxCount = null) {
         maxCount = parseInt(maxCountInput?.value) || 6000;
     }
     const period = periodSelect?.value || 'daily';
+    const mode = modeSelect?.value || 'incremental';
     
     // 优先使用选股页面的状态显示区域
     let statusEl = document.getElementById('collect-kline-status');
@@ -6706,11 +6711,12 @@ async function collectKlineData(market = null, maxCount = null) {
     
     btn.disabled = true;
     btn.textContent = '采集中...';
-    statusEl.textContent = '正在采集K线数据，请稍候...';
+    const modeText = mode === 'full' ? '全量' : '增量';
+    statusEl.textContent = `正在采集K线数据（${modeText}模式），请稍候...`;
     statusEl.style.color = '#60a5fa';
     
     try {
-        const response = await apiFetch(`${API_BASE}/api/market/kline/collect?market=${market}&max_count=${maxCount}&period=${period}`, {
+        const response = await apiFetch(`${API_BASE}/api/market/kline/collect?market=${market}&max_count=${maxCount}&period=${period}&mode=${mode}`, {
             method: 'POST'
         });
         

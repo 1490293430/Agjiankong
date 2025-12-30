@@ -3215,7 +3215,7 @@ async def collect_spot_data_api(
         return {"code": 1, "data": {}, "message": str(e)}
 
 
-def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kline_func, max_count: int, period: str = "daily"):
+def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kline_func, max_count: int, period: str = "daily", force_full: bool = False):
     """内部函数：采集单个市场的K线数据
     
     Args:
@@ -3224,6 +3224,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         fetch_kline_func: 采集K线数据的函数
         max_count: 最多采集的股票数量
         period: K线周期，"daily" 或 "1h"
+        force_full: 是否全量采集（不查询数据库最新日期）
     """
     from common.db import get_stock_list_from_db
     from market.service.ws import kline_collect_progress
@@ -3327,7 +3328,7 @@ def _collect_market_kline_internal(market: str, all_stocks: List[Dict], fetch_kl
         
         try:
             # 使用 return_source=True 获取实际使用的数据源，传递 stop_check 回调
-            result = fetch_kline_func(code, period, "", None, None, False, False, True, check_should_stop)
+            result = fetch_kline_func(code, period, "", None, None, force_full, False, True, check_should_stop)
             if isinstance(result, tuple):
                 kline_data, source_name = result
                 if source_name:
@@ -3619,6 +3620,7 @@ async def collect_batch_single_stock_kline_api(
     batch_size: int = Query(10, ge=1, le=100, description="每次采集的股票数量"),
     market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（同时采集A股和港股）"),
     period: str = Query("daily", description="周期：daily, weekly, monthly"),
+    mode: str = Query("incremental", description="采集模式：incremental（增量）或full（全量）"),
 ):
     """单个批量采集K线数据（使用东方财富股票列表，循环采集）
     
@@ -3627,6 +3629,8 @@ async def collect_batch_single_stock_kline_api(
     - 每次采集指定数量的股票
     - 先采集A股，再采集港股
     - 后台异步执行，避免阻塞
+    - mode=incremental：增量模式，只获取数据库最新日期之后的数据
+    - mode=full：全量模式，不查询数据库，直接获取全部数据
     """
     try:
         from market_collector.cn import fetch_a_stock_kline
@@ -3636,7 +3640,8 @@ async def collect_batch_single_stock_kline_api(
         from datetime import datetime
         from market.service.ws import kline_collect_progress
         
-        logger.info(f"开始单个批量采集，每次{batch_size}只，市场={market}")
+        is_full_mode = mode.lower() == "full"
+        logger.info(f"开始单个批量采集，每次{batch_size}只，市场={market}，模式={'全量' if is_full_mode else '增量'}")
         
         def collect_batch_internal():
             from market.service.ws import kline_collect_stop_flags
@@ -3738,7 +3743,7 @@ async def collect_batch_single_stock_kline_api(
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
                             future = single_executor.submit(
-                                fetch_a_stock_kline, code, period, "", None, None, False, False, True
+                                fetch_a_stock_kline, code, period, "", None, None, is_full_mode, False, True
                             )
                             try:
                                 result = future.result(timeout=120)  # 120秒超时
@@ -3829,7 +3834,7 @@ async def collect_batch_single_stock_kline_api(
                         # 使用线程池包装，添加超时控制（每只股票最多120秒）
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_executor:
                             future = single_executor.submit(
-                                fetch_hk_stock_kline, code, period, "", None, None, False, False
+                                fetch_hk_stock_kline, code, period, "", None, None, is_full_mode, False
                             )
                             try:
                                 result = future.result(timeout=120)  # 120秒超时
@@ -4046,6 +4051,7 @@ async def collect_kline_data_api(
     market: str = Query("A", description="市场类型：A（A股）、HK（港股）或ALL（同时采集A股和港股）"),
     max_count: int = Query(6000, ge=1, le=10000, description="最多采集的股票数量，默认6000（可覆盖全部A股）"),
     period: str = Query("daily", description="K线周期：daily（日线）、1h（小时线）"),
+    mode: str = Query("incremental", description="采集模式：incremental（增量）或full（全量）"),
 ):
     """批量采集K线数据到ClickHouse（手动触发）
     
@@ -4054,6 +4060,8 @@ async def collect_kline_data_api(
     - 批量采集每只股票的K线数据并保存到ClickHouse
     - 后台异步执行，避免阻塞
     - market参数支持"A"、"HK"或"ALL"（同时采集A股和港股）
+    - mode=incremental：增量模式，只获取数据库最新日期之后的数据
+    - mode=full：全量模式，不查询数据库，直接获取全部数据
     - period参数支持"daily"（日线）或"1h"（小时线）
     """
     try:
@@ -4065,6 +4073,8 @@ async def collect_kline_data_api(
         period = period.lower() if period else "daily"
         if period not in ["daily", "1h"]:
             period = "daily"
+        
+        is_full_mode = mode.lower() == "full"
         
         # 支持同时采集A股和港股
         if market.upper() == "ALL":
@@ -4086,8 +4096,8 @@ async def collect_kline_data_api(
                         except Exception as e:
                             logger.warning(f"保存A股基本信息失败: {e}")
                         
-                        logger.info(f"开始采集A股K线数据，共{len(a_stocks)}只股票，周期: {period}")
-                        _collect_market_kline_internal("A", a_stocks, fetch_a_stock_kline, max_count, period)
+                        logger.info(f"开始采集A股K线数据，共{len(a_stocks)}只股票，周期: {period}，模式: {'全量' if is_full_mode else '增量'}")
+                        _collect_market_kline_internal("A", a_stocks, fetch_a_stock_kline, max_count, period, is_full_mode)
                 except Exception as e:
                     logger.error(f"A股K线采集失败: {e}", exc_info=True)
                 
@@ -4105,8 +4115,8 @@ async def collect_kline_data_api(
                         except Exception as e:
                             logger.warning(f"保存港股基本信息失败: {e}")
                         
-                        logger.info(f"开始采集港股K线数据，共{len(hk_stocks)}只股票，周期: {period}")
-                        _collect_market_kline_internal("HK", hk_stocks, fetch_hk_stock_kline, max_count, period)
+                        logger.info(f"开始采集港股K线数据，共{len(hk_stocks)}只股票，周期: {period}，模式: {'全量' if is_full_mode else '增量'}")
+                        _collect_market_kline_internal("HK", hk_stocks, fetch_hk_stock_kline, max_count, period, is_full_mode)
                 except Exception as e:
                     logger.error(f"港股K线采集失败: {e}", exc_info=True)
             
@@ -4224,7 +4234,7 @@ async def collect_kline_data_api(
             
             try:
                 # 使用 return_source=True 获取实际使用的数据源，传递 stop_check 回调
-                result = fetch_kline_func(code, period, "", None, None, False, False, True, check_should_stop)
+                result = fetch_kline_func(code, period, "", None, None, is_full_mode, False, True, check_should_stop)
                 if isinstance(result, tuple):
                     kline_data, source_name = result
                     # 只有当实际从数据源获取时才更新数据源名称（None表示从缓存返回）
