@@ -40,6 +40,34 @@ def _create_clickhouse_client() -> Client:
     return client
 
 
+def _create_low_priority_clickhouse_client() -> Client:
+    """创建低优先级的ClickHouse连接（用于批量计算等后台任务，减少对API查询的影响）
+    
+    Returns:
+        ClickHouse Client实例
+    """
+    client = Client(
+        host=settings.clickhouse_host,
+        port=settings.clickhouse_port,
+        database=settings.clickhouse_db,
+        user=settings.clickhouse_user,
+        password=settings.clickhouse_password,
+        connect_timeout=10,
+        send_receive_timeout=60  # 后台任务可以等待更长时间
+    )
+    
+    # 设置更低的资源限制，给API查询让路
+    try:
+        client.execute("SET max_threads = 2")  # 降低到2个线程
+        client.execute("SET max_final_threads = 1")
+        client.execute("SET max_parsing_threads = 1")
+        client.execute("SET priority = 2")  # 设置低优先级（1最高，数字越大优先级越低）
+    except Exception:
+        pass  # 忽略设置失败，不影响使用
+    
+    return client
+
+
 def get_clickhouse() -> Client:
     """获取ClickHouse连接"""
     global _client
@@ -880,7 +908,7 @@ def cleanup_old_kline_data(code: str, period: str = "daily") -> None:
                 pass
 
 
-def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | None = None, period: str = "daily") -> List[Dict[str, Any]]:
+def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | None = None, period: str = "daily", low_priority: bool = False) -> List[Dict[str, Any]]:
     """从ClickHouse数据库查询K线数据
     
     Args:
@@ -888,13 +916,18 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
         start_date: 开始日期 YYYYMMDD格式
         end_date: 结束日期 YYYYMMDD格式
         period: 周期（daily, weekly, monthly, 1h），用于精确查询指定周期的数据
+        low_priority: 是否使用低优先级查询（用于批量计算等后台任务）
     
     Returns:
         K线数据列表
     """
     client = None
     try:
-        client = _create_clickhouse_client()
+        # 根据优先级选择客户端
+        if low_priority:
+            client = _create_low_priority_clickhouse_client()
+        else:
+            client = _create_clickhouse_client()
         
         # 标准化period字段
         period_normalized = period

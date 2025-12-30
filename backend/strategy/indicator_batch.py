@@ -101,8 +101,8 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         def compute_single(code: str) -> tuple:
             """单只股票的查询和计算"""
             try:
-                # 查询K线数据（使用日期范围）
-                kline_data = get_kline_from_db(code, start_date=start_date, period=period)
+                # 查询K线数据（使用日期范围，低优先级查询）
+                kline_data = get_kline_from_db(code, start_date=start_date, period=period, low_priority=True)
                 
                 if not kline_data or len(kline_data) < min_kline:
                     return ("failed", code, f"K线不足: {len(kline_data) if kline_data else 0}/{min_kline}")
@@ -122,7 +122,7 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
             except Exception as e:
                 return ("failed", code, str(e))
         
-        # 并发执行（10个线程）
+        # 并发执行（10个线程，使用低优先级查询减少对API的影响）
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(compute_single, code): code for code in codes_to_compute}
             
@@ -140,6 +140,10 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
                 completed += 1
                 if completed % 500 == 0:
                     logger.info(f"计算{period_name}进度：{completed}/{len(codes_to_compute)}，成功={success_count}，失败={failed_count}")
+                
+                # 每处理100只股票，短暂休眠，给API查询留出时间窗口
+                if completed % 100 == 0:
+                    time.sleep(0.5)
         
         elapsed = time.time() - start_time
         logger.info(f"计算{period_name}完成：成功={success_count}，跳过={skipped_count}，失败={failed_count}，耗时={elapsed:.1f}秒")
