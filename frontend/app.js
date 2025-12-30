@@ -2887,15 +2887,13 @@ function setupMarketScrollListeners() {
 async function initMarket() {
     const marketSelect = document.getElementById('market-select');
     const searchInput = document.getElementById('search-input');
-    const refreshBtn = document.getElementById('refresh-btn');
     const container = document.querySelector('.stock-list-container');
     
-    if (!marketSelect || !searchInput || !refreshBtn) {
+    if (!marketSelect || !searchInput) {
         console.warn('行情页元素不存在，跳过初始化');
         return;
     }
     
-    refreshBtn.addEventListener('click', () => resetAndLoadMarket());
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
     
