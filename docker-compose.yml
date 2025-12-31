@@ -21,6 +21,9 @@ services:
       - TZ=Asia/Shanghai
     # 启用 AOF 和 RDB 双重持久化，确保数据不丢失
     # --appendonly yes: 启用 AOF（Append Only File）持久化
+    # --appendfsync everysec: 每秒同步一次 AOF 文件
+    # --auto-aof-rewrite-percentage 100: 当 AOF 文件大小比上次重写后的大小增长 100% 时触发重写
+    # --auto-aof-rewrite-min-size 64mb: AOF 文件最小重写大小为 64MB
     # --save 60 1000: 如果60秒内至少有1000个key发生变化，则保存RDB快照
     # --save 300 100: 如果300秒内至少有100个key发生变化，则保存RDB快照
     # --save 900 1: 如果900秒内至少有1个key发生变化，则保存RDB快照
@@ -29,9 +32,9 @@ services:
     command: >
       sh -c "
       if [ -n \"$$REDIS_PASSWORD\" ]; then
-        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\" --bind 0.0.0.0
+        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\" --bind 0.0.0.0
       else
-        redis-server --appendonly yes --appendfsync everysec --save 60 1000 --save 300 100 --save 900 1 --bind 0.0.0.0
+        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save 60 1000 --save 300 100 --save 900 1 --bind 0.0.0.0
       fi
       "
 
@@ -111,6 +114,9 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - default
+      - npm-net
 
 volumes:
   # Redis 数据持久化卷（命名卷，数据会持久化到 Docker 管理的存储位置）
@@ -129,4 +135,9 @@ volumes:
     #   type: none
     #   o: bind
     #   device: /opt/agjiankong/data/clickhouse
+
+networks:
+  # 连接到 Nginx Proxy Manager 网络，用于反向代理
+  npm-net:
+    external: true
 

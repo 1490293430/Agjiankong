@@ -19,9 +19,12 @@ _last_batch_compute_market = set()  # 存储格式："{market}_{date}"，例如 
 # 记录上次资讯采集时间
 _last_news_collect_time = None
 
-# 记录上次小时K线采集时间（A股和港股分开记录）
-_last_hourly_kline_collect_time_a = None  # 格式: "YYYY-MM-DD HH" 例如 "2025-12-26 10"
-_last_hourly_kline_collect_time_hk = None
+# Redis key 用于记录小时K线采集状态
+HOURLY_KLINE_COLLECT_KEY_A = "hourly_kline:collected:a"
+HOURLY_KLINE_COLLECT_KEY_HK = "hourly_kline:collected:hk"
+
+# 记录上次数据清理日期（避免同一天重复清理）
+_last_cleanup_date = None
 
 
 def _broadcast_spot_result(a_count: int, hk_count: int, a_time: str, hk_time: str, a_source: str, hk_source: str, a_success: bool, hk_success: bool):
@@ -225,57 +228,121 @@ def news_collect_job():
 def hourly_kline_collect_job():
     """小时K线采集任务
     
-    统一采集时间：
-    - 12:00 采集A股和港股上午的小时K线
-    - 16:15 采集A股和港股下午的小时K线
+    采集时间：
+    - A股：12:00后采集上午的小时K线，16:15后采集下午的小时K线
+    - 港股：12:00后采集上午的小时K线，16:15后采集下午的小时K线
+    - 使用Redis记录状态，避免重复采集和程序重启后状态丢失
     """
-    global _last_hourly_kline_collect_time_a, _last_hourly_kline_collect_time_hk
-    
-    from common.trading_hours import TZ_SHANGHAI, is_trading_day
+    from common.trading_hours import TZ_SHANGHAI, TZ_HONGKONG, is_trading_day
+    from common.redis import get_redis
     
     now_sh = datetime.now(TZ_SHANGHAI)
-    current_hour = now_sh.hour
-    current_minute = now_sh.minute
-    today = now_sh.strftime("%Y-%m-%d")
+    now_hk = datetime.now(TZ_HONGKONG)
+    today_sh = now_sh.strftime("%Y-%m-%d")
+    today_hk = now_hk.strftime("%Y-%m-%d")
     
-    # 统一采集时间点
-    # 12:00 采集上午数据，16:15 采集下午数据
-    collect_times = [
-        (12, 0, "morning"),   # 12:00 采集上午K线
-        (16, 15, "afternoon"), # 16:15 采集下午K线
-    ]
+    redis_client = get_redis()
     
-    should_collect = False
-    collect_key = None
+    # 定义采集时间点：上午12:00，下午16:15
+    morning_hour, morning_minute = 12, 0
+    afternoon_hour, afternoon_minute = 16, 15
     
-    for hour, minute, period_name in collect_times:
-        if current_hour == hour and current_minute >= minute and current_minute < minute + 30:
-            collect_key = f"{today} {period_name}"
-            # 检查是否已经采集过（A股和港股用同一个key）
-            if _last_hourly_kline_collect_time_a != collect_key:
-                should_collect = True
-                _last_hourly_kline_collect_time_a = collect_key
-                _last_hourly_kline_collect_time_hk = collect_key
-            break
+    # 判断是否应该采集上午数据（12:00后，且今天还没采集过上午数据）
+    should_collect_morning_a = False
+    should_collect_morning_hk = False
+    should_collect_afternoon_a = False
+    should_collect_afternoon_hk = False
     
-    if not should_collect:
-        return
+    # 获取A股和港股的采集状态（只读取一次Redis）
+    last_collected_a_raw = redis_client.get(HOURLY_KLINE_COLLECT_KEY_A)
+    last_collected_hk_raw = redis_client.get(HOURLY_KLINE_COLLECT_KEY_HK)
     
-    # 采集A股小时K线
+    last_collected_a = None
+    if last_collected_a_raw:
+        last_collected_a = last_collected_a_raw.decode('utf-8') if isinstance(last_collected_a_raw, bytes) else last_collected_a_raw
+    
+    last_collected_hk = None
+    if last_collected_hk_raw:
+        last_collected_hk = last_collected_hk_raw.decode('utf-8') if isinstance(last_collected_hk_raw, bytes) else last_collected_hk_raw
+    
+    # A股采集判断
+    morning_key_a = f"{today_sh}_morning"
+    afternoon_key_a = f"{today_sh}_afternoon"
+    
+    # 判断是否过了采集时间点
+    is_after_morning_a = now_sh.hour > morning_hour or (now_sh.hour == morning_hour and now_sh.minute >= morning_minute)
+    is_after_afternoon_a = now_sh.hour > afternoon_hour or (now_sh.hour == afternoon_hour and now_sh.minute >= afternoon_minute)
+    
+    # 如果过了12:00且还没采集过上午，则采集上午
+    if is_after_morning_a:
+        if not last_collected_a or last_collected_a != morning_key_a:
+            # 只有在还没采集过下午的情况下才采集上午（避免下午时间采集上午）
+            if not is_after_afternoon_a or not last_collected_a or not last_collected_a.startswith(today_sh):
+                should_collect_morning_a = True
+    
+    # 如果过了16:15且已采集过上午但还没采集过下午，则采集下午
+    if is_after_afternoon_a:
+        if not last_collected_a or last_collected_a != afternoon_key_a:
+            # 如果已经采集过上午，或者没有任何记录，则采集下午
+            if last_collected_a == morning_key_a or not last_collected_a or not last_collected_a.startswith(today_sh):
+                should_collect_afternoon_a = True
+    
+    # 港股采集判断
+    morning_key_hk = f"{today_hk}_morning"
+    afternoon_key_hk = f"{today_hk}_afternoon"
+    
+    is_after_morning_hk = now_hk.hour > morning_hour or (now_hk.hour == morning_hour and now_hk.minute >= morning_minute)
+    is_after_afternoon_hk = now_hk.hour > afternoon_hour or (now_hk.hour == afternoon_hour and now_hk.minute >= afternoon_minute)
+    
+    # 如果过了12:00且还没采集过上午，则采集上午
+    if is_after_morning_hk:
+        if not last_collected_hk or last_collected_hk != morning_key_hk:
+            if not is_after_afternoon_hk or not last_collected_hk or not last_collected_hk.startswith(today_hk):
+                should_collect_morning_hk = True
+    
+    # 如果过了16:15且已采集过上午但还没采集过下午，则采集下午
+    if is_after_afternoon_hk:
+        if not last_collected_hk or last_collected_hk != afternoon_key_hk:
+            if last_collected_hk == morning_key_hk or not last_collected_hk or not last_collected_hk.startswith(today_hk):
+                should_collect_afternoon_hk = True
+    
+    # 采集A股小时K线（优先上午，如果已经过了上午时间且已采集过上午，则采集下午）
     if is_trading_day("A", now_sh.date()):
-        try:
-            logger.info(f"[A股] 开始采集小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
-            _collect_hourly_kline_for_market("A")
-        except Exception as e:
-            logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
+        if should_collect_morning_a:
+            try:
+                logger.info(f"[A股] 开始采集上午小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+                _collect_hourly_kline_for_market("A")
+                redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, morning_key_a, ex=86400 * 2)  # 保留2天
+                logger.info(f"[A股] 上午小时K线采集完成并已记录状态")
+            except Exception as e:
+                logger.error(f"[A股] 上午小时K线采集失败: {e}", exc_info=True)
+        elif should_collect_afternoon_a:
+            try:
+                logger.info(f"[A股] 开始采集下午小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+                _collect_hourly_kline_for_market("A")
+                redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, afternoon_key_a, ex=86400 * 2)  # 保留2天
+                logger.info(f"[A股] 下午小时K线采集完成并已记录状态")
+            except Exception as e:
+                logger.error(f"[A股] 下午小时K线采集失败: {e}", exc_info=True)
     
-    # 采集港股小时K线
-    if is_trading_day("HK", now_sh.date()):
-        try:
-            logger.info(f"[港股] 开始采集小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
-            _collect_hourly_kline_for_market("HK")
-        except Exception as e:
-            logger.error(f"[港股] 小时K线采集失败: {e}", exc_info=True)
+    # 采集港股小时K线（优先上午，如果已经过了上午时间且已采集过上午，则采集下午）
+    if is_trading_day("HK", now_hk.date()):
+        if should_collect_morning_hk:
+            try:
+                logger.info(f"[港股] 开始采集上午小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
+                _collect_hourly_kline_for_market("HK")
+                redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, morning_key_hk, ex=86400 * 2)  # 保留2天
+                logger.info(f"[港股] 上午小时K线采集完成并已记录状态")
+            except Exception as e:
+                logger.error(f"[港股] 上午小时K线采集失败: {e}", exc_info=True)
+        elif should_collect_afternoon_hk:
+            try:
+                logger.info(f"[港股] 开始采集下午小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
+                _collect_hourly_kline_for_market("HK")
+                redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, afternoon_key_hk, ex=86400 * 2)  # 保留2天
+                logger.info(f"[港股] 下午小时K线采集完成并已记录状态")
+            except Exception as e:
+                logger.error(f"[港股] 下午小时K线采集失败: {e}", exc_info=True)
 
 
 def _collect_hourly_kline_for_market(market: str):
@@ -427,6 +494,145 @@ def snapshot_to_kline_job():
         logger.error(f"快照转K线任务失败: {e}", exc_info=True)
 
 
+def cleanup_old_data_job():
+    """定期清理旧数据任务（每天17:30后执行一次）
+    
+    清理内容：
+    - 日线K线数据：保留8年（根据配置）
+    - 小时线K线数据：保留1年
+    - 交易结果数据：保留1年
+    - 优化表释放空间（每7天执行一次）
+    """
+    global _last_cleanup_date
+    
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # 检查今天是否已经清理过
+        if _last_cleanup_date == today:
+            return
+        
+        from common.db import get_clickhouse
+        from datetime import timedelta
+        from common.runtime_config import get_runtime_config
+        
+        client = get_clickhouse()
+        
+        logger.info("开始定期清理旧数据...")
+        cleanup_count = 0
+        
+        # 1. 清理日线K线数据（保留8年，根据配置）
+        try:
+            config = get_runtime_config()
+            retention_years = config.kline_years  # 默认8年
+            cutoff_date = datetime.now() - timedelta(days=int(retention_years * 365))
+            cutoff_date_str = cutoff_date.strftime("%Y-%m-%d")
+            
+            # 统计要删除的数据量
+            count_query = "SELECT count() FROM kline WHERE period = 'daily' AND date < %(date)s"
+            result = client.execute(count_query, {'date': cutoff_date_str})
+            count = result[0][0] if result else 0
+            
+            if count > 0:
+                logger.info(f"清理日线K线数据：删除{count:,}条（{cutoff_date_str}之前的数据，保留{retention_years}年）")
+                delete_query = "ALTER TABLE kline DELETE WHERE period = 'daily' AND date < %(date)s"
+                client.execute(delete_query, {'date': cutoff_date_str})
+                cleanup_count += 1
+            else:
+                logger.info("日线K线数据无需清理")
+        except Exception as e:
+            logger.error(f"清理日线K线数据失败: {e}", exc_info=True)
+        
+        # 2. 清理小时线K线数据（保留1年）
+        try:
+            hourly_cutoff = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            count_query = "SELECT count() FROM kline WHERE period = '1h' AND date < %(date)s"
+            result = client.execute(count_query, {'date': hourly_cutoff})
+            count = result[0][0] if result else 0
+            
+            if count > 0:
+                logger.info(f"清理小时线K线数据：删除{count:,}条（{hourly_cutoff}之前的数据，保留1年）")
+                delete_query = "ALTER TABLE kline DELETE WHERE period = '1h' AND date < %(date)s"
+                client.execute(delete_query, {'date': hourly_cutoff})
+                cleanup_count += 1
+            else:
+                logger.info("小时线K线数据无需清理")
+        except Exception as e:
+            logger.error(f"清理小时线K线数据失败: {e}", exc_info=True)
+        
+        # 3. 清理交易结果数据（保留1年）
+        try:
+            trade_cutoff = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            count_query = "SELECT count() FROM trade_result WHERE exit_date < %(date)s"
+            result = client.execute(count_query, {'date': trade_cutoff})
+            count = result[0][0] if result else 0
+            
+            if count > 0:
+                logger.info(f"清理交易结果数据：删除{count:,}条（{trade_cutoff}之前的数据，保留1年）")
+                delete_query = "ALTER TABLE trade_result DELETE WHERE exit_date < %(date)s"
+                client.execute(delete_query, {'date': trade_cutoff})
+                cleanup_count += 1
+            else:
+                logger.info("交易结果数据无需清理")
+        except Exception as e:
+            logger.error(f"清理交易结果数据失败: {e}", exc_info=True)
+        
+        if cleanup_count > 0:
+            logger.info(f"数据清理完成，共清理{cleanup_count}类数据（删除操作异步执行）")
+            logger.info("提示：删除操作是异步的，需要执行OPTIMIZE TABLE才能释放空间")
+            _last_cleanup_date = today
+        else:
+            logger.info("所有数据都无需清理")
+            _last_cleanup_date = today
+        
+        # 4. 优化表释放空间（每7天执行一次）
+        try:
+            from datetime import date
+            today_date = date.today()
+            last_optimize_date = getattr(cleanup_old_data_job, '_last_optimize_date', None)
+            
+            if last_optimize_date is None or (today_date - last_optimize_date).days >= 7:
+                logger.info("执行表优化（释放已删除数据的空间）...")
+                try:
+                    client.execute("OPTIMIZE TABLE kline FINAL")
+                    logger.info("✓ kline表优化完成")
+                except Exception as e:
+                    logger.warning(f"kline表优化失败: {e}")
+                
+                try:
+                    client.execute("OPTIMIZE TABLE indicators FINAL")
+                    logger.info("✓ indicators表优化完成")
+                except Exception as e:
+                    logger.warning(f"indicators表优化失败: {e}")
+                
+                try:
+                    client.execute("OPTIMIZE TABLE snapshot FINAL")
+                    logger.info("✓ snapshot表优化完成")
+                except Exception as e:
+                    logger.warning(f"snapshot表优化失败: {e}")
+                
+                try:
+                    client.execute("OPTIMIZE TABLE trade_result FINAL")
+                    logger.info("✓ trade_result表优化完成")
+                except Exception as e:
+                    logger.warning(f"trade_result表优化失败: {e}")
+                
+                cleanup_old_data_job._last_optimize_date = today_date
+                logger.info("所有表优化完成")
+            else:
+                logger.debug(f"距离上次优化只有{(today_date - last_optimize_date).days}天，跳过优化（每7天执行一次）")
+        except Exception as e:
+            logger.error(f"表优化失败: {e}", exc_info=True)
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+        
+    except Exception as e:
+        logger.error(f"定期清理旧数据失败: {e}", exc_info=True)
+
+
 def main():
     """主函数"""
     logger.info("行情采集调度器启动（实时判断交易时间）...")
@@ -442,9 +648,13 @@ def main():
 
         # 实时检查是否在交易时间内
         is_a_trading, is_hk_trading = is_a_stock_trading_time(), is_hk_stock_trading_time()
-        now = datetime.now()
-        current_hour = now.hour
-        current_minute = now.minute
+        from common.trading_hours import TZ_SHANGHAI, TZ_HONGKONG
+        now_sh = datetime.now(TZ_SHANGHAI)
+        now_hk = datetime.now(TZ_HONGKONG)
+        current_hour_a = now_sh.hour
+        current_minute_a = now_sh.minute
+        current_hour_hk = now_hk.hour
+        current_minute_hk = now_hk.minute
         
         if is_a_trading or is_hk_trading:
             # 在交易时间内，正常采集
@@ -478,30 +688,30 @@ def main():
             
             # 不在交易时间内，检查是否需要执行收盘后任务
             
-            # A股收盘后立即转换（15:12后）
-            if current_hour == 15 and current_minute >= 12:
+            # A股收盘后立即转换（15:12后，一直检查直到采集完成）
+            if current_hour_a > 15 or (current_hour_a == 15 and current_minute_a >= 12):
                 try:
                     from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
                     if should_convert_snapshot("A"):
-                        logger.info("[A股] 收盘后执行快照转K线")
+                        logger.info("[A股] 收盘后执行快照转K线（日K线采集）")
                         result = convert_snapshot_to_kline("A")
                         logger.info(f"[A股] 快照转K线完成: {result}")
                 except Exception as e:
                     logger.error(f"[A股] 快照转K线失败: {e}")
             
-            # 港股收盘后立即转换（16:22后）
-            if current_hour == 16 and current_minute >= 22:
+            # 港股收盘后立即转换（16:22后，一直检查直到采集完成）
+            if current_hour_hk > 16 or (current_hour_hk == 16 and current_minute_hk >= 22):
                 try:
                     from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
                     if should_convert_snapshot("HK"):
-                        logger.info("[港股] 收盘后执行快照转K线")
+                        logger.info("[港股] 收盘后执行快照转K线（日K线采集）")
                         result = convert_snapshot_to_kline("HK")
                         logger.info(f"[港股] 快照转K线完成: {result}")
                 except Exception as e:
                     logger.error(f"[港股] 快照转K线失败: {e}")
             
-            # 17:00 执行批量计算指标
-            if current_hour == 17 and current_minute >= 0:
+            # 17:00 执行批量计算指标（使用上海时区）
+            if current_hour_a == 17 and current_minute_a >= 0:
                 
                 # 判断A股今天是否有交易
                 a_has_traded_today = False
@@ -580,24 +790,27 @@ def main():
             
             # 不在交易时间内，不采集数据，延长等待时间
             # 但如果还没到17:30，需要短间隔检查以确保17:00的指标计算能触发
-            if current_hour < 17 or (current_hour == 17 and current_minute < 30):
+            if current_hour_a < 17 or (current_hour_a == 17 and current_minute_a < 30):
                 # 17:30之前，每5分钟检查一次，确保17:00的任务能触发
-                logger.info(f"当前时间 {current_hour}:{current_minute:02d}，17:30前保持短间隔检查（5分钟）")
+                logger.info(f"当前时间 {current_hour_a}:{current_minute_a:02d}，17:30前保持短间隔检查（5分钟）")
                 time.sleep(300)
             else:
+                # 17:30之后，执行定期清理任务（每天执行一次）
+                if current_hour_a == 17 and current_minute_a >= 30:
+                    cleanup_old_data_job()
+                
                 # 17:30之后，可以长时间睡眠到下一个交易日
                 next_a_start = get_next_trading_start_time("A")
                 next_hk_start = get_next_trading_start_time("HK")
                 next_start = min(next_a_start, next_hk_start)
                 
                 if next_start.tzinfo:
-                    from common.trading_hours import TZ_SHANGHAI
-                    if now.tzinfo is None:
-                        now_tz = TZ_SHANGHAI.localize(now)
+                    if now_sh.tzinfo is None:
+                        now_tz = TZ_SHANGHAI.localize(now_sh)
                     else:
-                        now_tz = now.astimezone(TZ_SHANGHAI)
+                        now_tz = now_sh.astimezone(TZ_SHANGHAI)
                 else:
-                    now_tz = now
+                    now_tz = now_sh
                 
                 wait_seconds = max(300, int((next_start - now_tz).total_seconds()))
                 

@@ -47,7 +47,8 @@ class Account:
                 "trades": self.trades[-100:],  # 只保留最近100笔交易
                 "update_time": datetime.now().isoformat()
             }
-            set_json(f"account:{self.account_id}", account_data, ex=None)
+            # 账户数据保留30天，如果30天内无操作则自动过期
+            set_json(f"account:{self.account_id}", account_data, ex=30 * 24 * 3600)
         except Exception as e:
             logger.error(f"保存账户数据失败: {e}")
     

@@ -166,7 +166,7 @@ class RuntimeConfig(BaseModel):
 
     # K线数据相关
     kline_years: float = Field(
-        default=1.0, ge=0.5, le=10.0, description="K线数据加载年限（年），范围0.5-10年"
+        default=8.0, ge=0.5, le=10.0, description="K线数据加载年限（年），范围0.5-10年，日线数据保留8年"
     )
     kline_data_source: str = Field(
         default="auto",

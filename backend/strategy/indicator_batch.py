@@ -122,8 +122,8 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
             except Exception as e:
                 return ("failed", code, str(e))
         
-        # 并发执行（10个线程，使用低优先级查询减少对API的影响）
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # 并发执行（5个线程，降低CPU占用）
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(compute_single, code): code for code in codes_to_compute}
             
             completed = 0
