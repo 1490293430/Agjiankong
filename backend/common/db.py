@@ -158,6 +158,7 @@ def init_tables():
         CREATE TABLE IF NOT EXISTS kline
         (
             code String,
+            market String DEFAULT 'A',
             period String,
             date Date,
             time DateTime DEFAULT toDateTime(date),
@@ -212,6 +213,15 @@ def init_tables():
                     logger.info("✓ period字段添加成功")
                 except Exception as e:
                     logger.warning(f"添加period字段失败: {e}")
+            
+            # 检查是否有market字段（用于区分A股和港股）
+            if "market" not in column_names:
+                logger.info("检测到kline表缺少market字段，正在添加...")
+                try:
+                    client.execute("ALTER TABLE kline ADD COLUMN IF NOT EXISTS market String DEFAULT 'A'")
+                    logger.info("✓ market字段添加成功")
+                except Exception as e:
+                    logger.warning(f"添加market字段失败: {e}")
             
             # 检查是否有time字段（用于存储完整时间戳，支持小时线数据）
             if "time" not in column_names:
