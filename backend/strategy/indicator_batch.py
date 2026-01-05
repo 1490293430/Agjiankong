@@ -11,7 +11,6 @@ from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from common.logger import get_logger
 from common.db import save_indicator, get_kline_from_db
-from common.redis import get_json
 from market.indicator.ta import calculate_all_indicators
 import pandas as pd
 import concurrent.futures
@@ -37,29 +36,39 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
         统计信息字典
     """
     try:
-        # 获取股票列表
-        if market.upper() == "HK":
-            all_stocks = get_json("market:hk:spot") or []
-        else:
-            all_stocks = get_json("market:a:spot") or []
+        from common.db import get_clickhouse
         
-        if not all_stocks:
-            logger.warning(f"未获取到{market}股行情数据")
-            return {"success": 0, "failed": 0, "total": 0, "skipped": 0}
+        today = datetime.now().strftime("%Y-%m-%d")
+        period_name = "日线" if period == "daily" else "小时线"
+        min_kline = MIN_KLINE_REQUIRED if period == "daily" else MIN_KLINE_REQUIRED_HOURLY
         
-        # 按成交额排序，优先计算活跃股票
-        sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0), reverse=True)
+        # 从数据库获取今天有K线更新的股票列表
+        client = get_clickhouse()
+        try:
+            query = """
+                SELECT DISTINCT code 
+                FROM kline 
+                WHERE market = %(market)s AND period = %(period)s AND date = %(date)s
+            """
+            result = client.execute(query, {"market": market.upper(), "period": period, "date": today})
+            codes_with_today_kline = [row[0] for row in result if row[0]]
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+        
+        if not codes_with_today_kline:
+            logger.info(f"[{market}] {period_name}K线今天没有更新，跳过指标计算")
+            return {"success": 0, "failed": 0, "total": 0, "skipped": 0, "period": period, "message": "K线未更新"}
+        
+        logger.info(f"[{market}] 从数据库获取到 {len(codes_with_today_kline)} 只股票今天有{period_name}K线更新")
         
         # 如果指定了max_count，则只取前N只；否则计算所有
         if max_count is not None:
-            target_stocks = sorted_stocks[:max_count]
+            target_codes = codes_with_today_kline[:max_count]
         else:
-            target_stocks = sorted_stocks
-        
-        today = datetime.now().strftime("%Y-%m-%d")
-        
-        period_name = "日线" if period == "daily" else "小时线"
-        min_kline = MIN_KLINE_REQUIRED if period == "daily" else MIN_KLINE_REQUIRED_HOURLY
+            target_codes = codes_with_today_kline
         
         # 计算查询的起始日期（往前推足够多的天数，考虑节假日）
         if period == "daily":
@@ -69,18 +78,14 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
             # 小时线，往前推更多天（每天4根小时线）
             start_date = (datetime.now() - timedelta(days=60)).strftime("%Y%m%d")
         
-        # 过滤需要计算的股票
+        # 过滤需要计算的股票（增量模式下跳过已计算的）
         codes_to_compute = []
         skipped_count = 0
         
         # 导入收盘后更新检查函数
         from common.db import is_indicator_updated_after_close
         
-        for stock in target_stocks:
-            code = str(stock.get("code", ""))
-            if not code:
-                continue
-            
+        for code in target_codes:
             if incremental:
                 # 检查是否在收盘后已更新（而不是只检查日期）
                 if is_indicator_updated_after_close(code, market.upper(), period):
