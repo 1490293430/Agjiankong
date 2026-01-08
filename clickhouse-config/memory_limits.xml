@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 内存限制配置 - 适用于低内存服务器 (2.4GB) -->
+    
+    <!-- 服务器最大内存使用量：500MB -->
+    <max_server_memory_usage>524288000</max_server_memory_usage>
+    
+    <!-- 内存使用占系统RAM的比例：20% -->
+    <max_server_memory_usage_to_ram_ratio>0.2</max_server_memory_usage_to_ram_ratio>
+    
+    <!-- 标记缓存大小：32MB -->
+    <mark_cache_size>33554432</mark_cache_size>
+    
+    <!-- 解压缓存：禁用以节省内存 -->
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    
+    <profiles>
+        <default>
+            <!-- 单个查询最大内存：150MB -->
+            <max_memory_usage>157286400</max_memory_usage>
+            
+            <!-- 所有查询总内存：400MB -->
+            <max_memory_usage_for_all_queries>419430400</max_memory_usage_for_all_queries>
+            
+            <!-- 内存超限时溢出到磁盘（80MB触发） -->
+            <max_bytes_before_external_group_by>83886080</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>83886080</max_bytes_before_external_sort>
+            
+            <!-- 减少后台合并的内存占用 -->
+            <background_pool_size>2</background_pool_size>
+            <background_schedule_pool_size>2</background_schedule_pool_size>
+        </default>
+    </profiles>
+</clickhouse>
