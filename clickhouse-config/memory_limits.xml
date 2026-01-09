@@ -14,6 +14,10 @@
     <!-- 解压缓存：禁用以节省内存 -->
     <uncompressed_cache_size>0</uncompressed_cache_size>
     
+    <!-- 后台线程池（服务器级别配置） -->
+    <background_pool_size>2</background_pool_size>
+    <background_schedule_pool_size>2</background_schedule_pool_size>
+    
     <profiles>
         <default>
             <!-- 单个查询最大内存：150MB -->
@@ -25,10 +29,6 @@
             <!-- 内存超限时溢出到磁盘（80MB触发） -->
             <max_bytes_before_external_group_by>83886080</max_bytes_before_external_group_by>
             <max_bytes_before_external_sort>83886080</max_bytes_before_external_sort>
-            
-            <!-- 减少后台合并的内存占用 -->
-            <background_pool_size>2</background_pool_size>
-            <background_schedule_pool_size>2</background_schedule_pool_size>
         </default>
     </profiles>
 </clickhouse>
