@@ -771,8 +771,15 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
                 from datetime import datetime as dt
                 time_obj = dt.combine(date_obj, dt.min.time())
             
+            # 获取market字段，默认为'A'（A股）
+            # 港股数据会带有 market='HK'
+            market = str(item.get("market", "A")).upper()
+            if market not in ['A', 'HK']:
+                market = 'A'  # 未知市场默认为A股
+            
             data_to_insert.append((
                 code,
+                market,  # 添加market字段，区分A股和港股
                 period_normalized,  # 添加period字段
                 date_obj,  # 使用date对象而不是字符串
                 time_obj,  # 添加time字段（DateTime类型）
@@ -792,7 +799,7 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
         # ClickHouse driver的execute方法支持直接传入数据列表
         try:
             client.execute(
-                "INSERT INTO kline (code, period, date, time, open, high, low, close, volume, amount) VALUES",
+                "INSERT INTO kline (code, market, period, date, time, open, high, low, close, volume, amount) VALUES",
                 data_to_insert
             )
             logger.info(f"K线数据保存成功: {len(data_to_insert)}条（周期: {period_normalized}），涉及{len(codes)}只股票")
@@ -802,10 +809,12 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
             if "time" in error_msg.lower() and "column" in error_msg.lower():
                 logger.warning(f"表结构可能未更新（缺少time字段），尝试兼容模式插入")
                 # 移除time字段，使用旧格式插入
-                data_without_time = [(d[0], d[1], d[2], d[4], d[5], d[6], d[7], d[8], d[9]) for d in data_to_insert]
+                # data_to_insert 结构: (code, market, period, date, time, open, high, low, close, volume, amount)
+                # 索引:                  0      1       2      3     4     5     6     7      8      9      10
+                data_without_time = [(d[0], d[1], d[2], d[3], d[5], d[6], d[7], d[8], d[9], d[10]) for d in data_to_insert]
                 try:
                     client.execute(
-                        "INSERT INTO kline (code, period, date, open, high, low, close, volume, amount) VALUES",
+                        "INSERT INTO kline (code, market, period, date, open, high, low, close, volume, amount) VALUES",
                         data_without_time
                     )
                     logger.info(f"K线数据保存成功（兼容模式）: {len(data_without_time)}条（周期: {period_normalized}）")

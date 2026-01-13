@@ -1183,24 +1183,48 @@ def _run_indicator_compute_task(task_id: str, market: str, period: str, incremen
     mode_name = "增量" if incremental else "全量"
     
     try:
-        # 获取股票列表
-        if market.upper() == "HK":
-            all_stocks = get_json("market:hk:spot") or []
-        else:
-            all_stocks = get_json("market:a:spot") or []
+        # 从 kline 表获取有K线数据的股票列表（确保只计算真实股票）
+        from common.db import get_clickhouse
+        client = get_clickhouse()
+        try:
+            query = """
+                SELECT DISTINCT code 
+                FROM stock.kline 
+                WHERE market = %(market)s AND period = %(period)s
+            """
+            result = client.execute(query, {"market": market.upper(), "period": period})
+            kline_codes = set(row[0] for row in result if row[0])
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
         
-        if not all_stocks:
+        if not kline_codes:
             _broadcast_indicator_progress(task_id, {
                 "status": "failed",
                 "stage": "error",
-                "message": f"未获取到{market}股行情数据",
+                "message": f"未获取到{market}股K线数据",
                 "progress": 0,
                 "elapsed_time": time.time() - start_time
             })
             return
         
-        # 按成交额排序，优先计算活跃股票
-        sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0), reverse=True)
+        # 尝试从 Redis 获取行情数据用于排序（按成交额优先计算活跃股票）
+        if market.upper() == "HK":
+            spot_stocks = get_json("market:hk:spot") or []
+        else:
+            spot_stocks = get_json("market:a:spot") or []
+        
+        # 过滤：只保留 kline 表中存在的股票
+        if spot_stocks:
+            all_stocks = [s for s in spot_stocks if str(s.get("code", "")) in kline_codes]
+            # 按成交额排序，优先计算活跃股票
+            sorted_stocks = sorted(all_stocks, key=lambda x: x.get("amount", 0), reverse=True)
+        else:
+            # 如果没有行情数据，直接用 kline 表的股票列表
+            sorted_stocks = [{"code": code} for code in kline_codes]
+        
         total = len(sorted_stocks)
         today = datetime.now().strftime("%Y-%m-%d")
         today_ymd = datetime.now().strftime("%Y%m%d")
