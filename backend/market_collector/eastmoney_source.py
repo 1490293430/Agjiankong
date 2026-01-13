@@ -761,6 +761,102 @@ def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "",
         return []
 
 
+def fetch_eastmoney_index_kline(secid: str, period: str = "daily", 
+                                 limit: int = 500) -> List[Dict[str, Any]]:
+    """
+    从东方财富获取指数K线数据
+    
+    Args:
+        secid: 指数代码（如：1.000001 上证指数, 0.399001 深证成指）
+        period: 周期（daily, weekly, monthly, 1h/60）
+        limit: 获取数量限制
+    
+    Returns:
+        K线数据列表
+    """
+    try:
+        # 周期映射
+        period_map = {
+            "daily": "101",
+            "d": "101",
+            "day": "101",
+            "weekly": "102",
+            "w": "102",
+            "week": "102",
+            "monthly": "103",
+            "m": "103",
+            "month": "103",
+            "1h": "60",
+            "hourly": "60",
+            "60": "60",
+        }
+        klt = period_map.get(period.lower(), "101")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "http://quote.eastmoney.com/",
+        }
+        
+        params = {
+            "secid": secid,
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": klt,
+            "fqt": "0",  # 指数不需要复权
+            "lmt": limit,
+            "end": "20500101",
+            "_": int(datetime.now().timestamp() * 1000),
+        }
+        
+        response = requests.get(EASTMONEY_KLINE_URL, params=params, headers=headers, timeout=30)
+        data = response.json()
+        
+        if data.get("rc") != 0:
+            logger.warning(f"[东方财富指数K线] {secid} 接口返回错误: rc={data.get('rc')}")
+            return []
+        
+        klines = data.get("data", {}).get("klines", [])
+        if not klines:
+            logger.debug(f"[东方财富指数K线] {secid} 无K线数据")
+            return []
+        
+        result = []
+        for kline in klines:
+            parts = kline.split(",")
+            if len(parts) < 7:
+                continue
+            
+            try:
+                original_datetime = parts[0]
+                
+                item = {
+                    "date": original_datetime.replace("-", "") if " " not in original_datetime else original_datetime,
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "high": float(parts[3]),
+                    "low": float(parts[4]),
+                    "volume": float(parts[5]),
+                    "amount": float(parts[6]) if len(parts) > 6 else 0,
+                }
+                
+                if klt == "60":
+                    item["period"] = "1h"
+                else:
+                    item["period"] = "daily"
+                
+                result.append(item)
+            except Exception:
+                continue
+        
+        logger.info(f"[东方财富指数K线] {secid} 获取成功: {len(result)}条 (周期={period})")
+        return result
+        
+    except Exception as e:
+        logger.warning(f"[东方财富指数K线] {secid} 获取失败: {e}")
+        return []
+
+
 def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
                              start_date: str = None, end_date: str = None,
                              limit: int = 500) -> List[Dict[str, Any]]:

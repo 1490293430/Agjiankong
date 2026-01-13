@@ -155,6 +155,20 @@ def convert_snapshot_to_kline(market: str) -> Dict[str, Any]:
         logger.warning(f"[{market}] 没有获取到K线数据")
         return {"success": False, "count": 0, "message": "没有获取到K线数据"}
     
+    # A股市场额外采集上证指数K线
+    if market == "A":
+        try:
+            from market_collector.eastmoney_source import fetch_eastmoney_index_kline
+            sh_index_klines = fetch_eastmoney_index_kline("1.000001", period="daily", limit=5)
+            if sh_index_klines:
+                for k in sh_index_klines:
+                    k["code"] = "1A0001"  # 统一代码格式
+                    k["market"] = "A"
+                all_kline_data.extend(sh_index_klines)
+                logger.info(f"[A股] 额外采集上证指数K线: {len(sh_index_klines)}条")
+        except Exception as e:
+            logger.warning(f"[A股] 采集上证指数K线失败（不影响股票数据）: {e}")
+    
     # 保存到数据库（重复数据会被自动丢弃，因为有主键约束）
     try:
         success = save_kline_data(all_kline_data, "daily")

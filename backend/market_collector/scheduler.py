@@ -425,6 +425,20 @@ def _collect_hourly_kline_for_market(market: str):
             logger.error(f"[{market}] 小时K线保存失败: {e}", exc_info=True)
     else:
         logger.warning(f"[{market}] 小时K线采集无数据")
+    
+    # A股市场额外采集上证指数小时K线
+    if market == "A":
+        try:
+            from market_collector.eastmoney_source import fetch_eastmoney_index_kline
+            sh_index_klines = fetch_eastmoney_index_kline("1.000001", period="1h", limit=5)
+            if sh_index_klines:
+                for k in sh_index_klines:
+                    k["code"] = "1A0001"
+                    k["market"] = "A"
+                save_kline_data(sh_index_klines, period="1h")
+                logger.info(f"[A股] 额外采集上证指数小时K线: {len(sh_index_klines)}条")
+        except Exception as e:
+            logger.warning(f"[A股] 采集上证指数小时K线失败（不影响股票数据）: {e}")
 
 
 def batch_compute_indicators_job(market: str = "A"):
