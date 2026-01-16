@@ -112,8 +112,14 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
                 if not kline_data or len(kline_data) < min_kline:
                     return ("failed", code, f"K线不足: {len(kline_data) if kline_data else 0}/{min_kline}")
                 
-                # 计算指标
+                # 计算指标（先去重，避免ReplacingMergeTree未合并导致的重复数据）
                 df = pd.DataFrame(kline_data)
+                if 'time' in df.columns:
+                    df = df.drop_duplicates(subset=['date', 'time'], keep='last')
+                else:
+                    df = df.drop_duplicates(subset=['date'], keep='last')
+                df = df.sort_values(by='date').reset_index(drop=True)
+                
                 indicators = calculate_all_indicators(df)
                 
                 if indicators and indicators.get("ma60"):
@@ -127,7 +133,7 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
             except Exception as e:
                 return ("failed", code, str(e))
         
-        # 并发执行（5个线程，降低CPU占用）
+        # 并发执行（5个线程）
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(compute_single, code): code for code in codes_to_compute}
             
@@ -146,7 +152,7 @@ def batch_compute_indicators(market: str = "A", max_count: int = None, increment
                 if completed % 500 == 0:
                     logger.info(f"计算{period_name}进度：{completed}/{len(codes_to_compute)}，成功={success_count}，失败={failed_count}")
                 
-                # 每处理100只股票，短暂休眠，给API查询留出时间窗口
+                # 每处理100只股票，短暂休眠，让ClickHouse释放内存
                 if completed % 100 == 0:
                     time.sleep(0.5)
         

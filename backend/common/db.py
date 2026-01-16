@@ -999,12 +999,13 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
             params['end_date'] = end_date_str
         
         # 尝试查询（包含period和time字段）
-        # 使用FINAL确保ReplacingMergeTree去重后的结果（注意：FINAL有性能开销，但能保证数据一致性）
+        # 注意：不使用FINAL，因为没有分区时FINAL会扫描全表，内存开销巨大
+        # ReplacingMergeTree会在后台自动合并去重，查询时可能有少量重复但影响不大
         try:
             # 先尝试查询包含time字段的新表结构
             query = f"""
                 SELECT code, period, date, time, open, high, low, close, volume, amount
-                FROM kline FINAL
+                FROM kline
                 WHERE {' AND '.join(where_conditions)}
                 ORDER BY date ASC, time ASC
             """
@@ -1016,7 +1017,7 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
             try:
                 query = f"""
                     SELECT code, period, date, open, high, low, close, volume, amount
-                    FROM kline FINAL
+                    FROM kline
                     WHERE {' AND '.join(where_conditions)}
                     ORDER BY date ASC
                 """
@@ -1032,7 +1033,7 @@ def get_kline_from_db(code: str, start_date: str | None = None, end_date: str | 
                     params.pop('period', None)
                 query = f"""
                     SELECT code, date, open, high, low, close, volume, amount
-                    FROM kline FINAL
+                    FROM kline
                     WHERE {' AND '.join(where_conditions)}
                     ORDER BY date ASC
                 """
