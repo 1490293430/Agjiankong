@@ -1604,6 +1604,7 @@ async def get_db_info_api():
         # 港股代码特征：5位数字
         
         # 查询A股K线数据统计（代码6位且以6/0/3开头）
+        # 使用 max_bytes_before_external_group_by 避免内存溢出
         a_kline_stats = client.execute("""
             SELECT 
                 period,
@@ -1616,6 +1617,7 @@ async def get_db_info_api():
             WHERE length(code) = 6 AND (code LIKE '6%' OR code LIKE '0%' OR code LIKE '3%' OR code LIKE '4%' OR code LIKE '8%')
             GROUP BY period
             ORDER BY period
+            SETTINGS max_bytes_before_external_group_by = 100000000
         """)
         
         # 查询港股K线数据统计（代码5位或以0开头的5位）
@@ -1631,6 +1633,7 @@ async def get_db_info_api():
             WHERE length(code) = 5 OR (length(code) = 6 AND code LIKE '0%' AND code NOT LIKE '00%')
             GROUP BY period
             ORDER BY period
+            SETTINGS max_bytes_before_external_group_by = 100000000
         """)
         
         # 查询A股指标数据统计
@@ -1645,6 +1648,7 @@ async def get_db_info_api():
             WHERE market = 'A'
             GROUP BY period
             ORDER BY period
+            SETTINGS max_bytes_before_external_group_by = 100000000
         """)
         
         # 查询港股指标数据统计
@@ -1659,6 +1663,7 @@ async def get_db_info_api():
             WHERE market = 'HK'
             GROUP BY period
             ORDER BY period
+            SETTINGS max_bytes_before_external_group_by = 100000000
         """)
         
         # 查询A股小时K线数据分布
@@ -1673,6 +1678,7 @@ async def get_db_info_api():
                 FROM kline 
                 WHERE period = '1h' AND length(code) = 6 AND (code LIKE '6%' OR code LIKE '0%' OR code LIKE '3%' OR code LIKE '4%' OR code LIKE '8%')
                 GROUP BY code
+                SETTINGS max_bytes_before_external_group_by = 100000000
             )
         """)
         
@@ -1688,6 +1694,7 @@ async def get_db_info_api():
                 FROM kline 
                 WHERE period = '1h' AND (length(code) = 5 OR (length(code) = 6 AND code LIKE '0%' AND code NOT LIKE '00%'))
                 GROUP BY code
+                SETTINGS max_bytes_before_external_group_by = 100000000
             )
         """)
         

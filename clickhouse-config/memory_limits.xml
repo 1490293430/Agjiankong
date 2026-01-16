@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <clickhouse>
     <!-- 内存限制配置 - 适用于低内存服务器 (2.4GB) -->
-    <!-- 服务器最大内存：700MB -->
-    <max_server_memory_usage>734003200</max_server_memory_usage>
-    <max_server_memory_usage_to_ram_ratio>0.3</max_server_memory_usage_to_ram_ratio>
+    <!-- 服务器最大内存：1GB -->
+    <max_server_memory_usage>1073741824</max_server_memory_usage>
+    <max_server_memory_usage_to_ram_ratio>0.4</max_server_memory_usage_to_ram_ratio>
     <mark_cache_size>33554432</mark_cache_size>
     <uncompressed_cache_size>0</uncompressed_cache_size>
     
     <profiles>
         <default>
-            <!-- 单个查询最大内存：300MB -->
-            <max_memory_usage>314572800</max_memory_usage>
+            <!-- 单个查询最大内存：400MB -->
+            <max_memory_usage>419430400</max_memory_usage>
             <!-- 内存超限时溢出到磁盘 -->
             <max_bytes_before_external_group_by>104857600</max_bytes_before_external_group_by>
             <max_bytes_before_external_sort>104857600</max_bytes_before_external_sort>
