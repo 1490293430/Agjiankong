@@ -3504,12 +3504,12 @@ async function handleSearch() {
                     });
                 }
             } else {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败: ${result.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败: ${result.message || '未知错误'}</td></tr>`;
             }
         } catch (error) {
             console.error('搜索失败:', error);
             const tbody = document.getElementById('stock-list');
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败，请重试</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败: ${error.message || '请重试'}</td></tr>`;
         }
     }, 300);
 }

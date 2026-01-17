@@ -108,7 +108,8 @@ def _apply_sort(data: List[Dict[str, Any]], sort: str) -> List[Dict[str, Any]]:
 
 @router.get("/search")
 async def search_stocks(
-    q: str = Query(..., min_length=1, description="搜索关键词（股票代码或名称）"),
+    q: str = Query(None, min_length=1, description="搜索关键词（股票代码或名称）"),
+    keyword: str = Query(None, min_length=1, description="搜索关键词（兼容参数）"),
     market: str = Query("all", description="市场：all/A/HK")
 ):
     """搜索股票（根据代码或名称匹配）
@@ -118,10 +119,15 @@ async def search_stocks(
     - 股票名称：完整名称在输入中出现（去掉ST前缀后）
     """
     try:
+        # 兼容两种参数名
+        search_term = q or keyword
+        if not search_term:
+            return {"code": 1, "data": [], "message": "搜索关键词不能为空"}
+        
         results = []
         
         # 清理搜索词，去掉特殊符号但保留中文、字母、数字
-        q_clean = ''.join(c for c in q if c.isalnum() or '\u4e00' <= c <= '\u9fa5')
+        q_clean = ''.join(c for c in search_term if c.isalnum() or '\u4e00' <= c <= '\u9fa5')
         if not q_clean:
             return {"code": 0, "data": [], "message": "无有效搜索内容"}
         
