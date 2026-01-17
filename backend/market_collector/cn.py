@@ -1087,7 +1087,7 @@ def fetch_a_stock_kline(
     db_earliest_date = None
     if skip_db:
         logger.debug(f"跳过数据库查询 {code}，直接从数据源获取")
-    elif not (force_full_refresh or is_hourly):
+    elif not force_full_refresh:
         # 在采集模式下，如果数据库为空，直接全量获取，避免查询冲突
         try:
             # 快速检查数据库是否有数据（使用独立连接，避免冲突）
@@ -1111,7 +1111,9 @@ def fetch_a_stock_kline(
             except Exception:
                 pass  # 忽略设置失败，不影响查询
             try:
-                result = temp_client.execute("SELECT COUNT(*) FROM kline WHERE code = %(code)s AND period = %(period)s", {'code': code, 'period': period if period != 'daily' else 'daily'})
+                # 标准化周期，确保与数据库一致（数据库中存储为1h）
+                query_period = '1h' if is_hourly else period
+                result = temp_client.execute("SELECT COUNT(*) FROM kline WHERE code = %(code)s AND period = %(period)s", {'code': code, 'period': query_period})
                 has_data = result[0][0] > 0 if result else False
                 if has_data:
                     db_latest_date = get_kline_latest_date(code, period)
@@ -1180,8 +1182,8 @@ def fetch_a_stock_kline(
     else:
         # 全量获取
         if is_hourly:
-            # 小时级别数据：不使用start_date和end_date（stock_zh_a_minute接口不支持这些参数）
-            fetch_start = ""
+            # 小时级别数据：尽可能使用start_date
+            fetch_start = start_date or ""
             fetch_mode = "全量（小时级别）"
         else:
             # 使用配置的 kline_years 年限作为最大请求范围
@@ -1264,11 +1266,8 @@ def fetch_a_stock_kline(
         
         try:
             logger.debug(f"尝试使用{source_name}{fetch_mode}获取K线数据: {code}")
-            # 小时级别不使用start_date和end_date参数
-            if is_hourly:
-                result = fetch_func(code, period, adjust, "", "")
-            else:
-                result = fetch_func(code, period, adjust, fetch_start, default_end)
+            # 尝试使用 fetch_start 和 default_end，数据源函数会根据自身能力处理这些参数
+            result = fetch_func(code, period, adjust, fetch_start, default_end)
             
             if result and len(result) > 0:
                 new_kline_data = result
