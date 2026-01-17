@@ -8042,7 +8042,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
         // 当前价格（从item中获取，如果没有则显示-）
         const currentPrice = item.price || item.current_price || analysis.current_price;
         const priceHtml = currentPrice 
-            ? `<span style="color: #e5e7eb; font-weight: 600; font-size: 13px;">¥${Number(currentPrice).toFixed(2)}</span>`
+            ? `<span style="color: #fbbf24; font-weight: 700; font-size: 14px;">¥${Number(currentPrice).toFixed(2)}</span>`
             : '<span style="color: #94a3b8;">-</span>';
         
         // 交易点位显示

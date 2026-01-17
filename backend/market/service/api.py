@@ -115,8 +115,8 @@ async def search_stocks(
     """搜索股票（根据代码或名称匹配）
     
     用于智能导入自选股，匹配规则：
-    - 股票代码：精确匹配或在输入中连续出现
-    - 股票名称：完整名称在输入中出现（去掉ST前缀后）
+    - 股票代码：精确匹配或前缀匹配
+    - 股票名称：包含匹配
     """
     try:
         # 兼容两种参数名
@@ -126,8 +126,8 @@ async def search_stocks(
         
         results = []
         
-        # 清理搜索词，去掉特殊符号但保留中文、字母、数字
-        q_clean = ''.join(c for c in search_term if c.isalnum() or '\u4e00' <= c <= '\u9fa5')
+        # 清理搜索词
+        q_clean = search_term.strip().upper()
         if not q_clean:
             return {"code": 0, "data": [], "message": "无有效搜索内容"}
         
@@ -140,10 +140,6 @@ async def search_stocks(
             hk_data = get_json("market:hk:spot") or []
             markets_to_search.append(("HK", hk_data))
         
-        # 先提取输入中的所有数字序列（可能是股票代码）
-        import re
-        code_candidates = re.findall(r'\d+', search_term)
-        
         for mkt, data in markets_to_search:
             if not isinstance(data, list):
                 continue
@@ -155,34 +151,21 @@ async def search_stocks(
                 
                 matched = False
                 
-                # 1. 代码精确匹配（在数字序列中查找）
-                for num_seq in code_candidates:
-                    if code in num_seq or num_seq == code:
-                        # 检查是否是连续的代码匹配
-                        if len(code) == 6:  # A股
-                            idx = num_seq.find(code)
-                            if idx >= 0:
-                                matched = True
-                                break
-                        elif len(code) == 5:  # 港股
-                            idx = num_seq.find(code)
-                            if idx >= 0:
-                                matched = True
-                                break
-                
-                # 2. 名称完整匹配（去掉ST等前缀后）
-                if not matched:
+                # 1. 代码精确匹配（优先级最高）
+                if code == q_clean:
+                    matched = True
+                # 2. 代码前缀匹配（输入是代码的开头）
+                elif code.startswith(q_clean):
+                    matched = True
+                # 3. 名称包含匹配（去掉ST等前缀后）
+                elif not q_clean.isdigit():  # 只有非纯数字才匹配名称
                     pure_name = name
                     for prefix in ['*ST', 'ST', 'N', 'C', 'XD', 'XR', 'DR']:
                         if pure_name.upper().startswith(prefix):
                             pure_name = pure_name[len(prefix):].strip()
                             break
                     
-                    # 只匹配完整名称（至少3个字）
-                    if len(pure_name) >= 3 and pure_name in q_clean:
-                        matched = True
-                    # 或者原始名称完整匹配
-                    elif len(name) >= 3 and name in q_clean:
+                    if q_clean in pure_name.upper() or q_clean in name.upper():
                         matched = True
                 
                 if matched:
@@ -191,12 +174,33 @@ async def search_stocks(
                         results.append({
                             "code": code,
                             "name": name,
-                            "market": mkt
+                            "market": mkt,
+                            "price": item.get('price'),
+                            "pct": item.get('pct'),
+                            "volume": item.get('volume'),
+                            "amount": item.get('amount'),
+                            "turnover": item.get('turnover'),
+                            "high": item.get('high'),
+                            "low": item.get('low'),
+                            "open": item.get('open'),
+                            "pre_close": item.get('pre_close')
                         })
+        
+        # 排序：精确匹配 > 前缀匹配 > 名称匹配
+        def sort_key(stock):
+            code = stock['code']
+            if code == q_clean:
+                return (0, code)  # 精确匹配优先
+            elif code.startswith(q_clean):
+                return (1, code)  # 前缀匹配次之
+            else:
+                return (2, code)  # 名称匹配最后
+        
+        results.sort(key=sort_key)
         
         return {
             "code": 0,
-            "data": results,
+            "data": results[:50],  # 限制返回50条
             "message": f"找到 {len(results)} 只股票"
         }
     except Exception as e:
@@ -476,28 +480,5 @@ async def get_stocks_by_codes(
         return {"code": 1, "data": [], "message": str(e)}
 
 
-@router.get("/search")
-async def search_stock(
-    keyword: str = Query(..., description="搜索关键词（代码或名称）")
-):
-    """搜索股票"""
-    try:
-        # 搜索A股
-        a_stocks = get_json("market:a:spot") or []
-        hk_stocks = get_json("market:hk:spot") or []
-        
-        all_stocks = a_stocks + hk_stocks
-        
-        # 过滤匹配的股票
-        keyword = keyword.upper()
-        results = [
-            stock for stock in all_stocks
-            if keyword in str(stock.get("code", "")).upper() or
-               keyword in str(stock.get("name", "")).upper()
-        ]
-        
-        return {"code": 0, "data": results[:50], "message": "success"}
-    except Exception as e:
-        logger.error(f"搜索股票失败: {e}", exc_info=True)
-        return {"code": 1, "data": [], "message": str(e)}
+
 
