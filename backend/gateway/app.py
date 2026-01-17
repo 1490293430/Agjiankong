@@ -2895,14 +2895,27 @@ async def get_ai_analysis_history(
         if not isinstance(data, dict):
             data = {}
 
+        # 获取A股和港股行情快照并构建索引（用于补充当前价格）
+        a_stocks = get_json("market:a:spot") or []
+        hk_stocks = get_json("market:hk:spot") or []
+        all_stocks = a_stocks + hk_stocks
+        stock_price_map = {
+            str(s.get("code", "")): s.get("price")
+            for s in all_stocks
+            if s.get("code") and s.get("price") is not None
+        }
+
         items: List[Dict[str, Any]] = []
         for code, item in data.items():
             if not isinstance(item, dict):
                 continue
+            # 从行情数据中获取当前价格
+            current_price = stock_price_map.get(str(code))
             items.append(
                 {
                     "code": item.get("code") or code,
                     "name": item.get("name"),
+                    "price": current_price,  # 补充当前价格
                     "success": True,
                     "message": "from_cache",
                     "analysis": item.get("analysis") or {},

@@ -3482,6 +3482,19 @@ async function handleSearch() {
             
             console.log(`[搜索] API响应:`, { code: result.code, dataLength: result.data?.length, message: result.message });
             
+            // 诊断：检查前3条结果的price字段
+            if (result.data && result.data.length > 0) {
+                console.log(`[搜索诊断] 前3条结果的price字段:`, result.data.slice(0, 3).map(s => ({
+                    code: s.code,
+                    name: s.name,
+                    price: s.price,
+                    priceType: typeof s.price,
+                    priceIsNull: s.price === null,
+                    priceIsUndefined: s.price === undefined,
+                    priceIsZero: s.price === 0
+                })));
+            }
+            
             const tbody = document.getElementById('stock-list');
             if (result.code === 0) {
                 tbody.innerHTML = '';
