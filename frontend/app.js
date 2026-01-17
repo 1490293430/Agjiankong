@@ -4722,7 +4722,21 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
     
     if (candleData.length === 0) {
         console.error('[K线渲染] 转换后的K线数据为空');
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据格式错误，无法解析</div>';
+        console.error('[K线渲染] 原始数据示例（前5条）:', data.slice(0, 5));
+        console.error('[K线渲染] 跳过统计:', skippedReasons);
+        let errorDetail = 'K线数据格式错误，无法解析';
+        if (data.length > 0) {
+            errorDetail += `<br/>原始数据: ${data.length}条`;
+            errorDetail += `<br/>有效数据: 0条`;
+            errorDetail += `<br/>跳过数据: ${skippedCount}条`;
+            if (Object.keys(skippedReasons).length > 0) {
+                errorDetail += `<br/>跳过原因: ${Object.entries(skippedReasons).map(([k, v]) => `${k}(${v})`).join(', ')}`;
+            }
+            errorDetail += `<br/><br/>💡 提示：请检查数据格式是否正确，或尝试重新采集K线数据`;
+        } else {
+            errorDetail += `<br/>原始数据为空，可能该股票尚未采集K线数据`;
+        }
+        container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">${errorDetail}</div>`;
         return;
     }
     
@@ -4742,6 +4756,12 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         
         // 直接设置所有数据（LightweightCharts可以处理大量数据）
         console.log('[K线渲染] 设置K线数据，条数:', candleData.length);
+        console.log('[K线渲染] K线数据时间范围:', {
+            first: candleData[0]?.time,
+            last: candleData[candleData.length - 1]?.time,
+            firstPrice: candleData[0]?.close,
+            lastPrice: candleData[candleData.length - 1]?.close
+        });
         
         // 确保价格轴禁用自动缩放，避免添加series时触发自动缩放
         if (chart && chart.priceScale('right')) {
@@ -4751,11 +4771,22 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         }
         
         // 设置数据
-        candleSeries.setData(candleData);
-        console.log('[K线渲染] K线数据设置完成');
+        try {
+            candleSeries.setData(candleData);
+            console.log('[K线渲染] K线数据设置完成');
+        } catch (e) {
+            console.error('[K线渲染] 设置K线数据失败:', e);
+            container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">设置K线数据失败: ${e.message || '未知错误'}<br/>请检查浏览器控制台查看详细信息</div>`;
+            return;
+        }
         
-        volumeSeries.setData(volumeData);
-        console.log('[K线渲染] 成交量数据设置完成');
+        try {
+            volumeSeries.setData(volumeData);
+            console.log('[K线渲染] 成交量数据设置完成');
+        } catch (e) {
+            console.error('[K线渲染] 设置成交量数据失败:', e);
+            // 成交量失败不影响K线显示，只记录错误
+        }
         
         // 更新EMA和成交量显示状态（使用全局变量，已从服务器配置加载）
         if (volumeSeries) {

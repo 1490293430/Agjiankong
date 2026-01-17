@@ -325,7 +325,7 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
 async def search_stocks(keyword: str = Query(..., min_length=1, description="搜索关键词（股票代码或名称）")):
     """搜索股票（支持代码和名称模糊匹配）"""
     try:
-        keyword = keyword.strip().upper()
+        keyword = keyword.strip()
         if not keyword:
             return {"code": 1, "data": [], "message": "搜索关键词不能为空"}
         
@@ -334,14 +334,24 @@ async def search_stocks(keyword: str = Query(..., min_length=1, description="搜
         hk_stocks = get_json("market:hk:spot") or []
         all_stocks = a_stocks + hk_stocks
         
+        logger.info(f"[搜索] 关键词='{keyword}'，A股数据{len(a_stocks)}只，港股数据{len(hk_stocks)}只")
+        
+        # 如果数据为空，返回提示
+        if not all_stocks:
+            logger.warning(f"[搜索] Redis中无市场数据，可能数据采集器未运行或数据已过期")
+            return {"code": 1, "data": [], "message": "市场数据暂未加载，请稍后重试"}
+        
+        # 准备搜索关键词（代码转为大写，名称保持原样以支持中文）
+        keyword_upper = keyword.upper()
+        
         # 搜索匹配（代码或名称包含关键词）
         results = []
         for stock in all_stocks:
             code = str(stock.get("code", "")).upper()
-            name = str(stock.get("name", "")).upper()
+            name = str(stock.get("name", ""))
             
-            # 匹配代码或名称
-            if keyword in code or keyword in name:
+            # 匹配代码（使用大写）或名称（支持中文，不区分大小写）
+            if keyword_upper in code or keyword in name or keyword_upper in name.upper():
                 results.append(stock)
                 
                 # 限制返回数量，避免结果过多
@@ -350,8 +360,8 @@ async def search_stocks(keyword: str = Query(..., min_length=1, description="搜
         
         # 优先显示代码完全匹配的结果
         results.sort(key=lambda x: (
-            0 if str(x.get("code", "")).upper() == keyword else 1,  # 代码完全匹配优先
-            1 if keyword in str(x.get("code", "")).upper() else 2,  # 代码包含次之
+            0 if str(x.get("code", "")).upper() == keyword_upper else 1,  # 代码完全匹配优先
+            1 if keyword_upper in str(x.get("code", "")).upper() else 2,  # 代码包含次之
             len(str(x.get("code", "")))  # 代码长度短的优先
         ))
         
