@@ -4846,7 +4846,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight, p
         }
 
         // 最终验证：确保数据中没有任何 null/undefined/NaN 值
-        const finalCandleData = candleData.filter(item => {
+        let finalCandleData = candleData.filter(item => {
             if (!item || typeof item !== 'object') return false;
             // 验证时间值（可以是字符串或数字，但不能为 null/undefined/空字符串）
             const time = item.time;
@@ -4866,7 +4866,19 @@ function renderChartInternal(data, container, containerWidth, containerHeight, p
             return hasValidTime && hasValidPrices;
         });
 
-        const finalVolumeData = volumeData.filter(item => {
+        // 排序并去重（Lightweight Charts 要求时间严格递增且不重复）
+        finalCandleData.sort((a, b) => {
+            if (a.time < b.time) return -1;
+            if (a.time > b.time) return 1;
+            return 0;
+        });
+
+        // 去重
+        finalCandleData = finalCandleData.filter((item, index, self) =>
+            index === 0 || item.time !== self[index - 1].time
+        );
+
+        let finalVolumeData = volumeData.filter(item => {
             if (!item || typeof item !== 'object') return false;
             // 验证时间值
             const time = item.time;
@@ -4880,6 +4892,17 @@ function renderChartInternal(data, container, containerWidth, containerHeight, p
             const hasValidColor = color != null && typeof color === 'string' && color !== '';
             return hasValidTime && hasValidValue && hasValidColor;
         });
+
+        // 排序并去重成交量数据
+        finalVolumeData.sort((a, b) => {
+            if (a.time < b.time) return -1;
+            if (a.time > b.time) return 1;
+            return 0;
+        });
+
+        finalVolumeData = finalVolumeData.filter((item, index, self) =>
+            index === 0 || item.time !== self[index - 1].time
+        );
 
         if (finalCandleData.length === 0) {
             console.error('[K线渲染] 最终验证后K线数据为空');
