@@ -1,8 +1,8 @@
 // Global Configuration & API Tokens
 const API_BASE = 'http://localhost:8000';
 // Tokens matched from .env file
-const apiToken = '19AC635084E7B2FD';
-const adminToken = 'odtMe7YJQnMR5mA4Hs5GomGBdcqzoj/wOydgu2auGhKlOwaj+8vhE0/BNd2zCTDM';
+let apiToken = '19AC635084E7B2FD';
+let adminToken = 'odtMe7YJQnMR5mA4Hs5GomGBdcqzoj/wOydgu2auGhKlOwaj+8vhE0/BNd2zCTDM';
 
 console.log('[全局] app.js 开始加载...');
 
@@ -2413,6 +2413,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 初始化时根据URL路径设置tab（这个逻辑由initTabs处理，这里不需要重复）
     // 注意：initTabs会在startApp中调用，所以这里不需要处理
 });
+
+// 认证初始化
+async function initAuth() {
+    console.log('[Auth] 初始化认证...');
+
+    // 尝试从localStorage加载Token
+    const savedApiToken = localStorage.getItem('apiToken');
+    const savedAdminToken = localStorage.getItem('adminToken');
+
+    // 优先使用 localStorage 中的 token，如果不存在则保留硬编码的默认值 (如果在 app.js 头部定义了)
+    if (savedApiToken) {
+        apiToken = savedApiToken;
+    }
+
+    if (savedAdminToken) {
+        adminToken = savedAdminToken;
+    }
+
+    console.log('[Auth] Token状态:', { hasApiToken: !!apiToken, hasAdminToken: !!adminToken });
+
+    // 处理登录界面显示状态
+    const loginOverlay = document.getElementById('login-overlay');
+    if (loginOverlay) {
+        if (apiToken) {
+            loginOverlay.style.display = 'none';
+        } else {
+            loginOverlay.style.display = 'flex';
+        }
+    }
+}
 
 function startApp() {
     console.log('[启动] startApp函数被调用');
