@@ -343,30 +343,117 @@ async def search_stocks(keyword: str = Query(..., min_length=1, description="搜
         
         # 准备搜索关键词（代码转为大写，名称保持原样以支持中文）
         keyword_upper = keyword.upper()
+        keyword_lower = keyword.lower()
+        
+        # 判断是否为纯数字（股票代码搜索）
+        is_code_search = keyword.isdigit()
+        # 判断是否为纯中文（不包含数字和英文）
+        is_chinese_search = all('\u4e00' <= char <= '\u9fff' for char in keyword) and not any(c.isdigit() or c.isalpha() for c in keyword)
         
         # 搜索匹配（代码或名称包含关键词）
         results = []
         for stock in all_stocks:
-            code = str(stock.get("code", "")).upper()
-            name = str(stock.get("name", ""))
+            code = str(stock.get("code", "")).strip().upper()
+            name = str(stock.get("name", "")).strip()
             
-            # 匹配代码（使用大写）或名称（支持中文，不区分大小写）
-            if keyword_upper in code or keyword in name or keyword_upper in name.upper():
+            matched = False
+            match_type = 0  # 0=完全匹配, 1=开头匹配, 2=包含匹配, 3=名称匹配
+            
+            if is_code_search:
+                # 纯数字搜索：优先精确匹配代码
+                if code == keyword_upper:
+                    matched = True
+                    match_type = 0  # 完全匹配
+                elif code.startswith(keyword_upper):
+                    matched = True
+                    match_type = 1  # 开头匹配
+                elif keyword_upper in code:
+                    matched = True
+                    match_type = 2  # 包含匹配
+                # 也检查名称是否包含（但优先级较低）
+                elif keyword in name or keyword_upper in name.upper():
+                    matched = True
+                    match_type = 3  # 名称匹配
+            elif is_chinese_search:
+                # 纯中文搜索：优先名称匹配
+                if name == keyword:
+                    matched = True
+                    match_type = 0  # 名称完全匹配
+                elif name.startswith(keyword):
+                    matched = True
+                    match_type = 1  # 名称开头匹配
+                elif keyword in name:
+                    matched = True
+                    match_type = 2  # 名称包含匹配
+                # 也检查代码是否包含（但优先级较低）
+                elif keyword_upper in code:
+                    matched = True
+                    match_type = 3  # 代码匹配
+            else:
+                # 混合搜索（包含中文、数字、英文等）：优先名称匹配，也支持代码匹配
+                if name == keyword or name.upper() == keyword_upper:
+                    matched = True
+                    match_type = 0  # 名称完全匹配
+                elif name.startswith(keyword) or name.upper().startswith(keyword_upper):
+                    matched = True
+                    match_type = 1  # 名称开头匹配
+                elif keyword in name or keyword_upper in name.upper():
+                    matched = True
+                    match_type = 2  # 名称包含匹配
+                elif code == keyword_upper:
+                    matched = True
+                    match_type = 1  # 代码完全匹配
+                elif code.startswith(keyword_upper):
+                    matched = True
+                    match_type = 2  # 代码开头匹配
+                elif keyword_upper in code:
+                    matched = True
+                    match_type = 3  # 代码包含匹配
+            
+            if matched:
+                stock['_match_type'] = match_type  # 临时字段用于排序
                 results.append(stock)
                 
                 # 限制返回数量，避免结果过多
                 if len(results) >= 100:
                     break
         
-        # 优先显示代码完全匹配的结果
+        # 排序：完全匹配 > 开头匹配 > 包含匹配 > 名称匹配，同类型按代码长度排序
         results.sort(key=lambda x: (
-            0 if str(x.get("code", "")).upper() == keyword_upper else 1,  # 代码完全匹配优先
-            1 if keyword_upper in str(x.get("code", "")).upper() else 2,  # 代码包含次之
+            x.get('_match_type', 99),  # 匹配类型优先级
             len(str(x.get("code", "")))  # 代码长度短的优先
         ))
         
-        logger.info(f"[搜索] 关键词='{keyword}'，匹配{len(results)}只股票")
-        return {"code": 0, "data": results, "message": "success"}
+        # 移除临时字段
+        for stock in results:
+            stock.pop('_match_type', None)
+        
+        # 优先返回有价格数据的股票（完全匹配的即使没有价格也返回）
+        results_with_price = []
+        results_without_price = []
+        
+        for stock in results:
+            # 检查是否有价格数据（排除 None、0、NaN）
+            price = stock.get("price")
+            try:
+                price_float = float(price) if price is not None else None
+                has_price = price_float is not None and price_float > 0 and not (price_float != price_float)  # price_float != price_float 检查 NaN
+            except (ValueError, TypeError):
+                has_price = False
+            
+            # 检查是否为完全匹配
+            is_exact_match = str(stock.get("code", "")).upper() == keyword_upper
+            
+            if has_price or is_exact_match:
+                results_with_price.append(stock)
+            else:
+                results_without_price.append(stock)
+        
+        # 优先返回有价格的，然后是没有价格但完全匹配的
+        final_results = results_with_price + results_without_price[:10]  # 没有价格的只返回前10个
+        
+        logger.info(f"[搜索] 关键词='{keyword}'，匹配{len(results)}只股票，有价格数据{len(results_with_price)}只，最终返回{len(final_results)}只")
+        return {"code": 0, "data": final_results, "message": "success"}
         
     except Exception as e:
         logger.error(f"搜索股票失败: {e}", exc_info=True)

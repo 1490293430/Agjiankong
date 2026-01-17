@@ -3289,16 +3289,25 @@ function appendStockList(stocks) {
         // 存储完整的股票数据到data属性中
         tr.setAttribute('data-stock', JSON.stringify(stock));
         tr.style.cursor = 'pointer';
+        // 安全获取数值，处理 null、undefined、NaN
+        const safeValue = (val, formatter = (v) => v) => {
+            if (val == null || val === undefined || isNaN(val)) return '-';
+            return formatter(val);
+        };
+        
+        const price = safeValue(stock.price, (v) => v.toFixed(2));
+        const pct = safeValue(stock.pct, (v) => v.toFixed(2) + '%');
+        const pctNum = stock.pct != null && !isNaN(stock.pct) ? stock.pct : null;
+        const pctClass = pctNum != null ? (pctNum >= 0 ? 'up' : 'down') : '';
+        
         tr.innerHTML = `
-            <td>${stock.code}</td>
-            <td>${stock.name}</td>
-            <td>${stock.price?.toFixed(2) || '-'}</td>
-            <td class="${stock.pct >= 0 ? 'up' : 'down'}">
-                ${stock.pct?.toFixed(2) || '-'}%
-            </td>
+            <td>${stock.code || '-'}</td>
+            <td>${stock.name || '-'}</td>
+            <td>${price}</td>
+            <td class="${pctClass}">${pct}</td>
             <td>${formatVolume(stock.volume)}</td>
             <td>${formatAmount(stock.amount)}</td>
-            <td>${stock.turnover ? stock.turnover.toFixed(2) + '%' : '-'}</td>
+            <td>${safeValue(stock.turnover, (v) => v.toFixed(2) + '%')}</td>
             <td>
                 <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: ${isInWatchlist ? 'not-allowed' : 'pointer'}; ${isInWatchlist ? 'opacity: 0.6; pointer-events: none;' : 'opacity: 1; pointer-events: auto;'}" ${isInWatchlist ? 'disabled' : ''}>${isInWatchlist ? '已添加' : '加入自选'}</button>
             </td>
@@ -3349,14 +3358,14 @@ function appendStockList(stocks) {
 }
 
 function formatVolume(vol) {
-    if (!vol) return '-';
+    if (vol == null || vol === undefined || isNaN(vol) || vol === 0) return '-';
     if (vol >= 100000000) return (vol / 100000000).toFixed(2) + '亿';
     if (vol >= 10000) return (vol / 10000).toFixed(2) + '万';
     return vol.toString();
 }
 
 function formatAmount(amount) {
-    if (!amount) return '-';
+    if (amount == null || amount === undefined || isNaN(amount) || amount === 0) return '-';
     if (amount >= 100000000) return (amount / 100000000).toFixed(2) + '亿';
     if (amount >= 10000) return (amount / 10000).toFixed(2) + '万';
     return amount.toFixed(2);
