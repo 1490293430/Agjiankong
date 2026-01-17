@@ -32,9 +32,9 @@ services:
     command: >
       sh -c "
       if [ -n \"$$REDIS_PASSWORD\" ]; then
-        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save 60 1000 --save 300 100 --save 900 1 --requirepass \"$$REDIS_PASSWORD\" --bind 0.0.0.0
+        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save "" --requirepass \"$$REDIS_PASSWORD\" --bind 0.0.0.0
       else
-        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save 60 1000 --save 300 100 --save 900 1 --bind 0.0.0.0
+        redis-server --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save "" --bind 0.0.0.0
       fi
       "
 
