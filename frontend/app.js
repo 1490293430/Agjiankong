@@ -57,14 +57,14 @@ async function loadUIConfig() {
     if (uiConfigLoaded && uiConfigCache) {
         return uiConfigCache;
     }
-    
+
     try {
         const res = await apiFetch(`${API_BASE}/api/config`);
         if (!res.ok) {
             console.warn('[UI配置] 加载失败:', res.status);
             return null;
         }
-        
+
         const data = await res.json();
         uiConfigCache = {
             // AI分析页配置
@@ -95,12 +95,12 @@ async function saveUIConfig(updates) {
     if (uiConfigCache) {
         Object.assign(uiConfigCache, updates);
     }
-    
+
     // 防抖：500ms内多次更新只发送一次请求
     if (uiConfigSaveTimer) {
         clearTimeout(uiConfigSaveTimer);
     }
-    
+
     uiConfigSaveTimer = setTimeout(async () => {
         try {
             console.log('[UI配置] 保存到服务器:', updates);
@@ -109,7 +109,7 @@ async function saveUIConfig(updates) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
             });
-            
+
             if (!res.ok) {
                 console.warn('[UI配置] 保存失败:', res.status);
             } else {
@@ -126,20 +126,20 @@ function getUIConfigValue(key, defaultValue) {
     if (uiConfigCache && uiConfigCache[key] !== undefined) {
         return uiConfigCache[key];
     }
-    
+
     // 兼容旧的localStorage数据
     const localStorageMap = {
         'ai_source_watchlist': () => {
             const saved = localStorage.getItem('aiSourceConfig');
             if (saved) {
-                try { return JSON.parse(saved).watchlist; } catch(e) {}
+                try { return JSON.parse(saved).watchlist; } catch (e) { }
             }
             return undefined;
         },
         'ai_source_selection': () => {
             const saved = localStorage.getItem('aiSourceConfig');
             if (saved) {
-                try { return JSON.parse(saved).selection; } catch(e) {}
+                try { return JSON.parse(saved).selection; } catch (e) { }
             }
             return undefined;
         },
@@ -147,14 +147,14 @@ function getUIConfigValue(key, defaultValue) {
         'kline_ema_enabled': () => {
             const saved = localStorage.getItem('emaConfig');
             if (saved) {
-                try { return JSON.parse(saved).enabled; } catch(e) {}
+                try { return JSON.parse(saved).enabled; } catch (e) { }
             }
             return undefined;
         },
         'kline_ema_period': () => {
             const saved = localStorage.getItem('emaConfig');
             if (saved) {
-                try { return JSON.parse(saved).values?.[0]; } catch(e) {}
+                try { return JSON.parse(saved).values?.[0]; } catch (e) { }
             }
             return undefined;
         },
@@ -168,14 +168,14 @@ function getUIConfigValue(key, defaultValue) {
             return saved !== null ? saved === 'true' : undefined;
         },
     };
-    
+
     if (localStorageMap[key]) {
         const localValue = localStorageMap[key]();
         if (localValue !== undefined && localValue !== null) {
             return localValue;
         }
     }
-    
+
     return defaultValue;
 }
 
@@ -189,27 +189,27 @@ function initTvFilters() {
         console.warn('[TV筛选器] 未找到 .tv-filter-tabs 容器');
         return;
     }
-    
+
     // 点击标签展开/收起下拉框
     tabsContainer.addEventListener('click', (e) => {
         const tab = e.target.closest('.tv-filter-tab.has-dropdown');
         if (!tab) return;
-        
+
         // 如果点击的是 checkbox 或下拉框内部，不处理
         if (e.target.type === 'checkbox' || e.target.closest('.tv-dropdown')) return;
-        
+
         e.stopPropagation();
-        
+
         // 关闭其他展开的下拉框
         document.querySelectorAll('.tv-filter-tab.has-dropdown.expanded').forEach(t => {
             if (t !== tab) t.classList.remove('expanded');
         });
-        
+
         // 切换当前下拉框
         tab.classList.toggle('expanded');
         console.log('[TV筛选器] 切换下拉框:', tab.dataset.filter, tab.classList.contains('expanded'));
     });
-    
+
     // 点击外部关闭下拉框
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.tv-filter-tab')) {
@@ -218,7 +218,7 @@ function initTvFilters() {
             });
         }
     });
-    
+
     console.log('[TV筛选器] 初始化完成');
 }
 
@@ -227,7 +227,7 @@ function resetFilter(filterType, event) {
     if (event) {
         event.stopPropagation();
     }
-    
+
     const defaults = {
         'rsi': { min: 30, max: 75 },
         'volume-ratio': { min: 0.8, max: 8 },
@@ -241,10 +241,10 @@ function resetFilter(filterType, event) {
         'adx': { min: 25 },
         'ichimoku': { condition: 'above_cloud' }
     };
-    
+
     const def = defaults[filterType];
     if (!def) return;
-    
+
     if (def.min !== undefined) {
         const minEl = document.getElementById(`filter-${filterType}-min`);
         if (minEl) minEl.value = def.min;
@@ -261,7 +261,7 @@ function resetFilter(filterType, event) {
         const periodEl = document.getElementById(`filter-${filterType}-period`);
         if (periodEl) periodEl.value = def.period;
     }
-    
+
     console.log(`[TV筛选器] 重置 ${filterType}`);
 }
 window.resetFilter = resetFilter;
@@ -333,28 +333,28 @@ const STRATEGY_PRESETS = {
 // 应用策略预设
 function applyStrategyPreset(presetKey) {
     if (!presetKey) return;
-    
+
     const preset = STRATEGY_PRESETS[presetKey];
     if (!preset) {
         console.warn(`[策略预设] 未找到预设: ${presetKey}`);
         return;
     }
-    
+
     console.log(`[策略预设] 应用预设: ${preset.name}`);
-    
+
     // 遍历所有筛选器配置
     for (const [filterType, config] of Object.entries(preset.filters)) {
         // 跳过"仅股票"和"市值"选项，保持用户当前的勾选状态
         if (filterType === 'stock-only' || filterType === 'market-cap') {
             continue;
         }
-        
+
         // 设置启用/禁用状态
         const enableEl = document.getElementById(`filter-${filterType}-enable`);
         if (enableEl) {
             enableEl.checked = config.enable;
         }
-        
+
         // 设置参数值
         if (config.min !== undefined) {
             const minEl = document.getElementById(`filter-${filterType}-min`);
@@ -373,18 +373,18 @@ function applyStrategyPreset(presetKey) {
             if (periodEl) periodEl.value = config.period;
         }
     }
-    
+
     // 重置下拉框为默认选项
     const selectEl = document.getElementById('strategy-preset-select');
     if (selectEl) {
         selectEl.value = '';
     }
-    
+
     // 更新预览显示
     if (typeof updateFilterPreviews === 'function') {
         updateFilterPreviews();
     }
-    
+
     showToast(`已应用「${preset.name}」策略预设`, 'success');
 }
 window.applyStrategyPreset = applyStrategyPreset;
@@ -392,7 +392,7 @@ window.applyStrategyPreset = applyStrategyPreset;
 // 重置所有选股配置为默认值
 function resetSelectionConfig() {
     console.log('[选股配置] 重置为默认值');
-    
+
     // 默认配置
     const defaults = {
         'stock-only': { enable: true },
@@ -410,14 +410,14 @@ function resetSelectionConfig() {
         'ichimoku': { enable: false, condition: 'above_cloud' },
         'cci': { enable: false, min: -100, max: 100 }
     };
-    
+
     // 应用默认配置
     for (const [filterType, config] of Object.entries(defaults)) {
         const enableEl = document.getElementById(`filter-${filterType}-enable`);
         if (enableEl) {
             enableEl.checked = config.enable;
         }
-        
+
         if (config.min !== undefined) {
             const minEl = document.getElementById(`filter-${filterType}-min`);
             if (minEl) minEl.value = config.min;
@@ -435,12 +435,12 @@ function resetSelectionConfig() {
             if (periodEl) periodEl.value = config.period;
         }
     }
-    
+
     // 更新预览显示
     if (typeof updateFilterPreviews === 'function') {
         updateFilterPreviews();
     }
-    
+
     showToast('已重置为默认配置', 'success');
 }
 window.resetSelectionConfig = resetSelectionConfig;
@@ -449,21 +449,21 @@ window.resetSelectionConfig = resetSelectionConfig;
 function toggleFilterItem(headerEl) {
     const filterItem = headerEl.closest('.filter-item');
     if (!filterItem || filterItem.classList.contains('filter-item-simple')) return;
-    
+
     // 关闭其他已展开的筛选项
     document.querySelectorAll('.filter-item.expanded').forEach(item => {
         if (item !== filterItem) {
             item.classList.remove('expanded');
         }
     });
-    
+
     // 切换当前项
     filterItem.classList.toggle('expanded');
 }
 window.toggleFilterItem = toggleFilterItem;
 
 // 点击外部关闭展开的筛选项
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function (e) {
     if (!e.target.closest('.filter-item')) {
         document.querySelectorAll('.filter-item.expanded').forEach(item => {
             item.classList.remove('expanded');
@@ -476,12 +476,12 @@ function toggleSelectionConfig() {
     const section = document.querySelector('.selection-config-section');
     const content = document.getElementById('selection-config-content');
     const arrow = document.getElementById('selection-config-arrow');
-    
+
     if (!content || !arrow) {
         console.error('筛选配置元素未找到');
         return;
     }
-    
+
     if (content.classList.contains('hidden')) {
         // 展开
         content.classList.remove('hidden');
@@ -503,7 +503,7 @@ async function saveSelectionConfig() {
         btn.disabled = true;
         btn.textContent = '保存中...';
     }
-    
+
     try {
         // 收集所有筛选配置数据
         const config = {
@@ -557,20 +557,20 @@ async function saveSelectionConfig() {
             filter_cci_min: parseFloat(document.getElementById('filter-cci-min')?.value || '-100'),
             filter_cci_max: parseFloat(document.getElementById('filter-cci-max')?.value || '100'),
         };
-        
+
         console.log('[选股配置] 保存配置:', config);
-        
+
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
-        
+
         if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.detail || `HTTP ${res.status}`);
         }
-        
+
         // 后端返回的是RuntimeConfig对象，不是{code, data}格式
         const data = await res.json();
         if (data.selection_max_count !== undefined) {
@@ -596,26 +596,26 @@ async function loadSelectionConfig() {
     try {
         const res = await apiFetch(`${API_BASE}/api/config`);
         if (!res.ok) return;
-        
+
         const data = await res.json();
-        
+
         console.log('[选股配置] 从服务器加载配置:', data);
-        
+
         // 填充选股配置
         const maxCountEl = document.getElementById('selection-max-count');
         if (maxCountEl) maxCountEl.value = data.selection_max_count || 30;
-        
+
         // 市场选择 - 默认A股
         const marketEl = document.getElementById('selection-market');
         if (marketEl) marketEl.value = data.selection_market || 'A';
-        
+
         // 仅股票筛选 - 默认启用
         const stockOnlyEl = document.getElementById('filter-stock-only-enable');
         if (stockOnlyEl) {
             // 如果服务器没有返回这个字段，默认启用
             stockOnlyEl.checked = data.filter_stock_only === undefined ? true : data.filter_stock_only;
         }
-        
+
         // 市值 - 默认禁用
         const marketCapEnableEl = document.getElementById('filter-market-cap-enable');
         if (marketCapEnableEl) marketCapEnableEl.checked = data.filter_market_cap_enable || false;
@@ -623,7 +623,7 @@ async function loadSelectionConfig() {
         if (marketCapMinEl) marketCapMinEl.value = data.filter_market_cap_min ?? 1;
         const marketCapMaxEl = document.getElementById('filter-market-cap-max');
         if (marketCapMaxEl) marketCapMaxEl.value = data.filter_market_cap_max ?? 100000;
-        
+
         // 量比 - 默认启用
         const volumeEnableEl = document.getElementById('filter-volume-ratio-enable');
         if (volumeEnableEl) {
@@ -634,7 +634,7 @@ async function loadSelectionConfig() {
         if (volumeMinEl) volumeMinEl.value = data.filter_volume_ratio_min ?? 0.8;
         const volumeMaxEl = document.getElementById('filter-volume-ratio-max');
         if (volumeMaxEl) volumeMaxEl.value = data.filter_volume_ratio_max ?? 8;
-        
+
         // RSI - 默认启用
         const rsiEnableEl = document.getElementById('filter-rsi-enable');
         if (rsiEnableEl) {
@@ -645,7 +645,7 @@ async function loadSelectionConfig() {
         if (rsiMinEl) rsiMinEl.value = data.filter_rsi_min ?? 30;
         const rsiMaxEl = document.getElementById('filter-rsi-max');
         if (rsiMaxEl) rsiMaxEl.value = data.filter_rsi_max ?? 75;
-        
+
         // MA
         const maEnableEl = document.getElementById('filter-ma-enable');
         if (maEnableEl) maEnableEl.checked = data.filter_ma_enable || false;
@@ -653,7 +653,7 @@ async function loadSelectionConfig() {
         if (maPeriodEl) maPeriodEl.value = data.filter_ma_period || '20';
         const maConditionEl = document.getElementById('filter-ma-condition');
         if (maConditionEl) maConditionEl.value = data.filter_ma_condition || 'above';
-        
+
         // EMA
         const emaEnableEl = document.getElementById('filter-ema-enable');
         if (emaEnableEl) emaEnableEl.checked = data.filter_ema_enable || false;
@@ -661,19 +661,19 @@ async function loadSelectionConfig() {
         if (emaPeriodEl) emaPeriodEl.value = data.filter_ema_period || '12';
         const emaConditionEl = document.getElementById('filter-ema-condition');
         if (emaConditionEl) emaConditionEl.value = data.filter_ema_condition || 'above';
-        
+
         // MACD
         const macdEnableEl = document.getElementById('filter-macd-enable');
         if (macdEnableEl) macdEnableEl.checked = data.filter_macd_enable || false;
         const macdConditionEl = document.getElementById('filter-macd-condition');
         if (macdConditionEl) macdConditionEl.value = data.filter_macd_condition || 'golden';
-        
+
         // KDJ
         const kdjEnableEl = document.getElementById('filter-kdj-enable');
         if (kdjEnableEl) kdjEnableEl.checked = data.filter_kdj_enable || false;
         const kdjConditionEl = document.getElementById('filter-kdj-condition');
         if (kdjConditionEl) kdjConditionEl.value = data.filter_kdj_condition || 'golden';
-        
+
         // BIAS
         const biasEnableEl = document.getElementById('filter-bias-enable');
         if (biasEnableEl) biasEnableEl.checked = data.filter_bias_enable || false;
@@ -681,29 +681,29 @@ async function loadSelectionConfig() {
         if (biasMinEl) biasMinEl.value = data.filter_bias_min ?? -6;
         const biasMaxEl = document.getElementById('filter-bias-max');
         if (biasMaxEl) biasMaxEl.value = data.filter_bias_max ?? 6;
-        
+
         // 威廉指标
         const williamsEnableEl = document.getElementById('filter-williams-r-enable');
         if (williamsEnableEl) williamsEnableEl.checked = data.filter_williams_r_enable || false;
-        
+
         // 布林带
         const bollEnableEl = document.getElementById('filter-boll-enable');
         if (bollEnableEl) bollEnableEl.checked = data.filter_boll_enable || false;
         const bollConditionEl = document.getElementById('filter-boll-condition');
         if (bollConditionEl) bollConditionEl.value = data.filter_boll_condition || 'expanding';
-        
+
         // ADX
         const adxEnableEl = document.getElementById('filter-adx-enable');
         if (adxEnableEl) adxEnableEl.checked = data.filter_adx_enable || false;
         const adxMinEl = document.getElementById('filter-adx-min');
         if (adxMinEl) adxMinEl.value = data.filter_adx_min ?? 25;
-        
+
         // 一目均衡
         const ichimokuEnableEl = document.getElementById('filter-ichimoku-enable');
         if (ichimokuEnableEl) ichimokuEnableEl.checked = data.filter_ichimoku_enable || false;
         const ichimokuConditionEl = document.getElementById('filter-ichimoku-condition');
         if (ichimokuConditionEl) ichimokuConditionEl.value = data.filter_ichimoku_condition || 'above_cloud';
-        
+
         // CCI
         const cciEnableEl = document.getElementById('filter-cci-enable');
         if (cciEnableEl) cciEnableEl.checked = data.filter_cci_enable || false;
@@ -711,10 +711,10 @@ async function loadSelectionConfig() {
         if (cciMinEl) cciMinEl.value = data.filter_cci_min ?? -100;
         const cciMaxEl = document.getElementById('filter-cci-max');
         if (cciMaxEl) cciMaxEl.value = data.filter_cci_max ?? 100;
-        
+
         // 更新预览显示
         updateFilterPreviews();
-        
+
         console.log('[选股配置] 配置加载成功');
     } catch (error) {
         console.error('[选股配置] 加载失败:', error);
@@ -726,29 +726,29 @@ window.loadSelectionConfig = loadSelectionConfig;
 async function loadIndicatorStats() {
     const statsEl = document.getElementById('indicator-stats');
     if (!statsEl) return;
-    
+
     try {
         // 获取当前选择的市场
         const marketEl = document.getElementById('selection-market');
         const market = marketEl?.value || 'A';
-        
+
         const res = await apiFetch(`${API_BASE}/api/strategy/indicator-stats?market=${market}`);
         if (!res.ok) {
             statsEl.innerHTML = '<span style="color: #ef4444; font-size: 13px;">❌ 加载指标统计失败</span>';
             return;
         }
-        
+
         const result = await res.json();
         if (result.code !== 0) {
             statsEl.innerHTML = `<span style="color: #ef4444; font-size: 13px;">❌ ${result.message}</span>`;
             return;
         }
-        
+
         const data = result.data;
-        
+
         // 构建显示内容
         let html = '<div class="indicator-stats-row">';
-        
+
         // 最新计算日期
         if (data.latest_date) {
             html += `<span class="indicator-stats-item">
@@ -756,14 +756,14 @@ async function loadIndicatorStats() {
                 <span class="indicator-stats-value">${data.latest_date}</span>
             </span>`;
         }
-        
+
         // 分市场分周期的更新时间
         if (data.update_times) {
             const ut = data.update_times;
             html += `<span class="indicator-stats-item">
                 <span class="indicator-stats-label">🕐 更新时间:</span>
                 <span class="indicator-stats-value" style="font-size: 11px;">`;
-            
+
             // A股日线
             if (ut.A_daily?.time) {
                 html += `A日线 ${ut.A_daily.time}`;
@@ -780,7 +780,7 @@ async function loadIndicatorStats() {
             if (ut.HK_1h?.time) {
                 html += ` | 港时线 ${ut.HK_1h.time}`;
             }
-            
+
             html += `</span>
             </span>`;
         } else if (data.latest_update_time) {
@@ -790,16 +790,16 @@ async function loadIndicatorStats() {
                 <span class="indicator-stats-value">${data.latest_update_time}</span>
             </span>`;
         }
-        
+
         // 覆盖率
         const coverageClass = data.coverage_rate >= 80 ? '' : (data.coverage_rate >= 50 ? 'warning' : 'error');
         html += `<span class="indicator-stats-item">
             <span class="indicator-stats-label">📊 覆盖率:</span>
             <span class="indicator-stats-value ${coverageClass}">${data.computed_stocks}/${data.total_stocks} (${data.coverage_rate}%)</span>
         </span>`;
-        
+
         html += '</div>';
-        
+
         // 缺失指标提示
         if (data.missing_indicators && data.missing_indicators.length > 0) {
             html += `<div class="indicator-stats-missing">
@@ -810,9 +810,9 @@ async function loadIndicatorStats() {
         } else {
             html += `<div class="indicator-stats-missing">⚠️ 暂无指标数据，请先运行选股或盘后批量计算</div>`;
         }
-        
+
         statsEl.innerHTML = html;
-        
+
     } catch (error) {
         console.error('[指标统计] 加载失败:', error);
         statsEl.innerHTML = '<span style="color: #ef4444; font-size: 13px;">❌ 加载指标统计失败</span>';
@@ -827,19 +827,19 @@ function updateFilterPreviews() {
     const rsiMax = document.getElementById('filter-rsi-max')?.value || '75';
     const rsiPreview = document.querySelector('[data-filter="rsi"] .filter-item-preview');
     if (rsiPreview) rsiPreview.textContent = `(${rsiMin}-${rsiMax})`;
-    
+
     // 量比预览
     const volMin = document.getElementById('filter-volume-ratio-min')?.value || '0.8';
     const volMax = document.getElementById('filter-volume-ratio-max')?.value || '8';
     const volPreview = document.querySelector('[data-filter="volume-ratio"] .filter-item-preview');
     if (volPreview) volPreview.textContent = `(${volMin}-${volMax})`;
-    
+
     // BIAS预览
     const biasMin = document.getElementById('filter-bias-min')?.value || '-6';
     const biasMax = document.getElementById('filter-bias-max')?.value || '6';
     const biasPreview = document.querySelector('[data-filter="bias"] .filter-item-preview');
     if (biasPreview) biasPreview.textContent = `(${biasMin}~${biasMax})`;
-    
+
     // ADX预览
     const adxMin = document.getElementById('filter-adx-min')?.value || '25';
     const adxPreview = document.querySelector('[data-filter="adx"] .filter-item-preview');
@@ -852,9 +852,9 @@ function collapseSelectionConfig() {
     const section = document.querySelector('.selection-config-section');
     const content = document.getElementById('selection-config-content');
     const arrow = document.getElementById('selection-config-arrow');
-    
+
     if (!content || !arrow) return;
-    
+
     content.classList.add('hidden');
     if (section) section.classList.remove('expanded');
     arrow.textContent = '▶';
@@ -897,16 +897,16 @@ let sseReconnectDelay = 1000; // 初始延迟1秒
 function updateSSEStatus(status) {
     const indicator = document.getElementById('sse-status-indicator');
     const statusText = document.getElementById('sse-status-text');
-    
+
     if (!indicator || !statusText) {
         // 如果元素不存在，延迟重试
         setTimeout(() => updateSSEStatus(status), 100);
         return;
     }
-    
+
     // 移除所有状态类
     indicator.classList.remove('connected', 'connecting', 'disconnected');
-    
+
     switch (status) {
         case 'connected':
             indicator.classList.add('connected');
@@ -925,7 +925,7 @@ function updateSSEStatus(status) {
             statusText.className = 'market-status-value closed';
             break;
     }
-    
+
     console.log('[SSE状态] 更新状态:', status);
 }
 
@@ -947,13 +947,13 @@ function closeSSEConnection() {
     }
     currentSseTab = null;
     sseTaskId = null;
-    
+
     // 清除重连定时器
     if (sseReconnectTimer) {
         clearTimeout(sseReconnectTimer);
         sseReconnectTimer = null;
     }
-    
+
     // 更新状态显示
     updateSSEStatus('disconnected');
 }
@@ -974,29 +974,29 @@ function connectSSE() {
             }
             return;
         }
-        
+
         // 如果连接状态不正常，先关闭
         if (sseConnection.readyState === EventSource.CLOSED) {
             console.log('[SSE] 连接已关闭，清理状态');
             sseConnection = null;
         }
     }
-    
+
     // 清除重连定时器
     if (sseReconnectTimer) {
         clearTimeout(sseReconnectTimer);
         sseReconnectTimer = null;
     }
-    
+
     // 构建SSE URL（不传current_tab，让服务器推送所有数据）
     const sseUrl = `${API_BASE}/api/sse/stream`;
     console.log('[SSE] 建立全局SSE连接（推送所有类型数据）:', sseUrl);
-    
+
     try {
         sseConnection = new EventSource(sseUrl);
         currentSseTab = null; // 不再跟踪tab，因为推送所有数据
         sseTaskId = null;
-        
+
         sseConnection.onopen = () => {
             console.log('[SSE] 连接已建立:', sseUrl);
             // 连接成功后重置重连延迟
@@ -1004,7 +1004,7 @@ function connectSSE() {
             // 更新SSE状态显示
             updateSSEStatus('connected');
         };
-        
+
         sseConnection.onmessage = (event) => {
             try {
                 // 跳过心跳消息
@@ -1012,18 +1012,18 @@ function connectSSE() {
                     console.debug('[SSE接收] 收到心跳消息');
                     return;
                 }
-                
+
                 // 处理JSON中的NaN值（JSON.parse不支持NaN，需要先替换）
                 let dataStr = event.data;
                 // 替换 NaN、Infinity、-Infinity 为 null（JSON标准不支持这些值）
                 dataStr = dataStr.replace(/:\s*NaN\s*([,}])/g, ': null$1');
                 dataStr = dataStr.replace(/:\s*Infinity\s*([,}])/g, ': null$1');
                 dataStr = dataStr.replace(/:\s*-Infinity\s*([,}])/g, ': null$1');
-                
+
                 const message = JSON.parse(dataStr);
                 const messageType = message.type || 'unknown';
                 const messageSize = event.data.length;
-                
+
                 // 根据消息类型记录详细信息
                 if (messageType === 'market') {
                     const data = message.data || {};
@@ -1056,17 +1056,17 @@ function connectSSE() {
                     console.log(`[SSE接收] 收到消息: type=${messageType}, 数据大小=${messageSize}字节`);
                     console.debug(`[SSE接收] 消息内容:`, message);
                 }
-                
+
                 // 根据消息类型处理
                 handleSSEMessage(message);
             } catch (e) {
                 console.error('[SSE接收] 解析消息失败:', e, '原始数据:', event.data?.substring(0, 200));
             }
         };
-        
+
         sseConnection.onerror = (error) => {
             console.error('[SSE] 连接错误:', error, 'readyState:', sseConnection?.readyState);
-            
+
             // 根据连接状态更新显示
             if (sseConnection) {
                 if (sseConnection.readyState === EventSource.CONNECTING) {
@@ -1077,19 +1077,19 @@ function connectSSE() {
             } else {
                 updateSSEStatus('disconnected');
             }
-            
+
             // 如果连接断开，尝试重新连接（使用指数退避避免频繁重连）
             if (sseConnection && sseConnection.readyState === EventSource.CLOSED) {
-                console.log(`[SSE] 连接已关闭，${sseReconnectDelay/1000}秒后尝试重新连接`);
-                
+                console.log(`[SSE] 连接已关闭，${sseReconnectDelay / 1000}秒后尝试重新连接`);
+
                 // 清除之前的重连定时器
                 if (sseReconnectTimer) {
                     clearTimeout(sseReconnectTimer);
                 }
-                
+
                 // 显示重连中状态
                 updateSSEStatus('connecting');
-                
+
                 sseReconnectTimer = setTimeout(() => {
                     // 重新连接全局SSE（不依赖tab）
                     console.log(`[SSE] 重新连接全局SSE`);
@@ -1099,7 +1099,7 @@ function connectSSE() {
                 }, sseReconnectDelay);
             }
         };
-        
+
     } catch (e) {
         console.error('[SSE] 连接失败:', e);
         updateSSEStatus('disconnected');
@@ -1109,13 +1109,13 @@ function connectSSE() {
 // 处理SSE消息（根据当前激活的tab决定是否处理）
 function handleSSEMessage(message) {
     const messageType = message.type || 'unknown';
-    
+
     // 获取当前激活的tab
     const currentTabBtn = document.querySelector('.tab-btn.active');
     const currentTab = currentTabBtn ? currentTabBtn.getAttribute('data-tab') : null;
-    
+
     console.log(`[SSE处理] 收到消息: type=${messageType}, 当前tab=${currentTab}`);
-    
+
     switch (messageType) {
         case 'market':
             // 市场行情数据更新（只在行情页处理）
@@ -1185,15 +1185,15 @@ function handleSSEMessage(message) {
 // 处理市场状态更新（SSE推送）
 function handleMarketStatusUpdate(data) {
     console.log('[SSE] 收到市场状态更新:', data);
-    
+
     const aStatusEl = document.getElementById('market-status-a');
     const hkStatusEl = document.getElementById('market-status-hk');
-    
+
     if (!aStatusEl || !hkStatusEl) {
         console.warn('[SSE] 市场状态元素未找到');
         return;
     }
-    
+
     if (data && data.a) {
         const aStatus = data.a;
         // 构建状态文本，包含下一个开盘时间
@@ -1206,7 +1206,7 @@ function handleMarketStatusUpdate(data) {
         aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
         console.log('[SSE] A股状态已更新:', statusText);
     }
-    
+
     if (data && data.hk) {
         const hkStatus = data.hk;
         // 构建状态文本，包含下一个开盘时间
@@ -1227,25 +1227,25 @@ let marketUpdateTimer = null;
 // 更新上证指数显示
 function updateShIndexDisplay(stocks) {
     if (!stocks || !Array.isArray(stocks)) return;
-    
+
     // 查找上证指数（代码1A0001）
     const shIndex = stocks.find(s => s && String(s.code) === '1A0001');
-    
+
     const priceEl = document.getElementById('sh-index-price');
     const pctEl = document.getElementById('sh-index-pct');
-    
+
     if (!priceEl || !pctEl) return;
-    
+
     if (shIndex) {
         const price = parseFloat(shIndex.price) || 0;
         const pct = parseFloat(shIndex.pct) || 0;
-        
+
         priceEl.textContent = price.toFixed(2);
-        
+
         // 格式化涨跌幅
         const pctText = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
         pctEl.textContent = pctText;
-        
+
         // 设置颜色类
         pctEl.classList.remove('up', 'down', 'flat');
         if (pct > 0) {
@@ -1262,23 +1262,23 @@ function updateShIndexDisplay(stocks) {
 function handleMarketUpdate(data) {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
-    
+
     const marketTab = document.getElementById('market-tab');
     if (!marketTab || !marketTab.classList.contains('active')) {
         return;  // 不在行情页，不更新
     }
-    
+
     // 如果正在加载数据，跳过 SSE 更新（避免闪烁）
     if (isLoading) {
         console.log('[SSE] 正在加载数据，跳过市场行情更新');
         return;
     }
-    
+
     // 使用防抖，避免频繁更新（100ms内多次更新只执行最后一次）
     if (marketUpdateTimer) {
         clearTimeout(marketUpdateTimer);
     }
-    
+
     marketUpdateTimer = setTimeout(() => {
         _doMarketUpdate(data);
         marketUpdateTimer = null;
@@ -1289,9 +1289,9 @@ function handleMarketUpdate(data) {
 function _doMarketUpdate(data) {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
-    
+
     const container = document.querySelector('.stock-list-container');
-    
+
     // 保存当前滚动位置
     let savedScrollTop = 0;
     if (container) {
@@ -1302,20 +1302,20 @@ function _doMarketUpdate(data) {
             savedScrollTop = window.pageYOffset || document.documentElement.scrollTop;
         }
     }
-    
+
     const marketSelect = document.getElementById('market-select');
     const currentMarketValue = marketSelect ? marketSelect.value || 'a' : 'a';
-    
+
     // 根据当前选择的市场获取对应数据
     const stocks = currentMarketValue === 'a' ? (data.a || []) : (data.hk || []);
-    
+
     // 更新上证指数显示（仅A股市场）
     if (currentMarketValue === 'a' && data.a) {
         updateShIndexDisplay(data.a);
     }
-    
+
     if (stocks.length === 0) return;
-    
+
     // 检查表格是否为空或只有加载提示
     const existingRows = Array.from(tbody.querySelectorAll('tr'));
     const hasValidData = existingRows.some(tr => {
@@ -1323,21 +1323,21 @@ function _doMarketUpdate(data) {
         const cells = tr.querySelectorAll('td');
         return cells.length > 1 && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
     });
-    
+
     // 如果正在加载中，跳过 SSE 更新（避免覆盖 API 加载的数据）
     const isLoadingState = existingRows.length === 1 && existingRows[0].textContent?.includes('加载中');
     if (isLoadingState) {
         console.log('[SSE] 正在加载中，跳过市场行情更新');
         return;
     }
-    
+
     // 如果表格为空，直接渲染数据
     if (!hasValidData) {
         console.log('[SSE] 表格为空，直接渲染SSE推送的数据');
         tbody.innerHTML = '';
         allMarketData = stocks;
         currentPage = 1;
-        
+
         // 应用过滤（如果启用了"仅显示股票"）
         let displayData = stocks;
         if (filterStockOnly) {
@@ -1349,7 +1349,7 @@ function _doMarketUpdate(data) {
             });
             console.log(`[SSE] 应用"仅显示股票"过滤: ${stocks.length} -> ${displayData.length}`);
         }
-        
+
         hasMore = displayData.length >= pageSize;
         appendStockList(displayData.slice(0, pageSize));
         if (displayData.length > pageSize) {
@@ -1357,27 +1357,27 @@ function _doMarketUpdate(data) {
         }
         return;
     }
-    
+
     // 只更新第一页的数据（避免影响滚动位置和分页）
     const updateCount = Math.min(stocks.length, existingRows.length);
-    
+
     // 构建股票代码到数据的映射
     const stockMap = {};
     stocks.forEach(stock => {
         stockMap[stock.code] = stock;
     });
-    
+
     // 更新现有行的数据（无感刷新，只更新变化的字段）
     for (let i = 0; i < updateCount; i++) {
         const row = existingRows[i];
         if (!row) continue;
-        
+
         const stockData = JSON.parse(row.getAttribute('data-stock') || '{}');
         const code = stockData.code;
-        
+
         if (code && stockMap[code]) {
             const updatedStock = stockMap[code];
-            
+
             // 只更新数据有变化的字段，避免不必要的DOM操作
             const cells = row.querySelectorAll('td');
             if (cells.length >= 5) {
@@ -1387,7 +1387,7 @@ function _doMarketUpdate(data) {
                 if (priceCell.textContent !== newPrice) {
                     priceCell.textContent = newPrice;
                 }
-                
+
                 // 更新涨跌幅
                 const pctCell = cells[3];
                 const newPct = updatedStock.pct?.toFixed(2) || '-';
@@ -1396,7 +1396,7 @@ function _doMarketUpdate(data) {
                     pctCell.textContent = newPctText;
                     pctCell.className = updatedStock.pct >= 0 ? 'up' : 'down';
                 }
-                
+
                 // 更新成交量
                 const volumeCell = cells[4];
                 const newVolume = formatVolume(updatedStock.volume);
@@ -1404,12 +1404,12 @@ function _doMarketUpdate(data) {
                     volumeCell.textContent = newVolume;
                 }
             }
-            
+
             // 更新data-stock属性
             row.setAttribute('data-stock', JSON.stringify(updatedStock));
         }
     }
-    
+
     // 恢复滚动位置（如果发生了变化）
     if (container && savedScrollTop > 0) {
         requestAnimationFrame(() => {
@@ -1420,7 +1420,7 @@ function _doMarketUpdate(data) {
             }
         });
     }
-    
+
     // 更新按钮状态（每次市场数据更新后都要更新，因为自选股可能变化）
     updateWatchlistButtonStates();
 }
@@ -1431,13 +1431,13 @@ let watchlistSyncTimer = null;
 // 处理自选股同步（SSE推送，无感刷新）
 function handleWatchlistSync(action, data) {
     console.log('[SSE] 自选股同步:', action, '数据数量:', data?.length || 0);
-    
+
     if (action === 'init' || action === 'update') {
         // 使用防抖，避免频繁更新（200ms内多次更新只执行最后一次）
         if (watchlistSyncTimer) {
             clearTimeout(watchlistSyncTimer);
         }
-        
+
         watchlistSyncTimer = setTimeout(() => {
             _doWatchlistSync(data);
             watchlistSyncTimer = null;
@@ -1455,25 +1455,25 @@ function _doWatchlistSync(data) {
         console.log('[SSE] ⏸️ 正在删除操作中，跳过同步');
         return;
     }
-    
+
     console.log('[SSE] ========== 执行自选股同步更新（无感刷新） ==========');
     const serverData = data || [];
     const localData = getWatchlist();
     const localCodes = localData.map(s => s.code).sort().join(',');
     const serverCodes = serverData.map(s => s.code).sort().join(',');
-    
+
     console.log('[SSE] 本地自选股:', localCodes);
     console.log('[SSE] 服务器自选股:', serverCodes);
-    
+
     // 始终更新本地缓存（确保数据同步）
     if (serverData.length > 0 || localCodes !== serverCodes) {
         console.log('[SSE] ✅ 更新本地缓存');
         localStorage.setItem('watchlist', JSON.stringify(serverData));
-        
+
         // 更新按钮状态（无论在哪一页都要更新）
         console.log('[SSE] 更新所有页面的按钮状态');
         updateWatchlistButtonStates();
-        
+
         // 如果当前在自选页，直接通过SSE数据更新列表（无感刷新，不需要重新请求）
         const watchlistTab = document.getElementById('watchlist-tab');
         if (watchlistTab && watchlistTab.classList.contains('active')) {
@@ -1481,7 +1481,7 @@ function _doWatchlistSync(data) {
             // 保存当前滚动位置
             const container = document.getElementById('watchlist-container');
             const savedScrollTop = container ? container.scrollTop : 0;
-            
+
             // 清除缓存，使用SSE推送的数据直接渲染
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
             // 直接使用SSE推送的数据渲染，不需要重新请求，实现无感刷新
@@ -1505,17 +1505,17 @@ function _doWatchlistSync(data) {
 // 从SSE数据直接渲染自选股列表（不需要重新请求服务器，支持无限滚动）
 async function renderWatchlistStocksFromSSE(watchlistData) {
     console.log('[SSE] 从SSE数据直接渲染自选股列表，数量:', watchlistData.length);
-    
+
     // 更新自选股数量显示
     const countEl = document.getElementById('watchlist-count');
     if (countEl) {
         countEl.textContent = watchlistData ? watchlistData.length : 0;
     }
-    
+
     // 保存当前滚动位置
     const container = document.getElementById('watchlist-container');
     const savedScrollTop = container ? container.scrollTop : 0;
-    
+
     if (!watchlistData || watchlistData.length === 0) {
         if (container) {
             container.innerHTML = `
@@ -1530,27 +1530,27 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
         watchlistRenderedCount = 0;
         return Promise.resolve();
     }
-    
+
     // 批量获取股票行情数据
     const codes = watchlistData.map(s => s.code);
     console.log('[SSE] 批量获取股票行情，代码:', codes);
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/market/spot/batch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ codes })
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
+
         const result = await response.json();
         if (result.code === 0) {
             const stocksWithData = result.data || [];
             console.log('[SSE] 批量获取成功，共', stocksWithData.length, '只股票有行情数据');
-            
+
             // 合并自选股信息和行情数据
             const watchlistStocks = watchlistData.map(watchlistItem => {
                 const stockData = stocksWithData.find(s => s.code === watchlistItem.code);
@@ -1562,10 +1562,10 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
                     code: watchlistItem.code
                 };
             });
-            
+
             // 使用无限滚动渲染（forceRender=true重置状态，silent=true不显示日志）
             renderWatchlistStocks(watchlistStocks, true, true);
-            
+
             // 恢复滚动位置
             if (container && savedScrollTop > 0) {
                 // 延迟恢复，确保DOM已更新
@@ -1573,7 +1573,7 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
                     container.scrollTop = savedScrollTop;
                 }, 100);
             }
-            
+
             return Promise.resolve();
         } else {
             throw new Error(result.message || '批量查询失败');
@@ -1585,14 +1585,14 @@ async function renderWatchlistStocksFromSSE(watchlistData) {
             ...item,
             name: item.name || item.code
         })), true, true);
-        
+
         // 恢复滚动位置
         if (container && savedScrollTop > 0) {
             setTimeout(() => {
                 container.scrollTop = savedScrollTop;
             }, 100);
         }
-        
+
         return Promise.resolve();
     }
 }
@@ -1602,7 +1602,7 @@ function handleNewsUpdate(action, data) {
     console.log('[SSE] ========== 处理资讯更新（无感刷新） ==========');
     const newsData = data || [];
     console.log('[SSE] 收到资讯数据:', action, '数量:', newsData.length);
-    
+
     if (action === 'init' || action === 'update') {
         // 如果当前在资讯页，无感更新列表（支持无限滚动）
         const newsTab = document.getElementById('news-tab');
@@ -1618,27 +1618,27 @@ function handleNewsUpdate(action, data) {
 // 处理K线采集进度（SSE推送）
 function handleKlineCollectProgress(taskId, progress) {
     console.log('[SSE] K线采集进度:', taskId, progress);
-    
+
     // 获取状态显示元素
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('collect-kline-btn');
-    
+
     if (!statusEl) {
         console.log('[SSE] K线采集进度: 状态元素不存在，跳过更新');
         return;
     }
-    
+
     if (!progress) {
         return;
     }
-    
+
     const dataSource = progress.data_source || '';
     const success = progress.success || 0;
     const failed = progress.failed || 0;
     const total = progress.total || 0;
     const current = progress.current || 0;
     const progressPct = progress.progress || 0;
-    
+
     if (progress.status === 'running') {
         statusEl.innerHTML = `
             <div style="margin-top: 10px;">
@@ -1751,27 +1751,27 @@ function handleKlineCollectProgress(taskId, progress) {
 // 处理实时快照采集进度（SSE推送）
 function handleSpotCollectProgress(taskId, progress) {
     console.log('[SSE] 实时快照采集进度:', taskId, progress);
-    
+
     const statusEl = document.getElementById('spot-collect-status');
     const btn = document.getElementById('collect-spot-btn');
-    
+
     if (!statusEl) {
         console.log('[SSE] 实时快照采集进度: 状态元素不存在，跳过更新');
         return;
     }
-    
+
     if (!progress) {
         return;
     }
-    
+
     const message = progress.message || '';
     const dataSource = progress.data_source || '';
     const aCount = progress.a_count || 0;
     const hkCount = progress.hk_count || 0;
-    
+
     // 数据源显示
     const sourceHtml = dataSource ? `<span style="color: #60a5fa; margin-left: 8px;">[${dataSource}]</span>` : '';
-    
+
     if (progress.status === 'running') {
         statusEl.innerHTML = `
             <div style="color: #10b981; font-weight: 500;">
@@ -1828,36 +1828,36 @@ async function collectSpotData() {
     const btn = document.getElementById('collect-spot-btn');
     const statusEl = document.getElementById('spot-collect-status');
     const marketSelect = document.getElementById('collect-market-select');
-    
+
     // 获取市场选项
     const market = marketSelect?.value || 'ALL';
-    
+
     if (btn) {
         btn.disabled = true;
         btn.textContent = '启动中...';
     }
-    
+
     if (statusEl) {
         statusEl.innerHTML = '<div style="color: #60a5fa;">正在启动采集任务...</div>';
     }
-    
+
     try {
         const res = await apiFetch(`${API_BASE}/api/market/spot/collect?market=${market}`, {
             method: 'POST'
         });
-        
+
         if (!res.ok) {
             throw new Error(`HTTP ${res.status}`);
         }
-        
+
         const data = await res.json();
         if (data.code !== 0) {
             throw new Error(data.message || '启动失败');
         }
-        
+
         // 任务已启动，等待SSE推送进度
         console.log('[实时快照] 采集任务已启动:', data.data?.task_id);
-        
+
     } catch (error) {
         console.error('[实时快照] 启动采集失败:', error);
         if (statusEl) {
@@ -1873,18 +1873,18 @@ async function collectSpotData() {
 // 处理实时数据采集结果（显示在顶部状态栏）
 function handleSpotCollectResult(data) {
     console.log('[SSE] 实时数据采集结果:', data);
-    
+
     const container = document.getElementById('spot-collect-result');
     const aTextEl = document.getElementById('spot-result-a-text');
     const aTimeEl = document.getElementById('spot-result-a-time');
     const hkTextEl = document.getElementById('spot-result-hk-text');
     const hkTimeEl = document.getElementById('spot-result-hk-time');
-    
+
     if (!container) {
         console.warn('[SSE] 实时数据采集结果元素未找到');
         return;
     }
-    
+
     const success = data.success;
     const time = data.time || '';
     const source = data.source || data.a_source || '';
@@ -1896,25 +1896,25 @@ function handleSpotCollectResult(data) {
     // 使用后端返回的成功状态，如果没有则根据数量判断
     const aSuccess = data.a_success !== undefined ? data.a_success : (aCount > 0);
     const hkSuccess = data.hk_success !== undefined ? data.hk_success : (hkCount > 0);
-    
+
     // 更新显示
     container.style.display = 'flex';
     container.className = 'spot-collect-result ' + (success ? 'success' : 'failed');
-    
+
     // A股状态（显示时间和数量）
     if (aTextEl) {
         aTextEl.textContent = (aSuccess ? '✅ ' : '❌ ') + aCount + '只';
         aTextEl.className = 'spot-result-value ' + (aSuccess ? 'success' : 'failed');
     }
     if (aTimeEl) aTimeEl.textContent = aTime;
-    
+
     // 港股状态（显示时间和数量）
     if (hkTextEl) {
         hkTextEl.textContent = (hkSuccess ? '✅ ' : '❌ ') + hkCount + '只';
         hkTextEl.className = 'spot-result-value ' + (hkSuccess ? 'success' : 'failed');
     }
     if (hkTimeEl) hkTimeEl.textContent = hkTime;
-    
+
     // 数据源（分开显示A股和港股数据源）
     const aSourceEl = document.getElementById('spot-collect-result-a-source');
     const hkSourceEl = document.getElementById('spot-collect-result-hk-source');
@@ -1924,7 +1924,7 @@ function handleSpotCollectResult(data) {
     if (hkSourceEl) {
         hkSourceEl.textContent = hkSource || '未知';
     }
-    
+
     console.log(`[SSE] 实时数据采集结果已更新: A股=${aCount}只(${aTime}), 港股=${hkCount}只(${hkTime}), A股源=${source}, 港股源=${hkSource}`);
 }
 
@@ -1933,7 +1933,7 @@ async function loadSpotCollectResult() {
     try {
         const res = await apiFetch(`${API_BASE}/api/spot/collect/result`);
         if (!res.ok) return;
-        
+
         const data = await res.json();
         if (data.code === 0 && data.data) {
             console.log('[启动] 加载上次采集结果:', data.data);
@@ -1947,25 +1947,25 @@ async function loadSpotCollectResult() {
 // 处理选股进度（SSE推送）
 function handleSelectionProgress(taskId, progressData) {
     console.log('[SSE] 选股进度:', taskId, progressData);
-    
+
     // 不再过滤 task_id，始终显示最新的选股进度
     // 这样刷新页面后也能看到正在进行的选股任务
-    
+
     // 显示进度容器
     const progressContainer = document.getElementById('selection-progress-container');
     if (progressContainer && progressContainer.style.display === 'none') {
         progressContainer.style.display = 'block';
     }
-    
+
     // 更新进度显示
     const statusEl = document.getElementById('selection-status');
     const progressBar = document.getElementById('selection-progress-bar');
     const progressText = document.getElementById('selection-progress-text');
-    
+
     if (!progressData) return;
-    
+
     const { status, stage, message, progress, total, processed, passed, selected, elapsed_time } = progressData;
-    
+
     // 更新状态文本（添加阶段图标）
     if (statusEl) {
         let displayMessage = message || '选股中...';
@@ -1986,12 +1986,12 @@ function handleSelectionProgress(taskId, progressData) {
         statusEl.innerHTML = displayMessage;
         statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' ? 'error' : 'running'));
     }
-    
+
     // 更新进度条（添加颜色变化）
     if (progressBar) {
         const targetWidth = progress || 0;
         progressBar.style.width = `${targetWidth}%`;
-        
+
         // 根据进度添加颜色变化
         if (status === 'completed') {
             progressBar.className = 'selection-progress-fill success';
@@ -2009,7 +2009,7 @@ function handleSelectionProgress(taskId, progressData) {
             }
         }
     }
-    
+
     // 更新进度文本（去掉百分比，只显示处理进度）
     if (progressText) {
         let text = '';
@@ -2027,7 +2027,7 @@ function handleSelectionProgress(taskId, progressData) {
         }
         progressText.textContent = text;
     }
-    
+
     // 如果选股完成或失败，3秒后隐藏进度条
     if (status === 'completed' || status === 'failed') {
         console.log('[SSE] 选股' + (status === 'completed' ? '完成' : '失败') + '，选中:', selected || 0, '只股票');
@@ -2042,29 +2042,29 @@ function handleSelectionProgress(taskId, progressData) {
 // 处理指标计算进度（SSE推送）
 function handleIndicatorProgress(taskId, progressData) {
     console.log('[SSE] 指标计算进度:', taskId, progressData);
-    
+
     // 显示进度容器
     const progressContainer = document.getElementById('indicator-progress-container');
     const stopIndicatorBtn = document.getElementById('stop-indicator-btn');
-    
+
     if (progressContainer && progressContainer.style.display === 'none') {
         progressContainer.style.display = 'block';
     }
-    
+
     // 更新进度显示
     const statusEl = document.getElementById('indicator-status');
     const progressBar = document.getElementById('indicator-progress-bar');
     const progressText = document.getElementById('indicator-progress-text');
-    
+
     if (!progressData) return;
-    
+
     const { status, stage, message, progress, total, processed, success, failed, skipped, elapsed_time } = progressData;
-    
+
     // 显示或隐藏停止按钮
     if (stopIndicatorBtn) {
         stopIndicatorBtn.style.display = status === 'running' ? 'inline-block' : 'none';
     }
-    
+
     // 更新状态文本
     if (statusEl) {
         let displayMessage = message || '计算中...';
@@ -2081,12 +2081,12 @@ function handleIndicatorProgress(taskId, progressData) {
         statusEl.textContent = displayMessage;
         statusEl.className = 'selection-status ' + (status === 'completed' ? 'success' : (status === 'failed' || status === 'stopped' ? 'error' : 'running'));
     }
-    
+
     // 更新进度条
     if (progressBar) {
         const targetWidth = progress || 0;
         progressBar.style.width = `${targetWidth}%`;
-        
+
         // 根据状态添加颜色变化
         if (status === 'completed') {
             progressBar.className = 'selection-progress-fill success';
@@ -2106,7 +2106,7 @@ function handleIndicatorProgress(taskId, progressData) {
             }
         }
     }
-    
+
     // 更新进度文本
     if (progressText) {
         let text = '';
@@ -2127,7 +2127,7 @@ function handleIndicatorProgress(taskId, progressData) {
         }
         progressText.textContent = text;
     }
-    
+
     // 恢复按钮状态
     if (status === 'completed' || status === 'failed' || status === 'stopped') {
         const computeDailyBtn = document.getElementById('compute-daily-btn');
@@ -2140,12 +2140,12 @@ function handleIndicatorProgress(taskId, progressData) {
             computeHourlyBtn.disabled = false;
             computeHourlyBtn.textContent = '⏰ 计算小时线';
         }
-        
+
         // 如果完成，刷新指标统计
         if (status === 'completed') {
             loadIndicatorStats();
         }
-        
+
         // 3秒后隐藏进度条
         setTimeout(() => {
             if (progressContainer) {
@@ -2161,23 +2161,23 @@ async function computeIndicators(period) {
     const computeDailyBtn = document.getElementById('compute-daily-btn');
     const computeHourlyBtn = document.getElementById('compute-hourly-btn');
     const progressContainer = document.getElementById('indicator-progress-container');
-    
+
     // 获取用户选择的市场
     const marketSelect = document.getElementById('indicator-market-select');
     const selectedMarket = marketSelect?.value || 'ALL';
-    
+
     // 获取用户选择的计算模式（增量/全量）
     const modeSelect = document.getElementById('indicator-mode-select');
     const isIncremental = modeSelect?.value !== 'full';
     const modeName = isIncremental ? '增量' : '全量';
-    
+
     // 全量计算时确认
     if (!isIncremental) {
         if (!confirm(`确定要全量计算${periodName}指标吗？\n\n全量计算会重新计算所有股票，耗时较长。`)) {
             return;
         }
     }
-    
+
     // 禁用按钮
     if (computeDailyBtn) {
         computeDailyBtn.disabled = true;
@@ -2191,7 +2191,7 @@ async function computeIndicators(period) {
             computeHourlyBtn.textContent = '⏰ 计算中...';
         }
     }
-    
+
     // 显示进度容器并重置
     if (progressContainer) {
         progressContainer.style.display = 'block';
@@ -2205,7 +2205,7 @@ async function computeIndicators(period) {
         }
         if (progressText) progressText.textContent = '0%';
     }
-    
+
     // 根据选择决定计算哪些市场
     let markets = [];
     if (selectedMarket === 'ALL') {
@@ -2213,10 +2213,10 @@ async function computeIndicators(period) {
     } else {
         markets = [selectedMarket];
     }
-    
+
     const marketDesc = selectedMarket === 'ALL' ? 'A股+港股' : (selectedMarket === 'A' ? 'A股' : '港股');
     let startedCount = 0;
-    
+
     for (const market of markets) {
         try {
             const marketName = market === 'A' ? 'A股' : '港股';
@@ -2224,7 +2224,7 @@ async function computeIndicators(period) {
                 method: 'POST'
             });
             const result = await response.json();
-            
+
             if (result.code === 0) {
                 console.log(`[指标计算] ${marketName}${periodName}指标计算任务已启动:`, result.data.task_id);
                 startedCount++;
@@ -2235,12 +2235,12 @@ async function computeIndicators(period) {
             console.error(`[指标计算] ${market}${periodName}指标计算失败:`, error);
         }
     }
-    
+
     if (startedCount > 0) {
         showToast(`${periodName}指标计算任务已启动（${marketDesc}）`, 'success');
     } else {
         showToast(`${periodName}指标计算启动失败`, 'error');
-        
+
         // 恢复按钮状态
         if (computeDailyBtn) {
             computeDailyBtn.disabled = false;
@@ -2250,7 +2250,7 @@ async function computeIndicators(period) {
             computeHourlyBtn.disabled = false;
             computeHourlyBtn.textContent = '⏰ 计算小时线';
         }
-        
+
         // 隐藏进度条
         if (progressContainer) {
             progressContainer.style.display = 'none';
@@ -2265,13 +2265,13 @@ async function stopIndicatorCompute() {
         stopBtn.disabled = true;
         stopBtn.textContent = '⏹ 停止中...';
     }
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/strategy/stop-indicator-compute`, {
             method: 'POST'
         });
         const result = await response.json();
-        
+
         if (result.code === 0) {
             showToast(result.message, 'success');
         } else {
@@ -2281,7 +2281,7 @@ async function stopIndicatorCompute() {
         console.error('[指标计算] 停止失败:', error);
         showToast(`停止失败: ${error.message}`, 'error');
     }
-    
+
     if (stopBtn) {
         stopBtn.disabled = false;
         stopBtn.textContent = '⏹ 停止';
@@ -2296,7 +2296,7 @@ window.addEventListener('pagehide', closeSSEConnection);
 function initRealtimeClock() {
     const clockEl = document.getElementById('realtime-clock');
     if (!clockEl) return;
-    
+
     function updateClock() {
         const now = new Date();
         // 转换为上海时间
@@ -2312,7 +2312,7 @@ function initRealtimeClock() {
         });
         clockEl.textContent = shanghaiTime;
     }
-    
+
     updateClock();
     setInterval(updateClock, 1000);
 }
@@ -2320,10 +2320,10 @@ function initRealtimeClock() {
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[全局] DOMContentLoaded 事件触发');
-    
+
     // 启动实时时钟
     initRealtimeClock();
-    
+
     try {
         console.log('[全局] 开始初始化认证...');
         await initAuth();
@@ -2338,22 +2338,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('[全局] 启动应用失败:', e);
         }
     }
-    
+
     // 监听浏览器返回按钮，处理页面导航和K线图关闭
     window.addEventListener('popstate', (event) => {
         const state = event.state || {};
         const path = window.location.pathname;
-        
+
         // 检查是否从K线图页面返回
         const wasKlinePage = state.klineModal || path.startsWith('/kline/');
         const isKlinePage = path.startsWith('/kline/');
-        
+
         // 如果从K线图页面返回，关闭模态框
         const modal = document.getElementById('kline-modal');
         if (wasKlinePage && !isKlinePage && modal && modal.style.display !== 'none') {
             // 关闭K线图模态框
             modal.style.display = 'none';
-            
+
             // 清理图表
             if (chart) {
                 const container = document.getElementById('chart-container');
@@ -2368,19 +2368,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 candleSeries = null;
                 volumeSeries = null;
             }
-            
+
             // 清除状态
             try {
                 localStorage.removeItem('klineModalState');
             } catch (e) {
                 console.warn('清除K线模态弹窗状态失败:', e);
             }
-            
+
             currentKlineCode = null;
             currentKlineName = null;
             currentKlineStockData = null;
         }
-        
+
         // 处理tab切换（根据路径判断）
         if (state.tab) {
             switchToTab(state.tab, false); // false表示不添加历史记录
@@ -2406,7 +2406,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             switchToTab('market', false);
         }
     });
-    
+
     // 初始化时根据URL路径设置tab（这个逻辑由initTabs处理，这里不需要重复）
     // 注意：initTabs会在startApp中调用，所以这里不需要处理
 });
@@ -2417,63 +2417,63 @@ function startApp() {
         initTheme();
         const currentTab = initTabs(); // 获取当前激活的tab
         console.log('[启动] 当前tab:', currentTab);
-    
-    // 监听自选股变化事件（同一标签页内的同步）
-    window.addEventListener('watchlistChanged', (e) => {
-        const { action, code } = e.detail;
-        console.log(`[自选] 自选股变化事件: ${action}, 代码: ${code}`);
-        
-        // 更新按钮状态
-        updateWatchlistButtonStates();
-        
-        // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
-        // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
-        console.log('[自选] 等待SSE推送更新（无感刷新）');
-    });
-    
-    // 初始化所有模块
-    initMarket(); // 始终初始化行情模块（即使不在行情页，也需要初始化事件监听）
-    initWatchlist(); // 初始化自选股模块
-    
-    // 根据当前tab加载数据（首次加载）
-    if (currentTab === 'market') {
-        // 如果当前是行情页，检查是否有数据，没有才加载
-        const tbody = document.getElementById('stock-list');
-        if (!tbody || tbody.children.length === 0) {
-            loadMarket(); // 首次加载后会连接SSE
-        } else {
-            // 检查是否有有效数据（不是loading或错误提示）
-            const hasData = Array.from(tbody.children).some(tr => {
-                const text = tr.textContent || '';
-                const cells = tr.querySelectorAll('td');
-                return cells.length > 1 && text.trim() && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
-            });
-            if (!hasData) {
+
+        // 监听自选股变化事件（同一标签页内的同步）
+        window.addEventListener('watchlistChanged', (e) => {
+            const { action, code } = e.detail;
+            console.log(`[自选] 自选股变化事件: ${action}, 代码: ${code}`);
+
+            // 更新按钮状态
+            updateWatchlistButtonStates();
+
+            // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
+            // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
+            console.log('[自选] 等待SSE推送更新（无感刷新）');
+        });
+
+        // 初始化所有模块
+        initMarket(); // 始终初始化行情模块（即使不在行情页，也需要初始化事件监听）
+        initWatchlist(); // 初始化自选股模块
+
+        // 根据当前tab加载数据（首次加载）
+        if (currentTab === 'market') {
+            // 如果当前是行情页，检查是否有数据，没有才加载
+            const tbody = document.getElementById('stock-list');
+            if (!tbody || tbody.children.length === 0) {
                 loadMarket(); // 首次加载后会连接SSE
             } else {
-                // SSE已全局连接，无需重新连接
+                // 检查是否有有效数据（不是loading或错误提示）
+                const hasData = Array.from(tbody.children).some(tr => {
+                    const text = tr.textContent || '';
+                    const cells = tr.querySelectorAll('td');
+                    return cells.length > 1 && text.trim() && !text.includes('加载中') && !text.includes('加载失败') && !text.includes('暂无数据');
+                });
+                if (!hasData) {
+                    loadMarket(); // 首次加载后会连接SSE
+                } else {
+                    // SSE已全局连接，无需重新连接
+                }
             }
+        } else if (currentTab === 'watchlist') {
+            // 如果当前是自选页，先显示缓存数据，SSE会推送更新
+            console.log('[自选] 当前是自选页，先显示缓存数据');
+            const cachedData = getCachedWatchlistData();
+            const localWatchlist = getWatchlist();
+            if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
+                renderWatchlistStocks(cachedData, false, true);
+            } else if (localWatchlist.length > 0) {
+                loadWatchlist(false);
+            }
+        } else if (currentTab === 'news') {
+            // 如果当前是资讯页，主动加载一次数据（避免页面为空）
+            console.log('[资讯] 当前是资讯页，主动加载一次数据');
+            loadNews();
         }
-    } else if (currentTab === 'watchlist') {
-        // 如果当前是自选页，先显示缓存数据，SSE会推送更新
-        console.log('[自选] 当前是自选页，先显示缓存数据');
-        const cachedData = getCachedWatchlistData();
-        const localWatchlist = getWatchlist();
-        if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
-            renderWatchlistStocks(cachedData, false, true);
-        } else if (localWatchlist.length > 0) {
-            loadWatchlist(false);
-        }
-    } else if (currentTab === 'news') {
-        // 如果当前是资讯页，主动加载一次数据（避免页面为空）
-        console.log('[资讯] 当前是资讯页，主动加载一次数据');
-        loadNews();
-    }
-    
-    // 建立全局SSE连接（推送所有类型数据，不依赖tab）
-    console.log('[启动] 建立全局SSE连接');
-    connectSSE();
-    
+
+        // 建立全局SSE连接（推送所有类型数据，不依赖tab）
+        console.log('[启动] 建立全局SSE连接');
+        connectSSE();
+
         initKlineModal();
         initStrategy();
         initAI();
@@ -2482,13 +2482,13 @@ function startApp() {
         initTvFilters(); // 初始化 TradingView 风格筛选器
         console.log('[启动] 准备初始化市场状态模块');
         initMarketStatus();
-        
+
         // 初始化SSE状态显示（初始状态为未连接）
         updateSSEStatus('disconnected');
-        
+
         // 加载上次的采集结果（持久化显示）
         loadSpotCollectResult();
-        
+
         console.log('[启动] startApp函数执行完成');
     } catch (error) {
         console.error('[启动] startApp执行出错:', error);
@@ -2508,10 +2508,10 @@ function initTheme() {
     if (themeInitialized) {
         return; // 已经初始化过，避免重复初始化
     }
-    
+
     const body = document.body;
     const btn = document.getElementById('theme-toggle');
-    
+
     if (!btn) {
         console.warn('[主题] 主题切换按钮不存在，将在DOM加载后重试');
         // 延迟重试，确保DOM已加载
@@ -2520,17 +2520,17 @@ function initTheme() {
         }, 100);
         return;
     }
-    
+
     themeInitialized = true;
-    
+
     const saved = localStorage.getItem('theme');
     // 如果主题已在页面加载前设置（通过head中的脚本），这里只是确保应用（不会重复添加）
     if (saved === 'light' && !body.classList.contains('light-mode')) {
         body.classList.add('light-mode');
     }
-    
+
     updateThemeButtonText(btn, body);
-    
+
     // 绑定点击事件
     btn.addEventListener('click', () => {
         body.classList.toggle('light-mode');
@@ -2558,12 +2558,12 @@ async function apiFetch(url, options = {}) {
     if (adminToken) {
         headers['X-Admin-Token'] = adminToken;
     }
-    
+
     // 调试日志（仅在开发环境）
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         console.debug('API请求:', url, { hasApiToken: !!apiToken, hasAdminToken: !!adminToken });
     }
-    
+
     return fetch(url, { ...options, headers });
 }
 
@@ -2571,22 +2571,22 @@ async function apiFetch(url, options = {}) {
 function switchToTab(targetTab, addHistory = true) {
     const tabs = document.querySelectorAll('.tab-btn');
     const contents = document.querySelectorAll('.tab-content');
-    
+
     // 移除所有active类
     tabs.forEach(t => t.classList.remove('active'));
     contents.forEach(c => c.classList.remove('active'));
-    
+
     // 设置目标tab为active
     const targetBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
     const targetContent = document.getElementById(`${targetTab}-tab`);
-    
+
     if (targetBtn && targetContent) {
         targetBtn.classList.add('active');
         targetContent.classList.add('active');
-        
+
         // 保存当前tab到localStorage
         localStorage.setItem('currentTab', targetTab);
-        
+
         // 更新URL（使用路径模式，如 /market, /watchlist）
         if (window.history) {
             const url = `/${targetTab}${window.location.search}`;
@@ -2598,15 +2598,15 @@ function switchToTab(targetTab, addHistory = true) {
                 window.history.replaceState({ tab: targetTab }, '', url);
             }
         }
-        
+
         // 切换到自选页时，先显示缓存数据，通过SSE实时推送更新
         if (targetTab === 'watchlist') {
             console.log('[自选] 切换到自选页，使用SSE实时推送（SSE已连接，无需重连）');
-            
+
             // 先使用缓存数据快速显示（如果存在）
             const cachedData = getCachedWatchlistData();
             const localWatchlist = getWatchlist();
-            
+
             if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
                 console.log('[自选] 使用缓存数据快速显示，共', cachedData.length, '只股票');
                 // 先渲染缓存数据（无感显示）
@@ -2620,17 +2620,17 @@ function switchToTab(targetTab, addHistory = true) {
                 console.log('[自选] 自选列表为空');
                 loadWatchlist(false);
             }
-            
+
             // SSE已全局连接，无需重新连接
         }
-        
+
         // 切换到行情页时，使用SSE实时推送
         if (targetTab === 'market') {
             console.log('[行情] 切换到行情页，使用SSE实时推送（SSE已连接，无需重连）');
-            
+
             // 直接使用本地缓存更新按钮状态（避免频繁同步）
             updateWatchlistButtonStates();
-            
+
             // 如果表格为空，先加载一次初始数据
             const tbody = document.getElementById('stock-list');
             if (!tbody || tbody.children.length === 0) {
@@ -2648,10 +2648,10 @@ function switchToTab(targetTab, addHistory = true) {
                     loadMarket();
                 }
             }
-            
+
             // SSE已全局连接，无需重新连接
         }
-        
+
         // 切换到资讯页时，如果数据为空则主动加载一次
         if (targetTab === 'news') {
             console.log('[资讯] 切换到资讯页，使用SSE实时推送（SSE已连接，无需重连）');
@@ -2659,16 +2659,16 @@ function switchToTab(targetTab, addHistory = true) {
             // 如果数据为空，主动加载一次（避免页面为空）
             const newsList = document.getElementById('news-list');
             if (newsList) {
-                const hasData = newsList.children.length > 0 && 
-                               !newsList.innerHTML.includes('暂无资讯') && 
-                               !newsList.innerHTML.includes('加载中');
+                const hasData = newsList.children.length > 0 &&
+                    !newsList.innerHTML.includes('暂无资讯') &&
+                    !newsList.innerHTML.includes('加载中');
                 if (!hasData) {
                     console.log('[资讯] 切换到资讯页，数据为空，主动加载一次');
                     loadNews();
                 }
             }
         }
-        
+
         // 切换到选股页时，加载选股结果
         if (targetTab === 'strategy') {
             console.log('[选股] 切换到选股页');
@@ -2677,7 +2677,7 @@ function switchToTab(targetTab, addHistory = true) {
                 loadSelectedStocks();
             }
         }
-        
+
         // 切换到AI分析页时，从服务器加载历史分析结果
         if (targetTab === 'ai') {
             console.log('[AI] 切换到AI分析页');
@@ -2685,15 +2685,15 @@ function switchToTab(targetTab, addHistory = true) {
             // 但如果显示的是错误信息，则不自动加载历史
             const container = document.getElementById('ai-analysis-result');
             if (container) {
-                const hasData = container.querySelector('.ai-analysis-table') || 
-                               container.querySelector('.ai-analysis-content');
+                const hasData = container.querySelector('.ai-analysis-table') ||
+                    container.querySelector('.ai-analysis-content');
                 const hasError = container.querySelector('.ai-error');
                 if (!hasData && !hasError) {
                     loadAIAnalysisHistory();
                 }
             }
         }
-        
+
         // 切换到配置页时，加载配置
         if (targetTab === 'config') {
             console.log('[配置] 切换到配置页');
@@ -2710,11 +2710,11 @@ function switchToTab(targetTab, addHistory = true) {
 // 标签切换
 function initTabs() {
     const tabs = document.querySelectorAll('.tab-btn');
-    
+
     // 立即从localStorage恢复上次的tab（避免闪烁）
     const savedTab = localStorage.getItem('currentTab') || 'market';
     const path = window.location.pathname;
-    
+
     // 根据路径确定初始tab
     let initialTab = savedTab;
     if (path && path !== '/') {
@@ -2729,22 +2729,22 @@ function initTabs() {
             }
         }
     }
-    
+
     // 确保URL路径正确（如果路径不正确，使用replaceState更新）
     const currentPath = window.location.pathname;
     const expectedPath = `/${initialTab}`;
-    
+
     if (currentPath !== expectedPath && !currentPath.startsWith('/kline/')) {
         // 如果当前路径与期望的路径不一致，且不是K线图页面，则更新URL
         if (window.history && window.history.replaceState) {
             window.history.replaceState({ tab: initialTab }, '', `${expectedPath}${window.location.search}`);
         }
     }
-    
+
     // 立即切换到初始tab（不添加历史记录，因为这是首次加载）
     // switchToTab内部也会更新URL，但这里我们已经更新了，避免重复
     switchToTab(initialTab, false);
-    
+
     // 为每个tab按钮添加点击事件
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -2752,7 +2752,7 @@ function initTabs() {
             switchToTab(targetTab, true); // 点击切换时添加历史记录
         });
     });
-    
+
     // 返回当前激活的tab，供其他模块使用
     return initialTab;
 }
@@ -2777,27 +2777,27 @@ function handleMarketScroll() {
     if (!marketTab || !marketTab.classList.contains('active')) {
         return;
     }
-    
+
     // 防抖处理
     if (marketScrollTimer) {
         clearTimeout(marketScrollTimer);
     }
-    
+
     marketScrollTimer = setTimeout(() => {
         // 重新获取容器引用（可能DOM已更新）
         const currentContainer = document.querySelector('.stock-list-container');
         let scrollTop, scrollHeight, clientHeight;
         let usingContainer = false;
-        
+
         const isMobile = window.innerWidth <= 768;
-        
+
         if (currentContainer) {
             const containerScrollHeight = currentContainer.scrollHeight;
             const containerClientHeight = currentContainer.clientHeight;
-            
+
             // 检查容器是否可以滚动
             const canContainerScroll = containerScrollHeight > containerClientHeight + 5;
-            
+
             if (canContainerScroll) {
                 // 容器可以滚动，使用容器滚动
                 scrollTop = currentContainer.scrollTop;
@@ -2806,32 +2806,32 @@ function handleMarketScroll() {
                 usingContainer = true;
             }
         }
-        
+
         // 如果容器无法滚动，使用window滚动
         if (!usingContainer) {
             scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             scrollHeight = document.documentElement.scrollHeight;
             clientHeight = window.innerHeight;
         }
-        
+
         // 距离底部100px时加载下一页
         const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
-        
+
         // 详细日志（仅在接近底部时输出，避免日志过多）
         if (distanceToBottom < 200) {
-            console.log('[行情] 滚动检测:', { 
+            console.log('[行情] 滚动检测:', {
                 distanceToBottom: distanceToBottom.toFixed(2),
                 scrollTop: scrollTop.toFixed(2),
                 scrollHeight,
                 clientHeight,
-                isLoading, 
-                hasMore, 
+                isLoading,
+                hasMore,
                 currentPage,
                 usingContainer: usingContainer ? 'container' : 'window',
                 shouldLoad: distanceToBottom <= 100 && !isLoading && hasMore
             });
         }
-        
+
         // 仅在用户实际滚动时触发加载（不自动加载）
         if (distanceToBottom <= 100 && !isLoading && hasMore) {
             console.log('[行情] ✅ 触发无限滚动，加载下一页，当前页:', currentPage);
@@ -2845,10 +2845,10 @@ let scrollListenersSetup = false;
 let containerScrollListenerSetup = false;
 function setupMarketScrollListeners() {
     const currentContainer = document.querySelector('.stock-list-container');
-    
+
     // 监听容器滚动（移动端和桌面端都支持）
     const isMobile = window.innerWidth <= 768;
-    
+
     if (currentContainer) {
         // 移除旧的监听器（如果存在）- 使用命名函数引用确保能正确移除
         if (containerScrollListenerSetup) {
@@ -2857,7 +2857,7 @@ function setupMarketScrollListeners() {
         // 添加新的监听器
         currentContainer.addEventListener('scroll', handleMarketScroll, { passive: true });
         containerScrollListenerSetup = true;
-        
+
         const rowCount = document.getElementById('stock-list')?.children.length || 0;
         const canScroll = currentContainer.scrollHeight > currentContainer.clientHeight + 5;
         console.log('[行情] ✅ 已设置容器滚动监听器', {
@@ -2874,7 +2874,7 @@ function setupMarketScrollListeners() {
     } else {
         console.warn('[行情] ⚠️ 容器不存在，无法设置滚动监听');
     }
-    
+
     // window滚动监听器只设置一次（避免重复添加）
     // 移动端也设置window滚动作为备用（虽然主要使用容器滚动）
     if (!scrollListenersSetup) {
@@ -2888,15 +2888,15 @@ async function initMarket() {
     const marketSelect = document.getElementById('market-select');
     const searchInput = document.getElementById('search-input');
     const container = document.querySelector('.stock-list-container');
-    
+
     if (!marketSelect || !searchInput) {
         console.warn('行情页元素不存在，跳过初始化');
         return;
     }
-    
+
     marketSelect.addEventListener('change', () => resetAndLoadMarket());
     searchInput.addEventListener('input', handleSearch);
-    
+
     // 从服务器加载UI配置
     const uiConfig = await loadUIConfig();
     if (uiConfig) {
@@ -2907,7 +2907,7 @@ async function initMarket() {
         currentSort = localStorage.getItem('marketSort') || 'default';
         filterStockOnly = localStorage.getItem('filterStockOnly') === 'true';
     }
-    
+
     // 初始化排序切换
     document.querySelectorAll('.sort-tab').forEach(tab => {
         // 恢复active状态
@@ -2915,28 +2915,28 @@ async function initMarket() {
             document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
         }
-        
+
         tab.addEventListener('click', () => {
             // 更新active状态
             document.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-            
+
             // 更新排序方式并保存到服务器
             currentSort = tab.getAttribute('data-sort');
             saveUIConfig({ market_sort: currentSort });
             console.log('[行情] 切换排序:', currentSort);
-            
+
             // 切换排序时，重置页码并重新从后端加载数据（后端会对全量数据排序后分页返回）
             resetAndLoadMarket();
         });
     });
-    
+
     // 初始化"仅显示股票"过滤
     const filterStockOnlyCheckbox = document.getElementById('filter-stock-only');
     if (filterStockOnlyCheckbox) {
         // 同步 checkbox 状态
         filterStockOnlyCheckbox.checked = filterStockOnly;
-        
+
         filterStockOnlyCheckbox.addEventListener('change', () => {
             filterStockOnly = filterStockOnlyCheckbox.checked;
             saveUIConfig({ market_filter_stock_only: filterStockOnly });
@@ -2945,13 +2945,13 @@ async function initMarket() {
             resetAndLoadMarket();
         });
     }
-    
+
     // 立即设置一次
     setupMarketScrollListeners();
-    
+
     // 延迟再次设置（确保DOM完全加载）
     setTimeout(setupMarketScrollListeners, 500);
-    
+
     // 移动端额外多次延迟设置，确保容器高度计算正确和滚动监听器正确绑定
     if (window.innerWidth <= 768) {
         setTimeout(() => {
@@ -2963,7 +2963,7 @@ async function initMarket() {
             }, 500);
         }, 1000);
     }
-    
+
     // 监听窗口大小变化（包括移动端横竖屏切换）
     let resizeTimer = null;
     window.addEventListener('resize', () => {
@@ -2979,7 +2979,7 @@ async function initMarket() {
             }
         }, 300);
     });
-    
+
     // 监听tab切换，重新设置滚动监听器
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2995,7 +2995,7 @@ async function initMarket() {
             }
         });
     });
-    
+
     // 注意：不在这里加载数据，由startApp()根据当前tab决定是否加载
     // 不再使用定时刷新，改用SSE实时推送
 }
@@ -3015,18 +3015,18 @@ function resetAndLoadMarket() {
 function updateWatchlistButtonStates() {
     const watchlist = getWatchlist();
     const watchlistCodes = new Set(watchlist.map(s => String(s.code).trim()));
-    
+
     console.log('[按钮状态] 更新按钮状态，当前自选股:', Array.from(watchlistCodes));
-    
+
     document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
         const code = String(btn.getAttribute('data-code') || '').trim();
         if (!code) {
             console.warn('[按钮状态] 按钮缺少data-code属性:', btn);
             return;
         }
-        
+
         const isInWatchlist = watchlistCodes.has(code);
-        
+
         if (isInWatchlist) {
             btn.textContent = '已添加';
             btn.style.background = '#94a3b8';
@@ -3040,11 +3040,11 @@ function updateWatchlistButtonStates() {
             btn.style.cursor = 'pointer';
             btn.style.opacity = '1';
         }
-        
+
         // 确保按钮可以点击（移除可能存在的阻止点击的样式）
         btn.style.pointerEvents = isInWatchlist ? 'none' : 'auto';
     });
-    
+
     console.log('[按钮状态] 按钮状态更新完成，共更新', document.querySelectorAll('.add-watchlist-btn').length, '个按钮');
 }
 
@@ -3055,35 +3055,35 @@ async function loadMarket() {
         console.log('行情页未激活，跳过加载');
         return;
     }
-    
+
     if (isLoading) {
         console.log('[行情] ⚠️ 数据正在加载中，跳过重复请求, currentPage=', currentPage);
         return;
     }
-    
+
     const tbody = document.getElementById('stock-list');
     if (!tbody) {
         console.warn('行情页表格不存在，跳过加载');
         return;
     }
-    
+
     console.log('[行情] 开始加载, currentPage=', currentPage, ', hasMore=', hasMore);
-    
+
     // 排序由后端处理，不再使用本地排序数据
-    
+
     // 行情页每次都刷新，不再检查是否已有数据
     // 但如果当前正在加载中，跳过重复请求（已在函数开头检查isLoading）
-    
+
     const marketSelect = document.getElementById('market-select');
     if (!marketSelect) {
         console.warn('行情页选择器不存在，跳过加载');
         return;
     }
-    
+
     isLoading = true;
     const market = marketSelect.value || 'a';
     currentMarket = market;
-    
+
     // 如果是第一页，显示加载提示
     if (currentPage === 1) {
         tbody.innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
@@ -3094,51 +3094,51 @@ async function loadMarket() {
         loadingRow.innerHTML = '<td colspan="8" class="loading">加载更多...</td>';
         tbody.appendChild(loadingRow);
     }
-    
+
     try {
         // 添加超时控制，避免请求卡住
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             controller.abort('Request timeout after 10 seconds');
         }, 10000); // 10秒超时
-        
+
         console.log(`[行情] 加载行情数据: market=${market}, page=${currentPage}, pageSize=${pageSize}, stockOnly=${filterStockOnly}, sort=${currentSort}`);
         const stockOnlyParam = filterStockOnly ? '&stock_only=true' : '';
         const sortParam = currentSort ? `&sort=${currentSort}` : '';
         const response = await apiFetch(`${API_BASE}/api/market/${market}/spot?page=${currentPage}&page_size=${pageSize}${stockOnlyParam}${sortParam}`, {
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         console.log(`[行情] 收到响应: status=${response.status}, ok=${response.ok}`);
-        
+
         // 再次检查行情页是否仍然激活
         if (!marketTab || !marketTab.classList.contains('active')) {
             console.log('行情页已切换，取消加载');
             isLoading = false;
             return;
         }
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.log(`[行情] 解析结果: code=${result.code}, dataLength=${result.data?.length || 0}`);
-        
+
         // 移除加载提示
         const loadingIndicator = document.getElementById('loading-indicator');
         if (loadingIndicator) {
             loadingIndicator.remove();
         }
-        
+
         if (result.code === 0) {
             if (currentPage === 1) {
                 tbody.innerHTML = '';
                 // 第一页时保存数据
                 allMarketData = result.data || [];
-                
+
                 // 更新上证指数显示（仅A股市场第一页）
                 if (market === 'a') {
                     updateShIndexDisplay(result.data);
@@ -3147,16 +3147,16 @@ async function loadMarket() {
                 // 追加数据
                 allMarketData = allMarketData.concat(result.data || []);
             }
-            
-                if (result.data && result.data.length > 0) {
+
+            if (result.data && result.data.length > 0) {
                 // 后端已经处理了排序和过滤，直接追加数据
                 appendStockList(result.data);
-                
+
                 // 如果是第一页且首次加载，连接SSE实时推送
                 if (currentPage === 1) {
                     connectSSE('market');
                 }
-                
+
                 // 数据加载完成后，检查容器状态并重新设置滚动监听器
                 // 使用多个延迟确保DOM完全更新（特别是移动端）
                 setTimeout(() => {
@@ -3175,16 +3175,16 @@ async function loadMarket() {
                             hasMore: hasMore,
                             isMobile: window.innerWidth <= 768
                         });
-                        
+
                         // 重新设置滚动监听器（确保监听器已绑定到最新的DOM）
                         setupMarketScrollListeners();
-                        
+
                         // 移动端额外延迟多次，确保容器高度计算正确和滚动监听器正确绑定
                         if (window.innerWidth <= 768) {
                             setTimeout(() => {
                                 setupMarketScrollListeners();
                                 console.log('[行情] 移动端：二次设置滚动监听器');
-                                
+
                                 // 第三次设置，确保万无一失
                                 setTimeout(() => {
                                     setupMarketScrollListeners();
@@ -3194,7 +3194,7 @@ async function loadMarket() {
                         }
                     }
                 }, 200);
-                
+
                 // 检查是否还有更多数据
                 if (result.pagination) {
                     hasMore = currentPage < result.pagination.total_pages;
@@ -3216,7 +3216,7 @@ async function loadMarket() {
                         console.log(`[行情] ⚠️ 数据已全部加载，返回数据量=${result.data.length}, pageSize=${pageSize}`);
                     }
                 }
-                
+
                 // 如果没有更多数据，显示提示
                 if (!hasMore && currentPage > 1) {
                     const endRow = document.createElement('tr');
@@ -3239,20 +3239,20 @@ async function loadMarket() {
         }
     } catch (error) {
         console.error('[行情] 加载失败:', error);
-        
+
         // 再次检查行情页是否仍然激活
         if (!marketTab || !marketTab.classList.contains('active')) {
             console.log('行情页已切换，取消错误处理');
             isLoading = false;
             return;
         }
-        
+
         // 移除加载提示
         const loadingIndicator = document.getElementById('loading-indicator');
         if (loadingIndicator) {
             loadingIndicator.remove();
         }
-        
+
         if (currentPage === 1) {
             let errorMsg = '加载失败';
             if (error.name === 'AbortError' || error.message?.includes('aborted')) {
@@ -3268,7 +3268,7 @@ async function loadMarket() {
     } finally {
         isLoading = false;
         console.log('[行情] loadMarket完成, isLoading=false, currentPage=', currentPage, ', hasMore=', hasMore);
-        
+
         // 移除自动加载逻辑，仅通过滚动事件触发加载，避免无限循环
         // 滚动监听器已在handleMarketScroll中处理"内容不足"的情况
     }
@@ -3280,9 +3280,9 @@ function appendStockList(stocks) {
         tbody.innerHTML = '<tr><td colspan="8" class="loading">暂无数据</td></tr>';
         return;
     }
-    
+
     const watchlist = getWatchlist();
-    
+
     stocks.forEach(stock => {
         const tr = document.createElement('tr');
         const isInWatchlist = watchlist.some(s => s.code === stock.code);
@@ -3294,12 +3294,12 @@ function appendStockList(stocks) {
             if (val == null || val === undefined || isNaN(val)) return '-';
             return formatter(val);
         };
-        
+
         const price = safeValue(stock.price, (v) => v.toFixed(2));
         const pct = safeValue(stock.pct, (v) => v.toFixed(2) + '%');
         const pctNum = stock.pct != null && !isNaN(stock.pct) ? stock.pct : null;
         const pctClass = pctNum != null ? (pctNum >= 0 ? 'up' : 'down') : '';
-        
+
         tr.innerHTML = `
             <td>${stock.code || '-'}</td>
             <td>${stock.name || '-'}</td>
@@ -3312,9 +3312,9 @@ function appendStockList(stocks) {
                 <button class="add-watchlist-btn" data-code="${stock.code}" data-name="${stock.name}" style="padding: 4px 8px; background: ${isInWatchlist ? '#94a3b8' : '#10b981'}; color: white; border: none; border-radius: 4px; cursor: ${isInWatchlist ? 'not-allowed' : 'pointer'}; ${isInWatchlist ? 'opacity: 0.6; pointer-events: none;' : 'opacity: 1; pointer-events: auto;'}" ${isInWatchlist ? 'disabled' : ''}>${isInWatchlist ? '已添加' : '加入自选'}</button>
             </td>
         `;
-        
+
         // 添加单击事件
-        tr.addEventListener('click', function(e) {
+        tr.addEventListener('click', function (e) {
             // 如果点击的是按钮，不触发
             if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
                 return;
@@ -3323,34 +3323,34 @@ function appendStockList(stocks) {
             const stockData = JSON.parse(this.getAttribute('data-stock'));
             openKlineModal(stockData.code, stockData.name, stockData);
         });
-        
+
         tbody.appendChild(tr);
     });
-    
+
     // 添加自选按钮点击事件
     document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
         // 移除旧的事件监听器（通过克隆节点）
         const newBtn = btn.cloneNode(true);
         btn.parentNode.replaceChild(newBtn, btn);
-        
-        newBtn.onclick = function(e) {
+
+        newBtn.onclick = function (e) {
             e.preventDefault();
             e.stopPropagation();
             const code = String(this.getAttribute('data-code') || '').trim();
             const name = String(this.getAttribute('data-name') || code).trim();
-            
+
             if (!code) {
                 console.error('[自选] 按钮缺少data-code属性');
                 return;
             }
-            
+
             // 检查是否已在自选列表中
             const currentWatchlist = getWatchlist();
             if (currentWatchlist.some(s => String(s.code).trim() === code)) {
                 console.log('[自选] 股票已在自选列表中:', code);
                 return;
             }
-            
+
             console.log('[自选] 添加股票到自选:', code, name);
             addToWatchlist(code, name);
         };
@@ -3376,14 +3376,14 @@ function formatAmount(amount) {
 async function applyFilterAndSort() {
     const tbody = document.getElementById('stock-list');
     if (!tbody) return;
-    
+
     if (!allMarketData || allMarketData.length === 0) {
         console.log('[行情] 无数据可排序');
         return;
     }
-    
+
     let filteredData = [...allMarketData];
-    
+
     // 应用"仅显示股票"过滤（优先使用后端标注的sec_type，否则启发式判断）
     if (filterStockOnly) {
         filteredData = filteredData.filter(stock => {
@@ -3395,7 +3395,7 @@ async function applyFilterAndSort() {
             // 回退到名称/代码启发式判断（兼容旧数据）
             const code = String(stock.code || '');
             const name = String(stock.name || '');
-            
+
             if (currentMarket === 'a') {
                 if (name.includes('指数') || name.includes('ETF') || name.includes('LOF')) return false;
                 if (code.startsWith('399')) return false;
@@ -3408,7 +3408,7 @@ async function applyFilterAndSort() {
             return true;
         });
     }
-    
+
     // 应用排序
     if (currentSort !== 'default') {
         filteredData.sort((a, b) => {
@@ -3428,26 +3428,26 @@ async function applyFilterAndSort() {
             }
         });
     }
-    
+
     // 保存过滤后的数据（用于无限滚动）
     window.filteredMarketData = filteredData;
-    
+
     // 仅在第一次应用过滤时重新渲染列表
     if (currentPage === 1) {
         tbody.innerHTML = '';
         hasMore = filteredData.length >= pageSize;  // 当前过滤数据足够一页时，认为可能还有更多
-        
+
         // 只显示第一页
         const firstPage = filteredData.slice(0, pageSize);
         appendStockList(firstPage);
-        
+
         // 如果有更多数据，更新分页状态
         if (hasMore) {
             currentPage = 2; // 下一页从2开始
         }
-        
+
         console.log(`[行情] 过滤排序完成: 原始${allMarketData.length}条, 过滤后${filteredData.length}条, 排序=${currentSort}, hasMore=${hasMore}`);
-        
+
         // 移除自动加载逻辑，改为依赖滚动事件触发加载
         // 滚动监听器会在内容不足时自动触发加载
     } else {
@@ -3461,27 +3461,27 @@ let searchDebounceTimer = null;
 
 async function handleSearch() {
     const keyword = document.getElementById('search-input').value.trim();
-    
+
     // 清除之前的定时器
     if (searchDebounceTimer) {
         clearTimeout(searchDebounceTimer);
     }
-    
+
     // 如果搜索框为空，重置并加载市场数据
     if (!keyword) {
         resetAndLoadMarket();
         return;
     }
-    
+
     // 防抖：300ms后执行搜索
     searchDebounceTimer = setTimeout(async () => {
         try {
             console.log(`[搜索] 开始搜索: "${keyword}"`);
             const response = await apiFetch(`${API_BASE}/api/market/search?keyword=${encodeURIComponent(keyword)}`);
             const result = await response.json();
-            
+
             console.log(`[搜索] API响应:`, { code: result.code, dataLength: result.data?.length, message: result.message });
-            
+
             // 诊断：检查前3条结果的price字段
             if (result.data && result.data.length > 0) {
                 console.log(`[搜索诊断] 前3条结果的price字段:`, result.data.slice(0, 3).map(s => ({
@@ -3494,12 +3494,12 @@ async function handleSearch() {
                     priceIsZero: s.price === 0
                 })));
             }
-            
+
             const tbody = document.getElementById('stock-list');
             if (result.code === 0) {
                 tbody.innerHTML = '';
                 hasMore = false; // 搜索结果不启用无限加载
-                
+
                 if (result.data.length === 0) {
                     console.warn(`[搜索] 未找到匹配的股票: "${keyword}"`);
                     tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">未找到匹配的股票</td></tr>';
@@ -3509,13 +3509,13 @@ async function handleSearch() {
                         console.log(`[搜索] 前3条结果:`, result.data.slice(0, 3).map(s => ({ code: s.code, name: s.name, price: s.price })));
                     }
                     appendStockList(result.data);
-                    
+
                     // 更新按钮状态（检查是否已在自选）
                     const watchlist = getWatchlist();
                     document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
                         const code = String(btn.getAttribute('data-code') || '').trim();
                         const isInWatchlist = watchlist.some(s => String(s.code).trim() === code);
-                        
+
                         if (isInWatchlist) {
                             btn.textContent = '已添加';
                             btn.style.background = '#94a3b8';
@@ -3557,7 +3557,7 @@ function initKlineModal() {
         if (savedPeriod && ['1h', 'daily', 'weekly', 'monthly'].includes(savedPeriod)) {
             periodSelect.value = savedPeriod;
         }
-        
+
         periodSelect.addEventListener('change', () => {
             // 保存周期选择到服务器
             saveUIConfig({ kline_chart_period: periodSelect.value });
@@ -3566,7 +3566,7 @@ function initKlineModal() {
             }
         });
     }
-    
+
     // 绑定刷新按钮
     const refreshBtn = document.getElementById('kline-refresh-btn');
     if (refreshBtn) {
@@ -3577,10 +3577,10 @@ function initKlineModal() {
             }
         });
     }
-    
+
     // 初始化指标控制面板内容（在打开模态框之前就填充，不依赖指标数据加载）
     initIndicatorPanels();
-    
+
     // 检查是否有保存的K线状态，页面刷新后自动恢复
     try {
         const savedKlineState = localStorage.getItem('klineModalState');
@@ -3609,7 +3609,7 @@ async function initIndicatorPanels() {
         console.warn('指标控制面板容器不存在');
         return;
     }
-    
+
     // 从服务器加载配置
     const uiConfig = await loadUIConfig();
     if (uiConfig) {
@@ -3633,7 +3633,7 @@ async function initIndicatorPanels() {
             volumeVisible = savedVolumeVisible === 'true';
         }
     }
-    
+
     // 成交量控制内容
     volumeContainer.innerHTML = `
         <label class="indicator-switch">
@@ -3641,7 +3641,7 @@ async function initIndicatorPanels() {
             <span>成交量显示</span>
         </label>
     `;
-    
+
     // EMA 控制内容
     emaContainer.innerHTML = `
         <div class="indicator-switch">
@@ -3657,14 +3657,14 @@ async function initIndicatorPanels() {
             </div>
         </div>
     `;
-    
+
     // 绑定事件（每次重新绑定，因为innerHTML会清除事件）
     const volumeToggle = document.getElementById('volume-toggle');
     if (volumeToggle) {
         // 移除旧的事件监听器（如果存在）
         const newVolumeToggle = volumeToggle.cloneNode(true);
         volumeToggle.parentNode.replaceChild(newVolumeToggle, volumeToggle);
-        newVolumeToggle.addEventListener('change', function(e) {
+        newVolumeToggle.addEventListener('change', function (e) {
             volumeVisible = e.target.checked;
             saveUIConfig({ kline_volume_visible: volumeVisible });
             if (volumeSeries) {
@@ -3672,13 +3672,13 @@ async function initIndicatorPanels() {
             }
         });
     }
-    
+
     const emaToggle = document.getElementById('ema-toggle');
     if (emaToggle) {
         // 移除旧的事件监听器（如果存在）
         const newEmaToggle = emaToggle.cloneNode(true);
         emaToggle.parentNode.replaceChild(newEmaToggle, emaToggle);
-        newEmaToggle.addEventListener('change', function(e) {
+        newEmaToggle.addEventListener('change', function (e) {
             emaConfig.enabled = e.target.checked;
             saveUIConfig({ kline_ema_enabled: emaConfig.enabled });
             const emaGroup = document.getElementById('ema-config-group');
@@ -3688,7 +3688,7 @@ async function initIndicatorPanels() {
             updateEMA();
         });
     }
-    
+
     // EMA 数值输入：输入即生效（无需"应用"按钮）
     const emaInputs = ['ema1', 'ema2', 'ema3'];
     const defaultPeriods = [20, 50, 100];
@@ -3715,7 +3715,7 @@ async function initIndicatorPanels() {
             }
         });
     });
-    
+
     // 绑定折叠行为（点击"成交量"或"EMA"头部时展开/收起）
     // 直接绑定到每个toggle按钮，确保事件正常工作
     // 使用事件委托，避免重复绑定问题
@@ -3725,25 +3725,25 @@ async function initIndicatorPanels() {
         if (controlsBar._indicatorToggleHandler) {
             controlsBar.removeEventListener('click', controlsBar._indicatorToggleHandler);
         }
-        
+
         // 创建新的事件处理函数
         controlsBar._indicatorToggleHandler = (e) => {
             // 检查点击的是否是indicator-toggle或其子元素
             const toggle = e.target.closest('.indicator-toggle');
             if (!toggle) return;
-            
+
             e.stopPropagation(); // 阻止事件冒泡
             e.preventDefault(); // 阻止默认行为
-            
+
             const targetId = toggle.getAttribute('data-target');
             const content = document.getElementById(targetId);
             if (!content) {
                 console.warn('找不到目标元素:', targetId);
                 return;
             }
-            
+
             console.log('点击了indicator-toggle:', targetId, '当前状态:', toggle.classList.contains('active'));
-            
+
             // 切换active类
             const isActive = toggle.classList.contains('active');
             if (isActive) {
@@ -3757,16 +3757,16 @@ async function initIndicatorPanels() {
                     const otherPanel = document.getElementById(otherToggle.getAttribute('data-target'));
                     if (otherPanel) otherPanel.classList.remove('active');
                 });
-                
+
                 toggle.classList.add('active');
                 content.classList.add('active');
                 console.log('打开面板:', targetId, '元素存在:', !!content, '有active类:', content.classList.contains('active'));
             }
         };
-        
+
         controlsBar.addEventListener('click', controlsBar._indicatorToggleHandler);
     }
-    
+
     // 点击外部关闭panel（使用事件委托，避免重复绑定）
     // 使用全局变量标记，避免重复绑定
     if (!window.klineExternalClickBound) {
@@ -3787,7 +3787,7 @@ function openKlineModal(code, name, stockData = null) {
     currentKlineCode = code;
     currentKlineName = name;
     currentKlineStockData = stockData; // 保存stockData供loadChart使用
-    
+
     // 恢复保存的周期选择（从服务器配置）
     const periodSelect = document.getElementById('chart-period');
     if (periodSelect) {
@@ -3796,20 +3796,20 @@ function openKlineModal(code, name, stockData = null) {
             periodSelect.value = savedPeriod;
         }
     }
-    
+
     const modal = document.getElementById('kline-modal');
     const title = document.getElementById('kline-modal-title');
     const detailInfo = document.getElementById('stock-detail-info');
-    
+
     if (!modal) {
         console.error('K线模态弹窗不存在');
         return;
     }
-    
+
     if (title) {
         title.textContent = `${name} (${code}) - K线图`;
     }
-    
+
     // 显示股票详情
     if (detailInfo && stockData) {
         renderStockDetail(stockData);
@@ -3821,22 +3821,22 @@ function openKlineModal(code, name, stockData = null) {
             }
         });
     }
-    
+
     // 使用 history API 添加一个历史记录，用于处理返回按钮（使用路径模式）
     if (window.history && window.history.pushState) {
         const currentTab = localStorage.getItem('currentTab') || 'market';
         const url = `/kline/${code}${window.location.search}`;
         window.history.pushState({ klineModal: true, code: code, name: name, tab: currentTab }, '', url);
     }
-    
+
     modal.style.display = 'flex';
-    
+
     // 在移动端，确保模态框内容从顶部可见（不被地址栏遮挡）
     // 1. 立即滚动到顶部
     if (modal) {
         modal.scrollTop = 0;
     }
-    
+
     // 2. 动态设置模态框高度，使用实际窗口高度（不考虑地址栏）
     const setModalHeight = () => {
         const modalContent = document.querySelector('.kline-modal-content');
@@ -3848,10 +3848,10 @@ function openKlineModal(code, name, stockData = null) {
             console.log('[K线] 设置模态框高度:', actualHeight);
         }
     };
-    
+
     // 立即设置高度
     setModalHeight();
-    
+
     // 监听窗口大小变化（地址栏显示/隐藏时）
     const handleResize = () => {
         setModalHeight();
@@ -3865,20 +3865,20 @@ function openKlineModal(code, name, stockData = null) {
             modalContent.scrollTop = 0;
         }
     };
-    
+
     // 移除旧的监听器（如果存在）
     if (window._klineModalResizeHandler) {
         window.removeEventListener('resize', window._klineModalResizeHandler);
         window.removeEventListener('orientationchange', window._klineModalResizeHandler);
     }
-    
+
     // 添加新的监听器
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
-    
+
     // 保存清理函数，关闭模态框时移除监听器
     window._klineModalResizeHandler = handleResize;
-    
+
     // 等待模态框完全显示后再初始化面板和加载图表
     // 使用requestAnimationFrame + setTimeout确保DOM已完全渲染（特别是手机端）
     requestAnimationFrame(() => {
@@ -3900,7 +3900,7 @@ async function loadStockDetail(code) {
     try {
         // 先尝试从缓存获取
         let allStocks = getCachedMarketData();
-        
+
         // 如果缓存不存在或为空，从服务器获取
         if (!allStocks || allStocks.length === 0) {
             allStocks = await fetchMarketDataFromServer();
@@ -3908,7 +3908,7 @@ async function loadStockDetail(code) {
                 saveCachedMarketData(allStocks);
             }
         }
-        
+
         if (allStocks && allStocks.length > 0) {
             return allStocks.find(s => String(s.code).trim() === String(code).trim());
         }
@@ -3922,7 +3922,7 @@ async function loadStockDetail(code) {
 function renderStockDetail(stock) {
     const detailInfo = document.getElementById('stock-detail-info');
     if (!detailInfo) return;
-    
+
     const formatValue = (value, unit = '') => {
         if (value === null || value === undefined || isNaN(value)) return '-';
         if (typeof value === 'number') {
@@ -3939,7 +3939,7 @@ function renderStockDetail(stock) {
         }
         return value || '-';
     };
-    
+
     detailInfo.innerHTML = `
         <div class="stock-detail-row">
             <span class="detail-item-inline">
@@ -4018,19 +4018,19 @@ function closeKlineModal(event) {
         event.preventDefault();
         event.stopPropagation();
     }
-    
+
     const modal = document.getElementById('kline-modal');
     if (!modal || modal.style.display === 'none') {
         return false; // 如果已经关闭，直接返回
     }
-    
+
     // 清理窗口大小变化监听器
     if (window._klineModalResizeHandler) {
         window.removeEventListener('resize', window._klineModalResizeHandler);
         window.removeEventListener('orientationchange', window._klineModalResizeHandler);
         window._klineModalResizeHandler = null;
     }
-    
+
     // 如果当前历史记录是K线图状态，替换为之前的tab页面（使用路径模式）
     if (window.history && window.history.replaceState) {
         const state = window.history.state || {};
@@ -4038,9 +4038,9 @@ function closeKlineModal(event) {
         const url = `/${currentTab}${window.location.search}`;
         window.history.replaceState({ tab: currentTab }, '', url);
     }
-    
+
     modal.style.display = 'none';
-    
+
     // 清理图表
     if (chart) {
         const container = document.getElementById('chart-container');
@@ -4056,18 +4056,18 @@ function closeKlineModal(event) {
         candleSeries = null;
         volumeSeries = null;
     }
-    
+
     // 清除保存的K线状态
     try {
         localStorage.removeItem('klineModalState');
     } catch (e) {
         console.warn('清除K线模态弹窗状态失败:', e);
     }
-    
+
     currentKlineCode = null;
     currentKlineName = null;
     currentKlineStockData = null;
-    
+
     // 返回 false 确保不会触发其他操作
     return false;
 }
@@ -4079,14 +4079,14 @@ async function loadChart(code) {
     const periodSelect = document.getElementById('chart-period');
     const period = periodSelect ? periodSelect.value || 'daily' : 'daily';
     const container = document.getElementById('chart-container');
-    
+
     if (!container) {
         console.error('K线容器不存在');
         return;
     }
-    
+
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
-    
+
     try {
         // 判断市场类型
         // 1. 优先使用stockData中的market字段
@@ -4101,7 +4101,7 @@ async function loadChart(code) {
             const isHK = codeStr.length === 5 && codeStr.startsWith('0');
             market = isHK ? 'hk' : 'a';
         }
-        
+
         // 从配置中获取K线数据年限，默认1年
         let klineYears = 1;
         try {
@@ -4113,51 +4113,51 @@ async function loadChart(code) {
         } catch (e) {
             console.warn('获取K线年限配置失败，使用默认值1年:', e);
         }
-        
+
         // 根据配置的年限加载数据
         const endDate = new Date();
         const startDate = new Date();
         startDate.setFullYear(startDate.getFullYear() - klineYears); // 根据配置加载数据
-        
+
         const startDateStr = startDate.toISOString().split('T')[0].replace(/-/g, '');
         const endDateStr = endDate.toISOString().split('T')[0].replace(/-/g, '');
-        
+
         console.log(`[K线] 加载K线数据: ${code}, 市场: ${market}, 周期: ${period}, 日期范围: ${startDateStr} ~ ${endDateStr}`);
-        
+
         // 添加超时控制（增加到30秒，避免504超时）
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             console.warn('[K线] 请求超时，取消请求');
             controller.abort('K线数据请求超时（30秒）');
         }, 30000); // 30秒超时（增加超时时间，避免504错误）
-        
+
         let response, result;
         try {
             // 根据市场类型选择对应的API接口
             const klineUrl = `${API_BASE}/api/market/${market}/kline?code=${code}&period=${period}&start_date=${startDateStr}&end_date=${endDateStr}`;
             console.log(`[K线] 请求URL: ${klineUrl}`);
-            
+
             response = await apiFetch(klineUrl, {
                 signal: controller.signal
             });
-            
+
             clearTimeout(timeoutId);
-            
+
             console.log(`[K线] 收到响应: status=${response.status}, ok=${response.ok}`);
-            
+
             if (!response.ok) {
                 const errorText = await response.text().catch(() => '');
                 console.error(`[K线] HTTP错误: ${response.status}, ${errorText}`);
                 throw new Error(`HTTP ${response.status}: ${response.statusText || errorText}`);
             }
-            
+
             result = await response.json();
             console.log(`[K线] 解析结果: code=${result.code}, dataLength=${result.data?.length || 0}`);
         } catch (fetchError) {
             clearTimeout(timeoutId);
-            
+
             console.error('K线数据请求失败:', fetchError);
-            
+
             // 如果是超时错误或被取消，提供重试提示
             if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
                 container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
@@ -4167,7 +4167,7 @@ async function loadChart(code) {
                         重试
                     </button>
                 </div>`;
-                
+
                 // 绑定重试按钮
                 const retryBtn = document.getElementById('retry-kline-btn');
                 if (retryBtn) {
@@ -4177,15 +4177,15 @@ async function loadChart(code) {
                 }
                 return;
             }
-            
+
             // 其他网络错误 - 提供更详细的错误信息
             let errorMessage = '连接失败';
             let errorDetail = '';
-            
+
             if (fetchError.message) {
                 errorMessage = fetchError.message;
             }
-            
+
             // 检查是否是网络连接问题
             if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
                 errorMessage = '无法连接到服务器';
@@ -4200,7 +4200,7 @@ async function loadChart(code) {
                 errorMessage = '服务器错误';
                 errorDetail = '<div style="color: #94a3b8; margin-top: 8px; font-size: 13px;">服务器内部错误，请稍后重试</div>';
             }
-            
+
             container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
                 <div style="font-size: 18px; margin-bottom: 12px;">❌ ${errorMessage}</div>
                 ${errorDetail}
@@ -4208,7 +4208,7 @@ async function loadChart(code) {
                     重试
                 </button>
             </div>`;
-            
+
             // 绑定重试按钮
             const retryBtn = document.getElementById('retry-kline-btn');
             if (retryBtn) {
@@ -4218,27 +4218,27 @@ async function loadChart(code) {
             }
             return;
         }
-        
+
         console.log('K线API响应:', { code, market, period, resultCode: result.code, dataLength: result.data?.length });
-        
+
         if (result.code === 0 && result.data && result.data.length > 0) {
             // 根据年限计算最大数据量（每年约250个交易日）
             const maxDataCount = Math.ceil(klineYears * 250);
             const allData = result.data.slice(-maxDataCount);
-            
+
             console.log('准备渲染K线数据，总条数:', allData.length);
-            
+
             // 检查数据有效性
             if (allData.length === 0) {
                 console.warn('K线数据为空，原始数据长度:', result.data.length, '限制数量:', maxDataCount);
                 container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据为空（代码：${code}）<br/>可能原因：数据时间范围不匹配或数据尚未采集<br/>请尝试采集K线数据</div>`;
                 return;
             }
-            
+
             // 直接渲染完整数据，避免多次跳动
             try {
-                renderChart(allData);
-                
+                renderChart(allData, period);
+
                 // 加载技术指标（异步，不阻塞K线显示）
                 setTimeout(() => {
                     try {
@@ -4259,7 +4259,7 @@ async function loadChart(code) {
                         重试
                     </button>
                 </div>`;
-                
+
                 // 绑定重试按钮
                 const retryBtn = document.getElementById('retry-kline-btn');
                 if (retryBtn) {
@@ -4271,7 +4271,7 @@ async function loadChart(code) {
         } else {
             const errorMsg = result.message || '未知错误';
             console.error('获取K线数据失败:', { code, market, period, errorMsg, result });
-            
+
             // 更详细的错误信息和日志
             if (result.data === null || result.data === undefined) {
                 console.warn('API返回的data字段为null或undefined');
@@ -4280,7 +4280,7 @@ async function loadChart(code) {
             } else if (!Array.isArray(result.data)) {
                 console.warn('API返回的data不是数组:', typeof result.data, result.data);
             }
-            
+
             // 更详细的错误信息
             let errorDetail = `无法获取K线数据（代码：${code}）<br/>错误：${errorMsg}`;
             if (result.code !== 0) {
@@ -4292,14 +4292,14 @@ async function loadChart(code) {
                 errorDetail += `<br/>可能原因：股票代码不存在或数据源暂时不可用`;
             }
             errorDetail += `<br/><br/>💡 提示：可以在选股页面点击"采集K线数据"按钮进行数据采集`;
-            
+
             container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
                 ${errorDetail}
                 <button id="retry-kline-btn" style="margin-top: 16px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
                     重试
                 </button>
             </div>`;
-            
+
             // 绑定重试按钮
             const retryBtn = document.getElementById('retry-kline-btn');
             if (retryBtn) {
@@ -4316,14 +4316,14 @@ async function loadChart(code) {
         } else if (error.message) {
             errorMsg = `加载失败: ${error.message}`;
         }
-        
+
         container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">
             <div>${errorMsg}</div>
             <button id="retry-kline-btn" style="margin-top: 16px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
                 重试
             </button>
         </div>`;
-        
+
         // 绑定重试按钮
         const retryBtn = document.getElementById('retry-kline-btn');
         if (retryBtn) {
@@ -4359,7 +4359,7 @@ function getChartTheme() {
 // 更新图表主题
 function updateChartTheme() {
     if (!chart) return;
-    
+
     const theme = getChartTheme();
     chart.applyOptions({
         layout: {
@@ -4379,31 +4379,31 @@ function updateChartTheme() {
     });
 }
 
-function renderChart(data) {
+function renderChart(data, period) {
     const container = document.getElementById('chart-container');
     if (!container) {
         console.error('[K线渲染] 容器不存在: #chart-container');
         return;
     }
-    
-    console.log('[K线渲染] 开始渲染，数据条数:', data?.length || 0);
-    
+
+    console.log('[K线渲染] 开始渲染，数据条数:', data?.length || 0, '周期:', period);
+
     container.innerHTML = '';
-    
+
     // 检查 LightweightCharts 是否可用
     if (!window.LightweightCharts || !window.LightweightCharts.createChart) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线图库加载失败，请刷新页面</div>';
         console.error('[K线渲染] LightweightCharts 未加载');
         return;
     }
-    
+
     // 检查数据有效性
     if (!data || !Array.isArray(data) || data.length === 0) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据为空</div>';
         console.error('[K线渲染] 数据无效:', data);
         return;
     }
-    
+
     // 获取容器尺寸的辅助函数
     const getContainerSize = () => {
         const rect = container.getBoundingClientRect();
@@ -4411,48 +4411,48 @@ function renderChart(data) {
         const height = rect.height || container.offsetHeight || container.clientHeight || 0;
         return { width, height };
     };
-    
+
     // 获取回退尺寸（当容器尺寸不可用时）
     const getFallbackSize = () => {
         // 获取模态框内容区域的尺寸
         const modalContent = document.querySelector('.kline-modal-content');
         const modalBody = document.querySelector('.kline-modal-body');
-        
+
         let width = window.innerWidth - 40;
         let height = Math.max(window.innerHeight * 0.5, 350);
-        
+
         if (modalContent) {
             const modalRect = modalContent.getBoundingClientRect();
             if (modalRect.width > 100) width = modalRect.width - 32;
         }
-        
+
         if (modalBody) {
             const bodyRect = modalBody.getBoundingClientRect();
             if (bodyRect.height > 100) height = bodyRect.height - 100; // 减去控制栏高度
         }
-        
+
         return { width: Math.max(width, 300), height: Math.max(height, 300) };
     };
-    
+
     let { width: containerWidth, height: containerHeight } = getContainerSize();
     console.log('[K线渲染] 初始容器尺寸:', { width: containerWidth, height: containerHeight });
-    
+
     // 如果容器尺寸为0或过小，延迟重试
     if (containerWidth < 100 || containerHeight < 100) {
         console.warn('[K线渲染] 容器尺寸不足，延迟重试');
-        
+
         // 最多重试3次
         let retryCount = 0;
         const maxRetries = 3;
-        
+
         const tryRender = () => {
             retryCount++;
             const size = getContainerSize();
             console.log(`[K线渲染] 重试 ${retryCount}/${maxRetries}，容器尺寸:`, size);
-            
+
             if (size.width >= 100 && size.height >= 100) {
                 // 尺寸足够，开始渲染
-                renderChartInternal(data, container, size.width, size.height);
+                renderChartInternal(data, container, size.width, size.height, period);
             } else if (retryCount < maxRetries) {
                 // 继续重试
                 requestAnimationFrame(() => setTimeout(tryRender, 100));
@@ -4460,27 +4460,27 @@ function renderChart(data) {
                 // 重试次数用尽，使用回退尺寸
                 const fallback = getFallbackSize();
                 console.warn('[K线渲染] 使用回退尺寸:', fallback);
-                renderChartInternal(data, container, fallback.width, fallback.height);
+                renderChartInternal(data, container, fallback.width, fallback.height, period);
             }
         };
-        
+
         requestAnimationFrame(() => setTimeout(tryRender, 100));
         return;
     }
-    
+
     // 直接渲染
-    renderChartInternal(data, container, containerWidth, containerHeight);
+    renderChartInternal(data, container, containerWidth, containerHeight, period);
 }
 
 // 内部渲染函数
-function renderChartInternal(data, container, containerWidth, containerHeight) {
-    console.log('[K线渲染] renderChartInternal 开始', { 
-        dataLength: data?.length, 
-        containerWidth, 
+function renderChartInternal(data, container, containerWidth, containerHeight, period) {
+    console.log('[K线渲染] renderChartInternal 开始', {
+        dataLength: data?.length,
+        containerWidth,
         containerHeight,
-        containerId: container?.id 
+        containerId: container?.id
     });
-    
+
     // 销毁旧图表
     if (chart) {
         console.log('[K线渲染] 销毁旧图表');
@@ -4494,15 +4494,15 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         chart.remove();
         chart = null;
     }
-    
+
     // 获取当前主题配置
     const theme = getChartTheme();
-    
+
     // 检测是否为移动端，调整字体大小
     const isMobile = window.innerWidth <= 768;
     const fontSize = isMobile ? 14 : 12; // 移动端使用更大字体
     const minBarSpacing = isMobile ? 6 : 4; // 移动端K线间距更大
-    
+
     chart = window.LightweightCharts.createChart(container, {
         width: containerWidth,
         height: Math.max(containerHeight, 400), // 确保最小高度
@@ -4587,9 +4587,9 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             pinch: true,
         },
     });
-    
+
     console.log('[K线渲染] 图表创建成功');
-    
+
     candleSeries = chart.addCandlestickSeries({
         upColor: '#ef4444',
         downColor: '#22c55e',
@@ -4601,11 +4601,11 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         crosshairMarkerVisible: true, // 确保K线的交叉标记可见，让交叉线跟随K线
         crosshairMarkerRadius: 4, // 设置交叉标记大小
     });
-    
+
     // 为成交量创建独立的右侧价格轴，只占底部20%的空间
     // 使用全局变量 volumeVisible（已从服务器配置加载）
     const initialVolumeVisible = volumeVisible;
-    
+
     volumeSeries = chart.addHistogramSeries({
         color: '#3b82f6',
         priceFormat: {
@@ -4620,7 +4620,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         lastValueVisible: false,  // 隐藏成交量数值标签框
         priceLineVisible: false,  // 隐藏价格线
     });
-    
+
     // 配置成交量价格轴（右侧）
     chart.priceScale('volume').applyOptions({
         scaleMargins: {
@@ -4632,59 +4632,66 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         ticksVisible: false,
         visible: false,  // 完全隐藏价格轴，包括数值标签
     });
-    
+
     // 转换数据格式并过滤无效数据
     let candleData = [];
     let volumeData = [];
-    
+
     // 辅助函数：将日期字符串转换为LightweightCharts支持的时间格式
-    const parseTime = (dateStr) => {
+    // 辅助函数：将日期字符串转换为LightweightCharts支持的时间格式
+    const parseTime = (dateStr, timePeriod) => {
         if (!dateStr) return null;
-        
+
         dateStr = String(dateStr).trim();
-        
+
         // 如果是 YYYYMMDD 格式，转换为 YYYY-MM-DD
-        if (dateStr.length === 8 && !dateStr.includes('-') && !dateStr.includes('/')) {
-            dateStr = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+        if (dateStr.length === 8 && !dateStr.includes('-') && !dateStr.includes('/') && !dateStr.includes(':')) {
+            dateStr = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
         }
-        
+
         // 尝试解析日期
         let date;
         if (dateStr.includes('-')) {
-            date = new Date(dateStr);
+            try {
+                date = new Date(dateStr.replace(/-/g, '/')); // 尝试兼容处理
+                if (isNaN(date.getTime())) date = new Date(dateStr);
+            } catch (e) {
+                date = new Date(dateStr);
+            }
         } else if (dateStr.includes('/')) {
             date = new Date(dateStr.replace(/\//g, '-'));
         } else {
             date = new Date(dateStr);
         }
-        
+
         if (isNaN(date.getTime())) {
             console.warn('无法解析日期:', dateStr);
             return null;
         }
-        
-        // 对于日线数据，使用 'YYYY-MM-DD' 格式字符串（LightweightCharts推荐格式）
-        // 对于小时/分钟数据，使用 Unix 时间戳（秒）
-        if (dateStr.includes(' ') || dateStr.includes('T') || dateStr.includes(':')) {
-            // 包含时间部分，使用时间戳（秒）
-            return Math.floor(date.getTime() / 1000);
-        } else {
-            // 只有日期，确保格式为 YYYY-MM-DD
+
+        // 判断是否是日线级别
+        const isDaily = !timePeriod || ['daily', 'd', 'day', '101', 'week', 'month', 'w', 'm'].includes(String(timePeriod).toLowerCase());
+
+        // 如果是日线级别，且没有时间部分（或者我们强制忽略时间部分）
+        if (isDaily) {
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
+        } else {
+            // 分钟/小时级别：返回 Unix 时间戳 (秒)
+            return Math.floor(date.getTime() / 1000);
         }
     };
-    
+
     let skippedCount = 0;
     let skippedReasons = {};
-    
+
     data.forEach((d, index) => {
         // 优先使用time字段（支持小时级别：YYYY-MM-DD HH:MM:SS），否则使用date字段
         let dateStr = String(d.time || d.date || '');
-        
-        const timeValue = parseTime(dateStr);
+
+        const timeValue = parseTime(dateStr, period);
         if (!timeValue) {
             skippedCount++;
             skippedReasons['无效日期'] = (skippedReasons['无效日期'] || 0) + 1;
@@ -4693,29 +4700,29 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             }
             return; // 跳过无效日期
         }
-        
+
         // 严格过滤：确保所有值都是有效数字，过滤掉 null、undefined、NaN、Infinity
         const open = d.open != null ? parseFloat(d.open) : NaN;
         const high = d.high != null ? parseFloat(d.high) : NaN;
         const low = d.low != null ? parseFloat(d.low) : NaN;
         const close = d.close != null ? parseFloat(d.close) : NaN;
         const volume = d.volume != null ? parseFloat(d.volume) : 0;
-        
+
         // 检查是否为有效数字（不是 NaN、Infinity、-Infinity，允许0和负数）
         const isValidNumber = (val) => {
             return typeof val === 'number' && !isNaN(val) && isFinite(val);
         };
-        
+
         // 只添加有效数据（必须有open和close，且都是有效正数）
         if (isValidNumber(open) && isValidNumber(close)) {
             // 如果high/low缺失或无效，用open/close代替
             const validHigh = isValidNumber(high) ? high : Math.max(open, close);
             const validLow = isValidNumber(low) ? low : Math.min(open, close);
-            
+
             // 确保 high >= max(open, close) 且 low <= min(open, close)
             const finalHigh = Math.max(validHigh, open, close);
             const finalLow = Math.min(validLow, open, close);
-            
+
             // 确保所有值都是有效数字
             if (isValidNumber(finalHigh) && isValidNumber(finalLow)) {
                 candleData.push({
@@ -4725,7 +4732,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                     low: finalLow,
                     close: close,
                 });
-                
+
                 volumeData.push({
                     time: timeValue,
                     value: isValidNumber(volume) ? volume : 0,
@@ -4747,11 +4754,11 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             }
         }
     });
-    
+
     if (skippedCount > 0) {
         console.warn(`K线数据过滤统计: 总数据${data.length}条，有效${candleData.length}条，跳过${skippedCount}条`, skippedReasons);
     }
-    
+
     // 按时间排序（确保时间顺序正确）
     candleData.sort((a, b) => {
         const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
@@ -4763,26 +4770,26 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
         return timeA - timeB;
     });
-    
+
     // 最终验证：确保所有数据都没有 null/undefined 值
     candleData = candleData.filter(item => {
-        return item.time != null && 
-               item.open != null && !isNaN(item.open) && isFinite(item.open) &&
-               item.high != null && !isNaN(item.high) && isFinite(item.high) &&
-               item.low != null && !isNaN(item.low) && isFinite(item.low) &&
-               item.close != null && !isNaN(item.close) && isFinite(item.close);
+        return item.time != null &&
+            item.open != null && !isNaN(item.open) && isFinite(item.open) &&
+            item.high != null && !isNaN(item.high) && isFinite(item.high) &&
+            item.low != null && !isNaN(item.low) && isFinite(item.low) &&
+            item.close != null && !isNaN(item.close) && isFinite(item.close);
     });
-    
+
     volumeData = volumeData.filter(item => {
-        return item.time != null && 
-               item.value != null && !isNaN(item.value) && isFinite(item.value);
+        return item.time != null &&
+            item.value != null && !isNaN(item.value) && isFinite(item.value);
     });
-    
+
     console.log('K线数据条数（最终验证后）:', candleData.length);
     if (candleData.length > 0) {
         console.log('[K线渲染] K线数据示例（前3条）:', candleData.slice(0, 3));
     }
-    
+
     if (candleData.length === 0) {
         console.error('[K线渲染] 转换后的K线数据为空');
         console.error('[K线渲染] 原始数据示例（前5条）:', data.slice(0, 5));
@@ -4802,7 +4809,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">${errorDetail}</div>`;
         return;
     }
-    
+
     try {
         // 检查图表和series是否已创建
         if (!chart) {
@@ -4810,13 +4817,13 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">图表初始化失败，请刷新页面</div>';
             return;
         }
-        
+
         if (!candleSeries || !volumeSeries) {
             console.error('[K线渲染] 图表series未创建，无法设置数据');
             container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">图表series初始化失败，请刷新页面</div>';
             return;
         }
-        
+
         // 直接设置所有数据（LightweightCharts可以处理大量数据）
         console.log('[K线渲染] 设置K线数据，条数:', candleData.length);
         console.log('[K线渲染] K线数据时间范围:', {
@@ -4825,41 +4832,41 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             firstPrice: candleData[0]?.close,
             lastPrice: candleData[candleData.length - 1]?.close
         });
-        
+
         // 确保价格轴禁用自动缩放，避免添加series时触发自动缩放
         if (chart && chart.priceScale('right')) {
             chart.priceScale('right').applyOptions({
                 autoScale: false,
             });
         }
-        
+
         // 最终验证：确保数据中没有任何 null/undefined/NaN 值
         const finalCandleData = candleData.filter(item => {
             if (!item || typeof item !== 'object') return false;
             // 验证时间值（可以是字符串或数字，但不能为 null/undefined/空字符串）
             const time = item.time;
-            const hasValidTime = time != null && time !== undefined && time !== '' && 
-                                (typeof time === 'string' || typeof time === 'number');
+            const hasValidTime = time != null && time !== undefined && time !== '' &&
+                (typeof time === 'string' || typeof time === 'number');
             // 验证价格值 - 必须是正数
             const open = item.open;
             const high = item.high;
             const low = item.low;
             const close = item.close;
             const hasValidPrices = open != null && !isNaN(open) && isFinite(open) && open > 0 &&
-                                  high != null && !isNaN(high) && isFinite(high) && high > 0 &&
-                                  low != null && !isNaN(low) && isFinite(low) && low > 0 &&
-                                  close != null && !isNaN(close) && isFinite(close) && close > 0 &&
-                                  high >= Math.max(open, close) &&  // high必须大于等于open和close
-                                  low <= Math.min(open, close);     // low必须小于等于open和close
+                high != null && !isNaN(high) && isFinite(high) && high > 0 &&
+                low != null && !isNaN(low) && isFinite(low) && low > 0 &&
+                close != null && !isNaN(close) && isFinite(close) && close > 0 &&
+                high >= Math.max(open, close) &&  // high必须大于等于open和close
+                low <= Math.min(open, close);     // low必须小于等于open和close
             return hasValidTime && hasValidPrices;
         });
-        
+
         const finalVolumeData = volumeData.filter(item => {
             if (!item || typeof item !== 'object') return false;
             // 验证时间值
             const time = item.time;
-            const hasValidTime = time != null && time !== undefined && time !== '' && 
-                                (typeof time === 'string' || typeof time === 'number');
+            const hasValidTime = time != null && time !== undefined && time !== '' &&
+                (typeof time === 'string' || typeof time === 'number');
             // 验证成交量值
             const value = item.value;
             const hasValidValue = value != null && !isNaN(value) && isFinite(value) && value >= 0;
@@ -4868,13 +4875,13 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             const hasValidColor = color != null && typeof color === 'string' && color !== '';
             return hasValidTime && hasValidValue && hasValidColor;
         });
-        
+
         if (finalCandleData.length === 0) {
             console.error('[K线渲染] 最终验证后K线数据为空');
             container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据验证失败，所有数据都被过滤<br/>请检查数据源或重新采集K线数据</div>';
             return;
         }
-        
+
         console.log(`[K线渲染] 最终验证: 原始${candleData.length}条，有效${finalCandleData.length}条`);
         if (finalCandleData.length > 0) {
             console.log('[K线渲染] K线数据时间范围:', {
@@ -4884,7 +4891,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                 lastPrice: finalCandleData[finalCandleData.length - 1]?.close
             });
         }
-        
+
         // 设置数据
         try {
             candleSeries.setData(finalCandleData);
@@ -4894,7 +4901,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">设置K线数据失败: ${e.message || '未知错误'}<br/>请检查浏览器控制台查看详细信息</div>`;
             return;
         }
-        
+
         try {
             volumeSeries.setData(finalVolumeData);
             console.log('[K线渲染] 成交量数据设置完成');
@@ -4902,15 +4909,15 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             console.error('[K线渲染] 设置成交量数据失败:', e, '数据示例:', finalVolumeData.slice(0, 3));
             // 成交量失败不影响K线显示，只记录错误
         }
-        
+
         // 更新EMA和成交量显示状态（使用全局变量，已从服务器配置加载）
         if (volumeSeries) {
             volumeSeries.applyOptions({ visible: volumeVisible });
         }
-        
+
         // 先绘制EMA，然后设置初始可见范围
         updateEMA();
-        
+
         // 等待所有数据（K线、成交量、EMA）都设置完成后，设置初始视图
         setTimeout(() => {
             requestAnimationFrame(() => {
@@ -4921,7 +4928,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                             const visibleBars = Math.min(750, finalCandleData.length);
                             const fromIndex = Math.max(0, finalCandleData.length - visibleBars);
                             const toIndex = Math.max(0, finalCandleData.length - 1);
-                            
+
                             // 确保索引是有效数字
                             if (!isNaN(fromIndex) && !isNaN(toIndex) && isFinite(fromIndex) && isFinite(toIndex) && fromIndex >= 0 && toIndex >= fromIndex) {
                                 chart.timeScale().setVisibleLogicalRange({
@@ -4939,7 +4946,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                 });
             });
         }, 100);
-        
+
         // 监听窗口大小变化，调整图表尺寸
         const handleResize = () => {
             if (chart && container) {
@@ -4950,14 +4957,14 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                 }
             }
         };
-        
+
         // 移除之前的resize监听器（如果存在）
         if (window.chartResizeHandler) {
             window.removeEventListener('resize', window.chartResizeHandler);
         }
         window.chartResizeHandler = handleResize;
         window.addEventListener('resize', handleResize);
-        
+
         // 保存事件处理器，以便后续清理
         if (!window.chartEventHandlers) {
             window.chartEventHandlers = {};
@@ -4965,7 +4972,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         window.chartEventHandlers[container.id] = {
             resize: handleResize,
         };
-        
+
         console.log('[K线渲染] 渲染完成');
     } catch (err) {
         console.error('[K线渲染] 设置K线数据失败:', err);
@@ -4980,9 +4987,9 @@ async function loadIndicators(code) {
             console.warn('未登录或token未设置，跳过加载技术指标');
             return;
         }
-        
+
         const response = await apiFetch(`${API_BASE}/api/market/a/indicators?code=${code}`);
-        
+
         // 检查HTTP状态码
         if (!response.ok) {
             if (response.status === 401) {
@@ -5002,9 +5009,9 @@ async function loadIndicators(code) {
             }
             return; // 静默失败，不影响K线图显示
         }
-        
+
         const result = await response.json();
-        
+
         if (result.code === 0 && result.data) {
             try {
                 renderIndicators(result.data);
@@ -5041,7 +5048,7 @@ function updateEMA() {
         console.warn('updateEMA: chart或candleSeries不存在');
         return;
     }
-    
+
     // 清除现有EMA线
     emaSeries.forEach(series => {
         try {
@@ -5051,47 +5058,47 @@ function updateEMA() {
         }
     });
     emaSeries = [];
-    
+
     if (!emaConfig.enabled) {
         console.debug('EMA未启用，跳过绘制');
         return;
     }
-    
+
     // 获取K线数据
     const klineData = candleSeries.data();
     if (!klineData || klineData.length === 0) {
         console.warn('updateEMA: K线数据为空');
         return;
     }
-    
+
     // 验证K线数据，确保没有 null 值
     const validKlineData = klineData.filter(item => {
         if (!item || typeof item !== 'object') return false;
-        return item.time != null && 
-               item.close != null && 
-               !isNaN(item.close) && 
-               isFinite(item.close) && 
-               item.close > 0;
+        return item.time != null &&
+            item.close != null &&
+            !isNaN(item.close) &&
+            isFinite(item.close) &&
+            item.close > 0;
     });
-    
+
     if (validKlineData.length === 0) {
         console.warn('updateEMA: 验证后K线数据为空');
         return;
     }
-    
+
     if (validKlineData.length !== klineData.length) {
         console.warn(`updateEMA: 过滤了${klineData.length - validKlineData.length}条无效K线数据`);
     }
-    
+
     console.debug(`updateEMA: 开始计算EMA，数据条数=${validKlineData.length}, EMA配置=`, emaConfig);
-    
+
     // 计算EMA（根据Pine Script标准EMA计算）
     emaConfig.values.forEach((period, index) => {
         if (!period || period <= 0) {
             console.warn(`跳过无效的EMA周期: ${period}`);
             return;
         }
-        
+
         const emaValues = calculateEMA(validKlineData, period);
         if (emaValues.length > 0) {
             // 根据Pine Script代码的颜色：black, green, red
@@ -5132,7 +5139,7 @@ function updateEMA() {
                     const hasValidValue = value != null && !isNaN(value) && isFinite(value) && value > 0;
                     return hasValidTime && hasValidValue;
                 });
-                
+
                 if (validEmaValues.length === 0) {
                     console.warn(`EMA${period}数据验证后为空，跳过绘制`, { originalLength: emaValues.length, sample: emaValues.slice(0, 3) });
                     try {
@@ -5142,7 +5149,7 @@ function updateEMA() {
                     }
                     return;
                 }
-                
+
                 try {
                     emaLine.setData(validEmaValues);
                 } catch (e) {
@@ -5169,7 +5176,7 @@ function updateEMA() {
             console.warn(`EMA${period}计算结果为空`);
         }
     });
-    
+
     // 确保K线的交叉标记可见，让交叉线跟随K线而不是EMA
     if (candleSeries) {
         candleSeries.applyOptions({
@@ -5183,10 +5190,10 @@ function calculateEMA(data, period) {
         console.warn(`EMA计算失败: 数据不足，需要至少${period}条数据，当前只有${data?.length || 0}条`);
         return [];
     }
-    
+
     const result = [];
     let multiplier = 2 / (period + 1);
-    
+
     // 找到第一个有效的 close 值
     let firstValidIndex = -1;
     let ema = NaN;
@@ -5198,27 +5205,27 @@ function calculateEMA(data, period) {
             break;
         }
     }
-    
+
     if (isNaN(ema) || firstValidIndex === -1) {
         console.error('EMA计算失败: 找不到有效的close值', data.slice(0, 5));
         return [];
     }
-    
+
     // 从第一个有效数据点开始计算
     for (let index = firstValidIndex; index < data.length; index++) {
         const item = data[index];
         if (!item || item.time == null) {
             continue;
         }
-        
+
         const close = item.close != null ? parseFloat(item.close) : NaN;
         const timeValue = item.time;
-        
+
         // 验证时间值
         if (timeValue == null || timeValue === undefined || timeValue === '') {
             continue;
         }
-        
+
         if (isNaN(close) || !isFinite(close) || close <= 0) {
             // 如果当前值无效，使用上一个EMA值（保持EMA值不变）
             if (result.length > 0) {
@@ -5232,13 +5239,13 @@ function calculateEMA(data, period) {
             }
             continue;
         }
-        
+
         if (index === firstValidIndex) {
             ema = close;
         } else {
             ema = (close - ema) * multiplier + ema;
         }
-        
+
         // 确保 EMA 值是有效数字
         if (!isNaN(ema) && isFinite(ema) && ema > 0) {
             result.push({
@@ -5258,13 +5265,13 @@ function calculateEMA(data, period) {
             }
         }
     }
-    
+
     // 最终验证：确保所有值都是有效数字
     return result.filter(item => {
-        return item.time != null && 
-               item.value != null && 
-               !isNaN(item.value) && 
-               isFinite(item.value);
+        return item.time != null &&
+            item.value != null &&
+            !isNaN(item.value) &&
+            isFinite(item.value);
     });
 }
 
@@ -5276,20 +5283,20 @@ function getCachedWatchlistData() {
     try {
         const cached = localStorage.getItem(WATCHLIST_CACHE_KEY);
         if (!cached) return null;
-        
+
         const { data, watchlistCodes } = JSON.parse(cached);
-        
+
         // 检查自选股列表是否发生变化
         const currentWatchlist = getWatchlist();
         const currentCodes = currentWatchlist.map(s => String(s.code).trim()).sort().join(',');
         const cachedCodes = watchlistCodes.sort().join(',');
-        
+
         if (currentCodes !== cachedCodes) {
             // 自选股列表已变化，清除缓存
             localStorage.removeItem(WATCHLIST_CACHE_KEY);
             return null;
         }
-        
+
         return data;
     } catch (e) {
         console.warn('读取自选股缓存失败:', e);
@@ -5320,7 +5327,7 @@ const SYNC_COOLDOWN = 5000; // 5秒冷却时间
 
 function initWatchlist() {
     console.log('[自选] 初始化自选股模块');
-    
+
     // 绑定导入输入框的回车事件
     const importInput = document.getElementById('watchlist-import-input');
     if (importInput) {
@@ -5330,33 +5337,33 @@ function initWatchlist() {
             }
         });
     }
-    
+
     // 页面加载时从服务器同步自选股列表（带防抖）
     console.log('[自选] 开始从服务器同步自选股列表...');
-    
+
     // 检查冷却时间
     const now = Date.now();
     if (now - lastSyncTime < SYNC_COOLDOWN) {
         console.log('[自选] 同步冷却中，跳过本次同步');
         return;
     }
-    
+
     // 如果正在同步，跳过
     if (isSyncingWatchlist) {
         console.log('[自选] 正在同步中，跳过重复请求');
         return;
     }
-    
+
     isSyncingWatchlist = true;
     lastSyncTime = now;
-    
+
     syncWatchlistFromServer().then(serverData => {
         isSyncingWatchlist = false;
         if (serverData !== null) {
             console.log('[自选] 从服务器同步成功，共', serverData.length, '只股票');
             // 更新按钮状态
             updateWatchlistButtonStates();
-            
+
             // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
             // 如果当前在自选页，SSE会在连接时推送初始数据，后续变化也会通过SSE推送
             console.log('[自选] 等待SSE推送更新（无感刷新）');
@@ -5367,20 +5374,20 @@ function initWatchlist() {
         isSyncingWatchlist = false;
         console.error('[自选] 从服务器同步失败:', err);
     });
-    
+
     // SSE连接已在全局管理，当切换到自选页时会通过connectSSE('watchlist')连接
-    
+
     // 监听 localStorage 变化，实现跨标签页同步
     window.addEventListener('storage', (e) => {
         if (e.key === 'watchlist') {
             console.log('[自选] 检测到跨标签页自选股列表变化，同步更新');
             // 更新按钮状态
             updateWatchlistButtonStates();
-            
+
             // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
             // 跨标签页的变化会通过SSE推送同步，_doWatchlistSync会处理更新
             console.log('[自选] 等待SSE推送更新（无感刷新）');
-            
+
             // 如果当前在行情页，更新按钮状态
             const marketTab = document.getElementById('market-tab');
             if (marketTab && marketTab.classList.contains('active')) {
@@ -5388,7 +5395,7 @@ function initWatchlist() {
             }
         }
     });
-    
+
     // 注意：首次加载数据已经在startApp中根据当前tab处理，这里不需要再次调用
     // 避免在非自选页时也触发数据加载，导致显示加载状态
 }
@@ -5396,7 +5403,7 @@ function initWatchlist() {
 // 加载自选股列表（使用和行情页一样的加载方法）
 async function loadWatchlist(forceRefresh = false) {
     console.log('[自选] loadWatchlist: 开始加载，forceRefresh=', forceRefresh);
-    
+
     // 检查当前是否在自选页，如果不在则跳过加载（避免在不应该加载时显示加载状态）
     const watchlistTab = document.getElementById('watchlist-tab');
     if (!watchlistTab || !watchlistTab.classList.contains('active')) {
@@ -5405,17 +5412,17 @@ async function loadWatchlist(forceRefresh = false) {
         updateWatchlistButtonStates();
         return;
     }
-    
+
     const watchlist = getWatchlist();
     console.log('[自选] loadWatchlist: 当前自选列表:', watchlist.map(s => s.code), '共', watchlist.length, '只');
     const container = document.getElementById('watchlist-container');
     const tbody = document.getElementById('watchlist-stock-list');
-    
+
     if (!container) {
         console.warn('[自选] loadWatchlist: 容器不存在，退出');
         return;
     }
-    
+
     if (watchlist.length === 0) {
         console.log('[自选] loadWatchlist: 自选列表为空，显示占位符');
         container.innerHTML = `
@@ -5427,19 +5434,19 @@ async function loadWatchlist(forceRefresh = false) {
         `;
         return;
     }
-    
-        // 检查缓存（如果不强制刷新）
-        if (!forceRefresh) {
-            const cachedData = getCachedWatchlistData();
-            if (cachedData && cachedData.length > 0) {
-                console.log('[自选] loadWatchlist: 使用缓存的自选股数据，共', cachedData.length, '只');
-                renderWatchlistStocks(cachedData, false, true); // silent=true 静默渲染
-                return;
-            }
-        } else {
-            console.log('[自选] loadWatchlist: 强制刷新，跳过缓存检查');
+
+    // 检查缓存（如果不强制刷新）
+    if (!forceRefresh) {
+        const cachedData = getCachedWatchlistData();
+        if (cachedData && cachedData.length > 0) {
+            console.log('[自选] loadWatchlist: 使用缓存的自选股数据，共', cachedData.length, '只');
+            renderWatchlistStocks(cachedData, false, true); // silent=true 静默渲染
+            return;
         }
-    
+    } else {
+        console.log('[自选] loadWatchlist: 强制刷新，跳过缓存检查');
+    }
+
     // 确保表格结构存在
     if (!tbody) {
         container.innerHTML = `
@@ -5462,31 +5469,31 @@ async function loadWatchlist(forceRefresh = false) {
     } else {
         tbody.innerHTML = '<tr><td colspan="6" class="loading">加载中...</td></tr>';
     }
-    
+
     try {
         // 获取自选股代码列表
         const watchlistCodes = watchlist.map(s => String(s.code).trim());
-        
+
         // 使用批量查询接口，直接查询自选股的行情数据（大幅提升加载速度）
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort('Request timeout after 15 seconds'), 15000); // 15秒超时
-            
+
             const response = await apiFetch(`${API_BASE}/api/market/spot/batch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(watchlistCodes),
                 signal: controller.signal
             });
-            
+
             clearTimeout(timeoutId);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
-            
+
             const result = await response.json();
-            
+
             if (result.code === 0 && Array.isArray(result.data)) {
                 // 构建代码到股票数据的映射（用于快速查找）
                 const stockMap = {};
@@ -5496,7 +5503,7 @@ async function loadWatchlist(forceRefresh = false) {
                         stockMap[code] = stock;
                     }
                 });
-                
+
                 // 按照自选列表的顺序构建结果，保持原有顺序
                 const watchlistStocks = watchlistCodes.map(code => {
                     const stock = stockMap[code];
@@ -5513,10 +5520,10 @@ async function loadWatchlist(forceRefresh = false) {
                         volume: null,
                     };
                 });
-                
+
                 // 保存到缓存
                 saveCachedWatchlistData(watchlistStocks);
-                
+
                 // 渲染股票列表（强制刷新时强制渲染）
                 console.log('[自选] loadWatchlist: 准备渲染，forceRefresh=', forceRefresh);
                 renderWatchlistStocks(watchlistStocks, forceRefresh);
@@ -5526,7 +5533,7 @@ async function loadWatchlist(forceRefresh = false) {
             }
         } catch (fetchError) {
             console.error('批量查询自选股行情失败:', fetchError);
-            
+
             // 如果是AbortError（请求被取消），不抛出错误，而是尝试使用缓存
             if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
                 console.warn('[自选] 请求被取消，尝试使用缓存数据');
@@ -5543,7 +5550,7 @@ async function loadWatchlist(forceRefresh = false) {
                 }
                 return;
             }
-            
+
             // 如果批量查询失败，尝试使用缓存
             const cachedData = getCachedWatchlistData();
             if (cachedData && cachedData.length > 0) {
@@ -5554,10 +5561,10 @@ async function loadWatchlist(forceRefresh = false) {
             // 如果缓存也没有，抛出错误进入下面的错误处理
             throw fetchError;
         }
-        
+
     } catch (error) {
         console.error('加载自选股失败:', error);
-        
+
         // 如果是AbortError（请求被取消），显示友好提示
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
             const tbodyEl = document.getElementById('watchlist-stock-list');
@@ -5566,7 +5573,7 @@ async function loadWatchlist(forceRefresh = false) {
             }
             return;
         }
-        
+
         // 如果加载失败，尝试使用缓存
         const cachedData = getCachedWatchlistData();
         if (cachedData && cachedData.length > 0) {
@@ -5588,21 +5595,21 @@ let watchlistAllStocks = []; // 所有自选股数据
 // 渲染自选股列表（一次性渲染所有）
 function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = false) {
     const container = document.getElementById('watchlist-container');
-    
+
     if (!silent) {
         console.log('[自选] renderWatchlistStocks: 准备渲染', watchlistStocks.length, '只股票');
     }
-    
+
     watchlistAllStocks = watchlistStocks;
-    
+
     // 更新自选股数量显示
     const countEl = document.getElementById('watchlist-count');
     if (countEl) {
         countEl.textContent = watchlistStocks.length;
     }
-    
+
     if (!container) return;
-    
+
     if (watchlistStocks.length === 0) {
         container.innerHTML = `
             <div class="watchlist-placeholder">
@@ -5613,7 +5620,7 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
         `;
         return;
     }
-    
+
     // 创建表格
     container.innerHTML = `
         <table class="stock-table">
@@ -5630,10 +5637,10 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
             <tbody id="watchlist-stock-list"></tbody>
         </table>
     `;
-    
+
     const tbodyEl = document.getElementById('watchlist-stock-list');
     if (!tbodyEl) return;
-    
+
     // 一次性渲染所有股票
     watchlistStocks.forEach(stock => {
         const tr = document.createElement('tr');
@@ -5651,9 +5658,9 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
                 <button class="remove-watchlist-btn" data-code="${stock.code}" style="padding: 4px 8px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="event.stopPropagation();">移除</button>
             </td>
         `;
-        
+
         // 添加单击事件
-        tr.addEventListener('click', function(e) {
+        tr.addEventListener('click', function (e) {
             if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
                 return;
             }
@@ -5661,13 +5668,13 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
             const stockData = JSON.parse(this.getAttribute('data-stock'));
             openKlineModal(stockData.code, stockData.name, stockData);
         });
-        
+
         tbodyEl.appendChild(tr);
     });
-    
+
     // 绑定移除按钮事件
     document.querySelectorAll('.remove-watchlist-btn').forEach(btn => {
-        btn.onclick = function(e) {
+        btn.onclick = function (e) {
             e.preventDefault();
             e.stopPropagation();
             const code = String(this.getAttribute('data-code') || '').trim();
@@ -5677,11 +5684,11 @@ function renderWatchlistStocks(watchlistStocks, forceRender = false, silent = fa
             }
         };
     });
-    
+
     if (!silent) {
         console.log('[自选] 渲染完成，共', watchlistStocks.length, '只股票');
     }
-    
+
     // 更新按钮状态
     updateWatchlistButtonStates();
 }
@@ -5703,7 +5710,7 @@ async function syncWatchlistFromServer() {
         console.log('[自选] syncWatchlistFromServer: 请求URL:', url);
         const response = await apiFetch(url);
         console.log('[自选] syncWatchlistFromServer: 响应状态:', response.status, response.statusText);
-        
+
         if (response.ok) {
             const result = await response.json();
             console.log('[自选] syncWatchlistFromServer: 响应数据:', result);
@@ -5736,22 +5743,22 @@ async function saveWatchlist(watchlist) {
     // 先保存到本地缓存（快速响应）
     localStorage.setItem('watchlist', JSON.stringify(watchlist));
     console.log('[自选] saveWatchlist: 已保存到本地缓存');
-    
+
     // 同步保存到服务器（等待响应，确保数据同步）
     try {
         const url = `${API_BASE}/api/watchlist`;
         const payload = { stocks: watchlist };
         console.log('[自选] saveWatchlist: 请求URL:', url);
         console.log('[自选] saveWatchlist: 请求数据:', JSON.stringify(payload));
-        
+
         const response = await apiFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        
+
         console.log('[自选] saveWatchlist: 响应状态:', response.status, response.statusText);
-        
+
         if (response.ok) {
             const result = await response.json();
             console.log('[自选] saveWatchlist: 响应数据:', result);
@@ -5780,16 +5787,16 @@ async function addToWatchlist(code, name) {
     console.log('[自选] 开始添加股票到自选:', code, name);
     const watchlist = getWatchlist();
     console.log('[自选] 当前自选列表:', watchlist.map(s => s.code));
-    
+
     if (watchlist.some(s => s.code === code)) {
         console.log('[自选] 股票已在自选列表中，跳过');
         alert('该股票已在自选列表中');
         return;
     }
-    
+
     watchlist.push({ code, name, addTime: Date.now() });
     console.log('[自选] 添加到列表后，共', watchlist.length, '只股票');
-    
+
     // 等待保存到服务器完成（确保数据同步）
     console.log('[自选] 开始保存到服务器...');
     const saved = await saveWatchlist(watchlist);
@@ -5799,14 +5806,14 @@ async function addToWatchlist(code, name) {
         // 如果保存失败，提示用户（但不阻止操作，因为本地已保存）
         console.warn('[自选] 保存到服务器失败，但已保存到本地');
     }
-    
+
     // 触发自定义事件，通知当前标签页的其他部分更新
     console.log('[自选] 触发watchlistChanged事件');
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'add', code, name } }));
-    
+
     // 更新按钮状态
     updateWatchlistButtonStates();
-    
+
     // 不再手动刷新自选页，依赖SSE推送来更新（无感刷新）
     // SSE会在服务器保存成功后自动推送更新，_doWatchlistSync会处理更新
     console.log('[自选] 添加完成，等待SSE推送更新（无感刷新）');
@@ -5817,34 +5824,34 @@ async function smartImportWatchlist() {
     const input = document.getElementById('watchlist-import-input');
     const btn = document.getElementById('watchlist-import-btn');
     if (!input) return;
-    
+
     const text = input.value.trim();
     if (!text) {
         alert('请输入股票代码或名称');
         return;
     }
-    
+
     btn.disabled = true;
     btn.textContent = '解析中...';
-    
+
     try {
         // 使用后端搜索API直接匹配股票
         const res = await apiFetch(`${API_BASE}/api/market/search?q=${encodeURIComponent(text)}`);
         const data = await res.json();
-        
+
         if (data.code !== 0 || !data.data || data.data.length === 0) {
             alert('未能识别出任何股票，请检查输入内容');
             return;
         }
-        
+
         const matched = data.data;
         console.log('[导入] 匹配结果:', matched.length, '只');
-        
+
         // 添加到自选
         const watchlist = getWatchlist();
         let addedCount = 0;
         let skippedCount = 0;
-        
+
         for (const stock of matched) {
             if (watchlist.some(s => s.code === stock.code)) {
                 skippedCount++;
@@ -5853,22 +5860,22 @@ async function smartImportWatchlist() {
             watchlist.push({ code: stock.code, name: stock.name, addTime: Date.now() });
             addedCount++;
         }
-        
+
         if (addedCount > 0) {
             await saveWatchlist(watchlist);
             window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'import' } }));
             updateWatchlistButtonStates();
         }
-        
+
         // 显示结果
         let msg = `识别到 ${matched.length} 只股票`;
         if (addedCount > 0) msg += `，成功添加 ${addedCount} 只`;
         if (skippedCount > 0) msg += `，${skippedCount} 只已在自选中`;
         alert(msg);
-        
+
         // 清空输入框
         input.value = '';
-        
+
     } catch (e) {
         console.error('智能导入失败:', e);
         alert('导入失败: ' + e.message);
@@ -5882,14 +5889,14 @@ async function smartImportWatchlist() {
 async function removeFromWatchlist(code) {
     // 设置标记，防止SSE同步覆盖
     _isRemovingFromWatchlist = true;
-    
+
     // 如果当前在自选页，先找到对应的行
     const watchlistTab = document.getElementById('watchlist-tab');
     const isInWatchlistPage = watchlistTab && watchlistTab.classList.contains('active');
-    
+
     let targetRow = null;
     let rowData = null; // 保存行数据，用于失败时恢复
-    
+
     if (isInWatchlistPage) {
         // 找到对应的行
         const tbody = document.getElementById('watchlist-stock-list');
@@ -5899,7 +5906,7 @@ async function removeFromWatchlist(code) {
                 const firstTd = tr.querySelector('td:first-child');
                 return firstTd && firstTd.textContent.trim() === String(code).trim();
             });
-            
+
             // 保存行的HTML和数据，用于失败时恢复
             if (targetRow) {
                 rowData = {
@@ -5909,22 +5916,22 @@ async function removeFromWatchlist(code) {
             }
         }
     }
-    
+
     // 立即更新本地缓存（乐观更新）
     const watchlist = getWatchlist();
     const newWatchlist = watchlist.filter(s => s.code !== code);
     localStorage.setItem('watchlist', JSON.stringify(newWatchlist));
-    
+
     // 如果当前在自选页，立即从DOM中删除对应的行（无感移除）
     if (isInWatchlistPage && targetRow) {
         // 添加淡出动画（可选，让移除更平滑）
         targetRow.style.transition = 'opacity 0.2s ease-out';
         targetRow.style.opacity = '0';
-        
+
         // 延迟删除，让动画完成
         setTimeout(() => {
             targetRow.remove();
-            
+
             // 检查是否还有数据
             const tbody = document.getElementById('watchlist-stock-list');
             if (tbody && tbody.children.length === 0) {
@@ -5942,16 +5949,16 @@ async function removeFromWatchlist(code) {
             }
         }, 200);
     }
-    
+
     // 立即更新按钮状态
     updateWatchlistButtonStates();
-    
+
     // 触发自定义事件，通知当前标签页的其他部分更新
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'remove', code } }));
-    
+
     // 清除缓存
     localStorage.removeItem(WATCHLIST_CACHE_KEY);
-    
+
     // 后台异步保存到服务器（不阻塞UI）
     try {
         await saveWatchlist(newWatchlist);
@@ -5964,7 +5971,7 @@ async function removeFromWatchlist(code) {
         _isRemovingFromWatchlist = false; // 清除标记
         // 如果保存失败，恢复本地缓存和DOM
         localStorage.setItem('watchlist', JSON.stringify(watchlist));
-        
+
         if (isInWatchlistPage && targetRow && rowData) {
             // 恢复行（如果还没删除）
             const tbody = document.getElementById('watchlist-stock-list');
@@ -5974,26 +5981,26 @@ async function removeFromWatchlist(code) {
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = rowData.html;
                     const restoredRow = tempDiv.firstElementChild;
-                    
+
                     if (rowData.nextSibling && rowData.nextSibling.parentNode) {
                         tbody.insertBefore(restoredRow, rowData.nextSibling);
                     } else {
                         tbody.appendChild(restoredRow);
                     }
-                    
+
                     // 重新绑定事件
                     const removeBtn = restoredRow.querySelector('.remove-watchlist-btn');
                     if (removeBtn) {
-                        removeBtn.onclick = function(e) {
+                        removeBtn.onclick = function (e) {
                             e.preventDefault();
                             e.stopPropagation();
                             const code = this.getAttribute('data-code');
                             removeFromWatchlist(code);
                         };
                     }
-                    
+
                     // 重新绑定行点击事件
-                    restoredRow.addEventListener('click', function(e) {
+                    restoredRow.addEventListener('click', function (e) {
                         if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
                             return;
                         }
@@ -6008,14 +6015,14 @@ async function removeFromWatchlist(code) {
                 }
             }
         }
-        
+
         // 不再手动刷新，依赖SSE推送来更新（无感刷新）
         // 如果列表被清空，SSE会在下次推送时更新
         console.log('[自选] 等待SSE推送更新（无感刷新）');
-        
+
         // 恢复按钮状态
         updateWatchlistButtonStates();
-        
+
         // 静默失败，不打扰用户（因为本地已经更新了）
         console.warn('移除操作已应用到本地，但服务器同步失败。将在下次同步时自动修复。');
     }
@@ -6024,26 +6031,26 @@ async function removeFromWatchlist(code) {
 // 清空所有自选股（带确认）
 async function clearAllWatchlist() {
     const watchlist = getWatchlist();
-    
+
     if (watchlist.length === 0) {
         alert('自选股列表已经是空的');
         return;
     }
-    
+
     // 确认对话框
     const confirmed = confirm(`确定要清空所有自选股吗？\n\n当前共有 ${watchlist.length} 只股票，此操作不可恢复。`);
     if (!confirmed) {
         return;
     }
-    
+
     console.log('[自选] 开始清空所有自选股，当前数量:', watchlist.length);
-    
+
     // 设置标记，防止SSE同步覆盖
     _isRemovingFromWatchlist = true;
-    
+
     // 立即清空本地缓存
     localStorage.setItem('watchlist', JSON.stringify([]));
-    
+
     // 立即更新UI
     const container = document.getElementById('watchlist-container');
     if (container) {
@@ -6055,24 +6062,24 @@ async function clearAllWatchlist() {
             </div>
         `;
     }
-    
+
     // 更新计数
     const countElement = document.getElementById('watchlist-count');
     if (countElement) {
         countElement.textContent = '0';
     }
-    
+
     // 触发自选股变化事件
     window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'clear' } }));
-    
+
     // 更新按钮状态
     updateWatchlistButtonStates();
-    
+
     // 后台异步保存到服务器
     try {
         await saveWatchlist([]);
         console.log('[自选] 清空操作已同步到服务器');
-        
+
         // 延迟清除标记
         setTimeout(() => {
             _isRemovingFromWatchlist = false;
@@ -6081,7 +6088,7 @@ async function clearAllWatchlist() {
     } catch (error) {
         console.error('清空自选股同步到服务器失败:', error);
         _isRemovingFromWatchlist = false;
-        
+
         // 静默失败，不打扰用户
         console.warn('清空操作已应用到本地，但服务器同步失败。将在下次同步时自动修复。');
     }
@@ -6096,16 +6103,16 @@ function getCachedMarketData() {
     try {
         const cached = localStorage.getItem(MARKET_DATA_CACHE_KEY);
         if (!cached) return null;
-        
+
         const { data, timestamp } = JSON.parse(cached);
         const now = Date.now();
-        
+
         // 检查缓存是否过期
         if (now - timestamp > MARKET_DATA_CACHE_EXPIRY) {
             localStorage.removeItem(MARKET_DATA_CACHE_KEY);
             return null;
         }
-        
+
         return data;
     } catch (e) {
         console.warn('读取缓存失败:', e);
@@ -6132,30 +6139,30 @@ async function fetchMarketDataFromServer() {
     let page = 1;
     const pageSize = 500;
     let hasMore = true;
-    
+
     while (hasMore && page <= 10) { // 最多获取10页，避免无限循环
         try {
             // 添加超时控制
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort('Request timeout after 10 seconds'), 10000); // 每页10秒超时
-            
+
             const response = await apiFetch(`${API_BASE}/api/market/a/spot?page=${page}&page_size=${pageSize}`, {
                 signal: controller.signal
             });
-            
+
             clearTimeout(timeoutId);
-            
+
             if (!response.ok) {
                 console.error(`获取第${page}页数据失败: HTTP ${response.status}`);
                 hasMore = false;
                 break;
             }
-            
+
             const result = await response.json();
-            
+
             if (result.code === 0 && result.data && result.data.length > 0) {
                 allStocks = allStocks.concat(result.data);
-                
+
                 // 检查是否还有更多数据
                 if (result.pagination) {
                     hasMore = page < result.pagination.total_pages;
@@ -6178,7 +6185,7 @@ async function fetchMarketDataFromServer() {
             hasMore = false;
         }
     }
-    
+
     return allStocks;
 }
 
@@ -6186,21 +6193,21 @@ async function fetchMarketDataFromServer() {
 async function updateWatchlistPrices() {
     const watchlist = getWatchlist();
     if (watchlist.length === 0) return;
-    
+
     try {
         // 只使用缓存数据，不再主动从服务器获取
         let allStocks = getCachedMarketData();
-        
+
         // 如果没有缓存或缓存为空，才从服务器获取一次（添加超时控制）
         if (!allStocks || allStocks.length === 0) {
             try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort('Request timeout after 15 seconds'), 15000); // 15秒超时
-                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort('Request timeout after 15 seconds'), 15000); // 15秒超时
+
                 allStocks = await fetchMarketDataFromServer();
-                
+
                 clearTimeout(timeoutId);
-                
+
                 // 保存到缓存
                 if (allStocks && allStocks.length > 0) {
                     saveCachedMarketData(allStocks);
@@ -6218,7 +6225,7 @@ async function updateWatchlistPrices() {
             }
         }
         // 如果有缓存，直接使用缓存数据，不再后台更新
-        
+
         // 更新每个自选股的价格
         watchlist.forEach(watchStock => {
             const watchCode = String(watchStock.code).trim();
@@ -6226,11 +6233,11 @@ async function updateWatchlistPrices() {
                 const stockCode = String(s.code || '').trim();
                 return stockCode === watchCode;
             });
-            
+
             const priceEl = document.querySelector(`.watchlist-price[data-code="${watchStock.code}"]`);
             const pctEl = document.querySelector(`.watchlist-pct[data-code="${watchStock.code}"]`);
             const volumeEl = document.querySelector(`.watchlist-volume[data-code="${watchStock.code}"]`);
-            
+
             if (stock) {
                 // 找到数据，更新显示
                 if (priceEl) {
@@ -6276,14 +6283,14 @@ function initSelectionConfig() {
     // 设置默认折叠状态
     const content = document.getElementById('selection-config-content');
     const arrow = document.getElementById('selection-config-arrow');
-    
+
     if (content && arrow) {
         // 默认折叠状态
         content.classList.add('hidden');
         arrow.classList.add('collapsed');
         arrow.textContent = '▶';
     }
-    
+
     // 默认值
     const defaults = {
         'filter-volume-ratio-enable': true,
@@ -6314,7 +6321,7 @@ function initSelectionConfig() {
         'filter-ichimoku-condition': 'above_cloud',
         'selection-max-count': '30'
     };
-    
+
     // 尝试从localStorage加载保存的配置
     let savedConfig = null;
     try {
@@ -6326,25 +6333,25 @@ function initSelectionConfig() {
     } catch (e) {
         console.warn('加载筛选配置失败，使用默认值:', e);
     }
-    
+
     // 应用配置值（优先使用保存的配置，否则使用默认值）
     Object.entries(defaults).forEach(([id, defaultValue]) => {
         const element = document.getElementById(id);
         if (!element) return;
-        
+
         // 将id转换为camelCase格式（与保存的配置键匹配）
         // 例如: 'filter-volume-ratio-enable' -> 'volumeRatioEnable'
         const camelKey = id
             .replace('filter-', '')
             .replace('selection-', '')
             .replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-        
+
         // 获取值：优先使用保存的配置，否则使用默认值
         let value = defaultValue;
         if (savedConfig && savedConfig[camelKey] !== undefined) {
             value = savedConfig[camelKey];
         }
-        
+
         // 应用值
         if (element.type === 'checkbox') {
             element.checked = value === true || value === 'true';
@@ -6352,13 +6359,13 @@ function initSelectionConfig() {
             element.value = value;
         }
     });
-    
+
     // 添加范围输入的联动逻辑
     const volumeMinInput = document.getElementById('filter-volume-ratio-min');
     const volumeMaxInput = document.getElementById('filter-volume-ratio-max');
     const rsiMinInput = document.getElementById('filter-rsi-min');
     const rsiMaxInput = document.getElementById('filter-rsi-max');
-    
+
     // 量比范围验证
     if (volumeMinInput && volumeMaxInput) {
         volumeMinInput.addEventListener('change', () => {
@@ -6368,7 +6375,7 @@ function initSelectionConfig() {
                 volumeMaxInput.value = (min + 1).toFixed(1);
             }
         });
-        
+
         volumeMaxInput.addEventListener('change', () => {
             const min = parseFloat(volumeMinInput.value);
             const max = parseFloat(volumeMaxInput.value);
@@ -6377,7 +6384,7 @@ function initSelectionConfig() {
             }
         });
     }
-    
+
     // RSI范围验证
     if (rsiMinInput && rsiMaxInput) {
         rsiMinInput.addEventListener('change', () => {
@@ -6388,7 +6395,7 @@ function initSelectionConfig() {
             }
             updateFilterPreviews();
         });
-        
+
         rsiMaxInput.addEventListener('change', () => {
             const min = parseInt(rsiMinInput.value);
             const max = parseInt(rsiMaxInput.value);
@@ -6398,7 +6405,7 @@ function initSelectionConfig() {
             updateFilterPreviews();
         });
     }
-    
+
     // 量比范围变化时更新预览
     if (volumeMinInput) {
         volumeMinInput.addEventListener('change', updateFilterPreviews);
@@ -6406,17 +6413,17 @@ function initSelectionConfig() {
     if (volumeMaxInput) {
         volumeMaxInput.addEventListener('change', updateFilterPreviews);
     }
-    
+
     // BIAS范围变化时更新预览
     const biasMinInput = document.getElementById('filter-bias-min');
     const biasMaxInput = document.getElementById('filter-bias-max');
     if (biasMinInput) biasMinInput.addEventListener('change', updateFilterPreviews);
     if (biasMaxInput) biasMaxInput.addEventListener('change', updateFilterPreviews);
-    
+
     // ADX变化时更新预览
     const adxMinInput = document.getElementById('filter-adx-min');
     if (adxMinInput) adxMinInput.addEventListener('change', updateFilterPreviews);
-    
+
     // 市场选择变化时刷新指标统计
     const marketSelect = document.getElementById('selection-market');
     if (marketSelect) {
@@ -6432,23 +6439,23 @@ function initStrategy() {
     const loadSelectedBtn = document.getElementById('load-selected-btn');
     const collectKlineBtn = document.getElementById('collect-kline-btn');
     const singleBatchCollectBtn = document.getElementById('single-batch-collect-kline-btn');
-    
+
     // 初始化筛选配置
     initSelectionConfig();
-    
+
     // 从服务器加载选股配置（持久化配置）
     loadSelectionConfig();
-    
+
     // 加载指标统计信息
     loadIndicatorStats();
-    
+
     // 从服务器加载选股结果
     loadSelectedStocks();
-    
+
     // 配置按钮事件
     const resetConfigBtn = document.getElementById('reset-config-btn');
     const saveConfigBtn = document.getElementById('save-config-btn');
-    
+
     if (resetConfigBtn) {
         resetConfigBtn.addEventListener('click', () => {
             if (confirm('确认重置所有筛选配置为默认值吗？')) {
@@ -6460,7 +6467,7 @@ function initStrategy() {
             }
         });
     }
-    
+
     if (saveConfigBtn) {
         saveConfigBtn.addEventListener('click', () => {
             // 保存所有筛选配置到localStorage
@@ -6505,40 +6512,40 @@ function initStrategy() {
                 // 选股数量
                 selectionMaxCount: document.getElementById('selection-max-count')?.value
             };
-            
+
             localStorage.setItem('selectionConfig', JSON.stringify(config));
             showToast('筛选配置已保存', 'success');
-            
+
             // 保存成功后自动折叠配置面板
             collapseSelectionConfig();
         });
     }
-    
+
     if (selectBtn) {
         selectBtn.addEventListener('click', runSelection);
     }
     if (loadSelectedBtn) {
         loadSelectedBtn.addEventListener('click', loadSelectedStocks);
     }
-    
+
     // 计算日线指标按钮
     const computeDailyBtn = document.getElementById('compute-daily-btn');
     if (computeDailyBtn) {
         computeDailyBtn.addEventListener('click', () => computeIndicators('daily'));
     }
-    
+
     // 计算小时线指标按钮
     const computeHourlyBtn = document.getElementById('compute-hourly-btn');
     if (computeHourlyBtn) {
         computeHourlyBtn.addEventListener('click', () => computeIndicators('1h'));
     }
-    
+
     // 停止指标计算按钮
     const stopIndicatorBtn = document.getElementById('stop-indicator-btn');
     if (stopIndicatorBtn) {
         stopIndicatorBtn.addEventListener('click', stopIndicatorCompute);
     }
-    
+
     // 初始化选股页（不再使用滚动监听，改用"加载更多"按钮）
     if (collectKlineBtn) {
         collectKlineBtn.addEventListener('click', () => {
@@ -6565,7 +6572,7 @@ function initStrategy() {
     if (stopCollectBtn) {
         stopCollectBtn.addEventListener('click', stopKlineCollect);
     }
-    
+
     // 页面加载时，进度状态会通过SSE推送
     // 不需要额外检查，SSE连接会自动推送最新状态
 }
@@ -6575,18 +6582,18 @@ async function runSelection() {
     const market = document.getElementById('selection-market')?.value || 'A'; // 从选择器获取市场
     const maxCount = parseInt(document.getElementById('selection-max-count')?.value) || 30;
     const container = document.getElementById('selected-stocks');
-    
+
     // 调试：检查checkbox元素是否存在
     const stockOnlyEl = document.getElementById('filter-stock-only-enable');
     const rsiEnableEl = document.getElementById('filter-rsi-enable');
     const volumeRatioEnableEl = document.getElementById('filter-volume-ratio-enable');
-    
+
     console.log('[选股调试] checkbox元素检查:', {
         stockOnlyEl: stockOnlyEl ? `存在, checked=${stockOnlyEl.checked}` : '不存在',
         rsiEnableEl: rsiEnableEl ? `存在, checked=${rsiEnableEl.checked}` : '不存在',
         volumeRatioEnableEl: volumeRatioEnableEl ? `存在, checked=${volumeRatioEnableEl.checked}` : '不存在'
     });
-    
+
     // 收集筛选配置
     const filterConfig = {
         // 仅股票（排除ETF/指数）
@@ -6637,14 +6644,14 @@ async function runSelection() {
         cci_min: parseFloat(document.getElementById('filter-cci-min')?.value) || -100,
         cci_max: parseFloat(document.getElementById('filter-cci-max')?.value) || 100,
     };
-    
+
     // 调试：显示启用的筛选条件
     const enabledFilters = Object.entries(filterConfig)
         .filter(([key, value]) => key.endsWith('_enable') && value === true)
         .map(([key]) => key.replace('_enable', ''));
     console.log('[选股调试] 启用的筛选条件:', enabledFilters);
     console.log('[选股调试] 完整筛选配置:', filterConfig);
-    
+
     // 禁用选股按钮，显示加载状态
     if (selectBtn) {
         selectBtn.disabled = true;
@@ -6652,10 +6659,10 @@ async function runSelection() {
         selectBtn.style.opacity = '0.7';
         selectBtn.style.cursor = 'not-allowed';
     }
-    
+
     // 生成任务ID
     const taskId = `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // 恢复按钮状态的函数
     const restoreButton = () => {
         if (selectBtn) {
@@ -6665,7 +6672,7 @@ async function runSelection() {
             selectBtn.style.cursor = 'pointer';
         }
     };
-    
+
     // 显示进度容器
     const progressContainer = document.getElementById('selection-progress-container');
     if (progressContainer) {
@@ -6681,7 +6688,7 @@ async function runSelection() {
         }
         if (progressText) progressText.textContent = '';
     }
-    
+
     // 显示加载状态
     container.innerHTML = `
         <div class="selection-loading">
@@ -6690,17 +6697,17 @@ async function runSelection() {
             <div style="margin-top: 8px; color: #64748b; font-size: 12px;">进度将通过SSE实时推送</div>
         </div>
     `;
-    
+
     // 确保SSE连接已建立（进度通过SSE推送）
     if (!sseConnection || sseConnection.readyState !== EventSource.OPEN) {
         console.log('[选股] SSE未连接，尝试连接...');
         connectSSE();
     }
-    
+
     // 保存当前任务ID到全局变量，用于SSE消息过滤
     window.currentSelectionTaskId = taskId;
     console.log('[选股] 任务ID:', taskId, '进度将通过SSE推送');
-    
+
     // 隐藏进度容器的函数（选股完成后调用）
     const hideProgressContainer = () => {
         setTimeout(() => {
@@ -6709,18 +6716,18 @@ async function runSelection() {
             }
         }, 3000); // 3秒后隐藏
     };
-    
+
     // 注意：进度更新由 handleSelectionProgress 函数处理（在SSE消息处理中）
     // 这里不再需要 updateSelectionProgress 函数，因为 handleSelectionProgress 已经处理了
-    
+
     // 临时变量用于跟踪进度状态
     let selectionCompleted = false;
-    
+
     try {
         // 选股不设置超时，由后端控制（可能需要很长时间处理全部股票）
         console.log('发送选股请求:', `${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`);
         const startTime = Date.now();
-        
+
         const response = await apiFetch(`${API_BASE}/api/strategy/select?max_count=${maxCount}&market=${market}&task_id=${taskId}`, {
             method: 'POST',
             headers: {
@@ -6728,23 +6735,23 @@ async function runSelection() {
             },
             body: JSON.stringify(filterConfig)
         });
-        
+
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(`选股请求完成，耗时: ${elapsed}秒`);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.log('选股结果:', result);
-        
+
         // 清除当前任务ID
         window.currentSelectionTaskId = null;
-        
+
         // 隐藏进度容器
         hideProgressContainer();
-        
+
         if (result.code === 0) {
             if (result.message && result.message.includes('市场环境不佳')) {
                 container.innerHTML = `
@@ -6770,7 +6777,7 @@ async function runSelection() {
                     <div class="error-detail">耗时: ${elapsed}秒</div>
                 </div>
             `;
-            
+
             if (message.includes('没有数据') || message.includes('kline') || message.includes('K线')) {
                 errorHtml += `
                     <div style="text-align: center; margin-top: 20px;">
@@ -6781,9 +6788,9 @@ async function runSelection() {
                     </div>
                 `;
             }
-            
+
             container.innerHTML = errorHtml;
-            
+
             // 绑定采集按钮事件
             setTimeout(() => {
                 const collectBtn = document.getElementById('collect-kline-btn');
@@ -6797,21 +6804,21 @@ async function runSelection() {
                 }
             }, 100);
         }
-        
+
         // 恢复按钮状态
         restoreButton();
     } catch (error) {
         console.error('选股请求失败:', error);
-        
+
         // 清除当前任务ID
         window.currentSelectionTaskId = null;
-        
+
         // 隐藏进度容器
         hideProgressContainer();
-        
+
         let errorMessage = '选股请求失败';
         let errorDetail = error.message || '未知错误';
-        
+
         if (error.name === 'AbortError') {
             errorMessage = '选股请求被取消';
             errorDetail = '请求已被取消，请重试';
@@ -6819,7 +6826,7 @@ async function runSelection() {
             errorMessage = '网络连接失败';
             errorDetail = '请检查网络连接或服务器状态';
         }
-        
+
         container.innerHTML = `
             <div class="selection-error">
                 <div class="error-icon" style="color: #ef4444;">🔥</div>
@@ -6830,7 +6837,7 @@ async function runSelection() {
                 </button>
             </div>
         `;
-        
+
         // 恢复按钮状态
         restoreButton();
     }
@@ -6843,17 +6850,17 @@ async function collectSingleStockKline() {
     const periodSelect = document.getElementById('single-collect-period-select');
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('single-collect-kline-btn');
-    
+
     if (!codeInput || !btn) {
         console.error('单个采集：缺少必要的DOM元素');
         showToast('页面元素加载失败，请刷新页面重试', 'error');
         return;
     }
-    
+
     const code = codeInput.value.trim();
     const market = marketSelect?.value || 'A';
     const period = periodSelect?.value || 'daily';
-    
+
     if (!code) {
         if (statusEl) {
             statusEl.innerHTML = '<div style="color: #ef4444; margin-top: 10px;">❌ 请输入股票代码</div>';
@@ -6861,7 +6868,7 @@ async function collectSingleStockKline() {
         showToast('请输入股票代码', 'error');
         return;
     }
-    
+
     btn.disabled = true;
     btn.textContent = '采集中...';
     if (statusEl) {
@@ -6872,14 +6879,14 @@ async function collectSingleStockKline() {
             </div>
         `;
     }
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/market/kline/collect/single?code=${code}&market=${market}&period=${period}`, {
             method: 'POST'
         });
-        
+
         const result = await response.json();
-        
+
         if (result.code === 0) {
             const data = result.data || {};
             const count = data.count || 0;
@@ -6930,18 +6937,18 @@ async function collectSingleBatchKline() {
     const modeSelect = document.getElementById('collect-mode-select');
     const statusEl = document.getElementById('collect-kline-status');
     const btn = document.getElementById('single-batch-collect-kline-btn');
-    
+
     if (!batchSizeInput || !btn) {
         console.error('单个批量采集：缺少必要的DOM元素');
         showToast('页面元素加载失败，请刷新页面重试', 'error');
         return;
     }
-    
+
     const batchSize = parseInt(batchSizeInput.value) || 10;
     const market = marketSelect?.value || 'ALL';
     const period = periodSelect?.value || 'daily';
     const mode = modeSelect?.value || 'incremental';
-    
+
     if (batchSize < 1 || batchSize > 100) {
         if (statusEl) {
             statusEl.innerHTML = '<div style="color: #ef4444; margin-top: 10px;">❌ 单个数量应在1-100之间</div>';
@@ -6949,7 +6956,7 @@ async function collectSingleBatchKline() {
         showToast('单个数量应在1-100之间', 'error');
         return;
     }
-    
+
     btn.disabled = true;
     btn.textContent = '采集中...';
     const modeText = mode === 'full' ? '全量' : '增量';
@@ -6961,14 +6968,14 @@ async function collectSingleBatchKline() {
             </div>
         `;
     }
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/market/kline/collect/batch-single?batch_size=${batchSize}&market=${market}&period=${period}&mode=${mode}`, {
             method: 'POST'
         });
-        
+
         const result = await response.json();
-        
+
         if (result.code === 0) {
             // 使用和批量采集一样的进度显示
             if (statusEl) {
@@ -7019,7 +7026,7 @@ async function collectKlineData(market = null, maxCount = null) {
     const periodSelect = document.getElementById('collect-period-select');
     const maxCountInput = document.getElementById('collect-max-count-input');
     const modeSelect = document.getElementById('collect-mode-select');
-    
+
     // 如果没有传入参数，从UI获取
     if (market === null) {
         market = marketSelect?.value || 'A';
@@ -7029,11 +7036,11 @@ async function collectKlineData(market = null, maxCount = null) {
     }
     const period = periodSelect?.value || 'daily';
     const mode = modeSelect?.value || 'incremental';
-    
+
     // 优先使用选股页面的状态显示区域
     let statusEl = document.getElementById('collect-kline-status');
     let btn = document.getElementById('collect-kline-btn');
-    
+
     // 如果选股失败时调用，使用错误消息中的状态区域
     if (!statusEl) {
         statusEl = document.getElementById('collect-kline-status');
@@ -7041,9 +7048,9 @@ async function collectKlineData(market = null, maxCount = null) {
     if (!btn) {
         btn = document.getElementById('collect-kline-btn');
     }
-    
+
     if (!btn) return;
-    
+
     // 如果状态区域不存在，创建一个临时显示区域
     if (!statusEl) {
         const container = document.getElementById('selected-stocks');
@@ -7055,20 +7062,20 @@ async function collectKlineData(market = null, maxCount = null) {
             statusEl = statusDiv;
         }
     }
-    
+
     btn.disabled = true;
     btn.textContent = '采集中...';
     const modeText = mode === 'full' ? '全量' : '增量';
     statusEl.textContent = `正在采集K线数据（${modeText}模式），请稍候...`;
     statusEl.style.color = '#60a5fa';
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/market/kline/collect?market=${market}&max_count=${maxCount}&period=${period}&mode=${mode}`, {
             method: 'POST'
         });
-        
+
         const result = await response.json();
-        
+
         if (result.code === 0) {
             statusEl.innerHTML = `
                 <div style="margin-top: 10px;">
@@ -7099,21 +7106,21 @@ async function collectKlineData(market = null, maxCount = null) {
 async function stopKlineCollect() {
     const stopBtn = document.getElementById('stop-collect-kline-btn');
     if (!stopBtn) return;
-    
+
     // 如果正在处理，防止重复点击
     if (stopBtn.textContent === '停止中...') {
         return;
     }
-    
+
     stopBtn.textContent = '停止中...';
-    
+
     try {
         const response = await apiFetch(`${API_BASE}/api/market/kline/collect/stop`, {
             method: 'POST'
         });
-        
+
         const result = await response.json();
-        
+
         if (result.code === 0) {
             showToast('已发送停止信号，采集任务将停止', 'success');
         } else {
@@ -7129,22 +7136,22 @@ async function stopKlineCollect() {
 
 async function loadSelectedStocks() {
     const container = document.getElementById('selected-stocks');
-    
+
     // 从服务器加载
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
-    
+
     try {
         // 添加超时控制
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-        
+
         const response = await apiFetch(`${API_BASE}/api/strategy/selected`, {
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
         const result = await response.json();
-        
+
         if (result.code === 0 && result.data) {
             const data = result.data;
             if (data.stocks && data.stocks.length > 0) {
@@ -7175,7 +7182,7 @@ let selectedIsLoading = false; // 是否正在加载
 
 function renderSelectedStocks(stocks, saveToStorage = false) {
     const container = document.getElementById('selected-stocks');
-    
+
     if (stocks.length === 0) {
         container.innerHTML = `
             <div class="selection-error">
@@ -7191,16 +7198,16 @@ function renderSelectedStocks(stocks, saveToStorage = false) {
         selectedRenderedCount = 0;
         return;
     }
-    
+
     // 获取勾选的筛选指标
     const enabledFilters = getEnabledFilters();
-    
+
     // 构建表头
     let headerHtml = '<th>代码/名称</th><th>现价</th><th>涨跌幅</th>';
     enabledFilters.forEach(filter => {
         headerHtml += `<th>${filter.label}</th>`;
     });
-    
+
     // 表格式布局
     container.innerHTML = `
         <div class="selected-stocks-header">
@@ -7221,14 +7228,14 @@ function renderSelectedStocks(stocks, saveToStorage = false) {
             <span class="load-more-info"></span>
         </div>
     `;
-    
+
     // 保存启用的筛选器供分批渲染使用
     window.selectedEnabledFilters = enabledFilters;
-    
+
     // 重置状态
     selectedAllStocks = stocks;
     selectedRenderedCount = 0;
-    
+
     // 渲染第一批数据（使用 requestAnimationFrame 确保 DOM 已更新）
     requestAnimationFrame(() => {
         renderSelectedStocksBatch();
@@ -7239,7 +7246,7 @@ function renderSelectedStocks(stocks, saveToStorage = false) {
 // 获取启用的筛选指标
 function getEnabledFilters() {
     const filters = [];
-    
+
     // 市值
     if (document.getElementById('filter-market-cap-enable')?.checked) {
         filters.push({
@@ -7256,7 +7263,7 @@ function getEnabledFilters() {
             }
         });
     }
-    
+
     // 量比
     if (document.getElementById('filter-volume-ratio-enable')?.checked) {
         filters.push({
@@ -7265,7 +7272,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock.vol_ratio?.toFixed(2) || stock.indicators?.vol_ratio?.toFixed(2) || stock.volume_ratio?.toFixed(2) || '-'
         });
     }
-    
+
     // RSI
     if (document.getElementById('filter-rsi-enable')?.checked) {
         filters.push({
@@ -7274,7 +7281,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock.rsi?.toFixed(1) || stock.indicators?.rsi?.toFixed(1) || '-'
         });
     }
-    
+
     // MA均线
     if (document.getElementById('filter-ma-enable')?.checked) {
         const period = document.getElementById('filter-ma-period')?.value || '20';
@@ -7284,7 +7291,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock[`ma${period}`]?.toFixed(2) || stock.indicators?.[`ma${period}`]?.toFixed(2) || '-'
         });
     }
-    
+
     // EMA均线
     if (document.getElementById('filter-ema-enable')?.checked) {
         const period = document.getElementById('filter-ema-period')?.value || '12';
@@ -7294,7 +7301,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock[`ema${period}`]?.toFixed(2) || stock.indicators?.[`ema${period}`]?.toFixed(2) || '-'
         });
     }
-    
+
     // MACD
     if (document.getElementById('filter-macd-enable')?.checked) {
         filters.push({
@@ -7307,7 +7314,7 @@ function getEnabledFilters() {
             }
         });
     }
-    
+
     // KDJ
     if (document.getElementById('filter-kdj-enable')?.checked) {
         filters.push({
@@ -7322,7 +7329,7 @@ function getEnabledFilters() {
             }
         });
     }
-    
+
     // BIAS乖离率
     if (document.getElementById('filter-bias-enable')?.checked) {
         filters.push({
@@ -7331,7 +7338,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock.bias?.toFixed(2) || stock.indicators?.bias?.toFixed(2) || '-'
         });
     }
-    
+
     // 威廉指标
     if (document.getElementById('filter-williams-r-enable')?.checked) {
         filters.push({
@@ -7340,7 +7347,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock.williams_r?.toFixed(1) || stock.indicators?.williams_r?.toFixed(1) || '-'
         });
     }
-    
+
     // 布林带
     if (document.getElementById('filter-boll-enable')?.checked) {
         filters.push({
@@ -7353,7 +7360,7 @@ function getEnabledFilters() {
             }
         });
     }
-    
+
     // ADX趋势
     if (document.getElementById('filter-adx-enable')?.checked) {
         filters.push({
@@ -7362,7 +7369,7 @@ function getEnabledFilters() {
             getValue: (stock) => stock.indicators?.adx?.toFixed(1) || '-'
         });
     }
-    
+
     // 一目均衡表
     if (document.getElementById('filter-ichimoku-enable')?.checked) {
         filters.push({
@@ -7376,7 +7383,7 @@ function getEnabledFilters() {
             }
         });
     }
-    
+
     return filters;
 }
 
@@ -7386,40 +7393,40 @@ function renderSelectedStocksBatch() {
         console.log('[选股] 正在加载中，跳过渲染');
         return;
     }
-    
+
     const container = document.getElementById('selected-stocks-list');
     if (!container) {
         console.warn('[选股] 找不到 selected-stocks-list 容器');
         return;
     }
-    
+
     // 移除 tab 检查，因为这个函数只在选股完成时调用
     // 如果用户切换到其他页面，也不影响数据渲染
-    
+
     // 计算本次要渲染的范围
     const start = selectedRenderedCount;
     const end = Math.min(start + selectedPageSize, selectedAllStocks.length);
     const batch = selectedAllStocks.slice(start, end);
-    
+
     console.log(`[选股] 渲染批次: ${start}-${end}, 共 ${batch.length} 只`);
-    
+
     if (batch.length === 0) {
         console.log('[选股] 没有更多数据需要渲染');
         return;
     }
-    
+
     const enabledFilters = window.selectedEnabledFilters || [];
-    
+
     // 渲染表格行
     batch.forEach((stock, index) => {
         const tr = document.createElement('tr');
         tr.className = 'stock-row';
         tr.setAttribute('data-stock', JSON.stringify(stock));
-        
+
         const pct = stock.pct || 0;
         const changeClass = pct >= 0 ? 'up' : 'down';
         const changeText = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
-        
+
         // 基础列：代码/名称、现价、涨跌幅
         let rowHtml = `
             <td class="stock-info-cell">
@@ -7429,27 +7436,27 @@ function renderSelectedStocksBatch() {
             <td class="price-cell">¥${stock.price ? stock.price.toFixed(2) : '-'}</td>
             <td class="change-cell ${changeClass}">${changeText}</td>
         `;
-        
+
         // 动态添加启用的指标列
         enabledFilters.forEach(filter => {
             const value = filter.getValue(stock);
             rowHtml += `<td class="indicator-cell">${value}</td>`;
         });
-        
+
         tr.innerHTML = rowHtml;
-        
+
         // 添加点击事件
         tr.addEventListener('click', () => {
             console.log(`[选股] 点击股票: ${stock.code} ${stock.name}`);
             showKlineModal(stock.code, stock.name || stock.code, stock);
         });
-        
+
         container.appendChild(tr);
     });
-    
+
     // 更新已渲染数量
     selectedRenderedCount = end;
-    
+
     // 更新"加载更多"按钮状态
     const loadMoreContainer = document.getElementById('selected-stocks-load-more');
     if (loadMoreContainer) {
@@ -7463,7 +7470,7 @@ function renderSelectedStocksBatch() {
             loadMoreContainer.style.display = 'none';
         }
     }
-    
+
     console.log(`[选股] 已渲染 ${selectedRenderedCount}/${selectedAllStocks.length} 只股票`);
 }
 
@@ -7485,14 +7492,14 @@ async function initAI() {
     const clearBtn = document.getElementById('ai-clear-btn');
     const watchlistCheckbox = document.getElementById('ai-source-watchlist');
     const selectionCheckbox = document.getElementById('ai-source-selection');
-    
+
     console.log('[AI] 元素查找结果:', {
         analyzeBtn: !!analyzeBtn,
         codeInput: !!codeInput,
         watchlistCheckbox: !!watchlistCheckbox,
         selectionCheckbox: !!selectionCheckbox
     });
-    
+
     // 从服务器加载选择框状态
     try {
         const uiConfig = await loadUIConfig();
@@ -7522,7 +7529,7 @@ async function initAI() {
     } catch (e) {
         console.warn('加载AI来源配置失败:', e);
     }
-    
+
     // 监听选择框变化，保存到服务器
     if (watchlistCheckbox) {
         watchlistCheckbox.addEventListener('change', () => {
@@ -7536,12 +7543,12 @@ async function initAI() {
             saveUIConfig({ ai_source_selection: selectionCheckbox.checked });
         });
     }
-    
+
     if (!analyzeBtn) {
         console.error('[AI] 找不到分析按钮!');
         return;
     }
-    
+
     analyzeBtn.addEventListener('click', () => {
         console.log('[AI] 点击了开始分析按钮');
         const code = codeInput.value.trim();
@@ -7551,20 +7558,20 @@ async function initAI() {
             analyzeStock([code]);
             return;
         }
-        
+
         // 未输入代码，根据选择框决定分析哪些股票
         const useWatchlist = watchlistCheckbox?.checked;
         const useSelection = selectionCheckbox?.checked;
-        
+
         console.log('[AI] 选择框状态:', { useWatchlist, useSelection });
-        
+
         if (!useWatchlist && !useSelection) {
             showToast('请勾选自选股或选股结果，或输入股票代码', 'warning');
             return;
         }
-        
+
         let codes = [];
-        
+
         // 获取自选股
         if (useWatchlist) {
             const watchlist = getWatchlist();
@@ -7574,7 +7581,7 @@ async function initAI() {
                 codes = codes.concat(watchlistCodes);
             }
         }
-        
+
         // 获取选股结果
         if (useSelection) {
             console.log('[AI] 选股结果:', selectedAllStocks?.length || 0, '只');
@@ -7583,12 +7590,12 @@ async function initAI() {
                 codes = codes.concat(selectionCodes);
             }
         }
-        
+
         // 去重
         codes = [...new Set(codes)];
-        
+
         console.log('[AI] 最终要分析的股票:', codes.length, '只', codes.slice(0, 5));
-        
+
         if (codes.length === 0) {
             let msg = '';
             if (useWatchlist && useSelection) {
@@ -7601,11 +7608,11 @@ async function initAI() {
             showToast(msg, 'error');
             return;
         }
-        
+
         console.log('[AI] 调用 analyzeStock 函数');
         analyzeStock(codes);
     });
-    
+
     // 支持回车键触发分析
     codeInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -7616,12 +7623,12 @@ async function initAI() {
     if (clearBtn) {
         clearBtn.addEventListener('click', clearAIAnalysis);
     }
-    
+
     const statsBtn = document.getElementById('ai-stats-btn');
     if (statsBtn) {
         statsBtn.addEventListener('click', loadStockStatistics);
     }
-    
+
     // 下载AI数据按钮
     const previewBtn = document.getElementById('ai-preview-btn');
     if (previewBtn) {
@@ -7671,7 +7678,7 @@ async function analyzeStock(codes, options = {}) {
             <div id="ai-loading-timer" style="margin-top: 12px; color: #60a5fa; font-size: 14px;">已用时: 0秒</div>
         </div>
     `;
-    
+
     // 启动计时器显示已用时间
     const startTime = Date.now();
     const timerInterval = setInterval(() => {
@@ -7685,7 +7692,7 @@ async function analyzeStock(codes, options = {}) {
             clearInterval(timerInterval);
         }
     }, 1000);
-    
+
     try {
         let result;
         if (isBatch) {
@@ -7726,7 +7733,7 @@ async function analyzeStock(codes, options = {}) {
             clearInterval(timerInterval);
             console.log('[AI] 收到响应:', response.status, response.statusText);
             result = await response.json();
-            
+
             if (result.code === 0 && result.data) {
                 renderAIAnalysis(result.data, singleCode);
             } else {
@@ -7759,18 +7766,18 @@ function buildAIAnalysisHtml(data, code, name, planId = null, stats = null) {
         '震荡': '#f59e0b',
         '未知': '#94a3b8'
     }[data.trend] || '#94a3b8';
-    
+
     const riskColor = {
         '低': '#10b981',
         '中': '#f59e0b',
         '高': '#ef4444',
         '未知': '#94a3b8'
     }[data.risk] || '#94a3b8';
-    
+
     const confidenceLevel = data.confidence || 0;
     const confidenceColor = confidenceLevel >= 70 ? '#10b981' : confidenceLevel >= 50 ? '#f59e0b' : '#ef4444';
     const title = name ? `${name} (${code})` : code || '';
-    
+
     // 信号颜色
     const signal = data.signal || '';
     const signalColor = {
@@ -7951,7 +7958,7 @@ function buildAIAnalysisHtml(data, code, name, planId = null, stats = null) {
 
 async function renderAIAnalysis(data, code, name) {
     const container = document.getElementById('ai-analysis-result');
-    
+
     // 加载该股票的胜率统计
     let stats = null;
     try {
@@ -7965,13 +7972,13 @@ async function renderAIAnalysis(data, code, name) {
     } catch (e) {
         console.warn(`获取${code}统计失败:`, e);
     }
-    
+
     container.innerHTML = buildAIAnalysisHtml(data, code, name, null, stats);
 }
 
 async function renderAIAnalysisBatch(items, pagination = null) {
     const container = document.getElementById('ai-analysis-result');
-    
+
     if (!items || items.length === 0) {
         container.innerHTML = `
             <div class="ai-placeholder">
@@ -7996,7 +8003,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
         '观望': 2,
         '回避': 3
     };
-    
+
     successItems = successItems
         .map(item => ({
             ...item,
@@ -8017,7 +8024,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     // 生成表格行HTML
     const tableRows = successItems.map(item => {
         const analysis = item.analysis;
-        
+
         const signal = analysis.signal || '未知';
         const signalColor = {
             '强烈看多': '#10b981',
@@ -8026,30 +8033,30 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             '观望': '#f59e0b',
             '回避': '#ef4444'
         }[signal] || '#94a3b8';
-        
+
         const trendColor = {
             '上涨': '#10b981',
             '下跌': '#ef4444',
             '震荡': '#f59e0b',
             '未知': '#94a3b8'
         }[analysis.trend] || '#94a3b8';
-        
+
         const riskColor = {
             '低': '#10b981',
             '中': '#f59e0b',
             '高': '#ef4444',
             '未知': '#94a3b8'
         }[analysis.risk] || '#94a3b8';
-        
+
         const scoreColor = analysis.score >= 0 ? '#10b981' : '#ef4444';
         const confidenceColor = (analysis.confidence || 0) >= 70 ? '#10b981' : (analysis.confidence || 0) >= 50 ? '#f59e0b' : '#ef4444';
-        
+
         // 当前价格（从item中获取，如果没有则显示-）
         const currentPrice = item.price || item.current_price || analysis.current_price;
-        const priceHtml = currentPrice 
+        const priceHtml = currentPrice
             ? `<span style="color: #fbbf24; font-weight: 700; font-size: 14px;">¥${Number(currentPrice).toFixed(2)}</span>`
             : '<span style="color: #94a3b8;">-</span>';
-        
+
         // 交易点位显示
         let tradingPointsHtml = '<span style="color: #94a3b8;">-</span>';
         if ((analysis.signal === '买入' || analysis.signal === '强烈看多') && analysis.buy_price) {
@@ -8067,12 +8074,12 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                 </div>
             `;
         }
-        
+
         // 交易理由（观望和回避不显示）
-        const reasonHtml = (analysis.signal === '买入' || analysis.signal === '强烈看多' || analysis.signal === '关注') && analysis.reason 
+        const reasonHtml = (analysis.signal === '买入' || analysis.signal === '强烈看多' || analysis.signal === '关注') && analysis.reason
             ? `<div class="ai-reason-text">${analysis.reason}</div>`
             : '<span class="ai-empty-text">-</span>';
-        
+
         return `
             <tr class="ai-analysis-row" data-code="${item.code}" data-name="${item.name || ''}" style="cursor: pointer;" title="点击查看K线图">
                 <td style="padding: 8px;">
@@ -8137,7 +8144,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     const currentPage = pagination?.current_page || aiAnalysisCurrentPage || 1;
     const totalPages = pagination?.total_pages || aiAnalysisTotalPages || 0;
     const batchTime = pagination?.batch_time ? new Date(pagination.batch_time).toLocaleString('zh-CN') : '';
-    
+
     const paginationHtml = totalPages > 1 ? `
         <div style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px; background: rgba(30, 41, 59, 0.5); border-radius: 8px;">
             <button 
@@ -8156,7 +8163,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             >下一批 →</button>
         </div>
     ` : (batchTime ? `<div style="text-align: center; color: #64748b; font-size: 12px; margin-top: 8px;">${batchTime}</div>` : '');
-    
+
     container.innerHTML = `
         <div class="ai-analysis-container">
             <div class="ai-analysis-header">
@@ -8187,23 +8194,23 @@ async function renderAIAnalysisBatch(items, pagination = null) {
             ${paginationHtml}
         </div>
     `;
-    
+
     // 绑定分页按钮事件
     const prevBtn = document.getElementById('ai-prev-page-btn');
     const nextBtn = document.getElementById('ai-next-page-btn');
-    
+
     if (prevBtn && currentPage > 1) {
         prevBtn.addEventListener('click', () => {
             loadAIAnalysisHistory(currentPage - 1);
         });
     }
-    
+
     if (nextBtn && currentPage < totalPages) {
         nextBtn.addEventListener('click', () => {
             loadAIAnalysisHistory(currentPage + 1);
         });
     }
-    
+
     // 绑定表格行点击事件（打开K线图）
     const rows = container.querySelectorAll('.ai-analysis-row[data-code]');
     rows.forEach(row => {
@@ -8250,23 +8257,23 @@ async function downloadAIPreviewData() {
         btn.innerHTML = '⏳ 获取中...';
         btn.disabled = true;
     }
-    
+
     try {
         const res = await apiFetch(`${API_BASE}/api/ai/request-history`);
         const result = await res.json();
-        
+
         if (result.code !== 0) {
             showToast(`获取AI历史失败: ${result.message}`, 'error');
             return;
         }
-        
+
         const history = result.data;
-        
+
         if (!history || history.length === 0) {
             showToast('暂无AI请求历史记录，请先进行AI分析', 'warning');
             return;
         }
-        
+
         // 构建下载内容（只有1条记录，包含完整的分析数据）
         const content = {
             _说明: '这是最近一次AI分析的完整请求数据，包括所有股票的指标和分析结果',
@@ -8274,7 +8281,7 @@ async function downloadAIPreviewData() {
             记录数量: history.length,
             历史记录: history,
         };
-        
+
         // 创建下载
         const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -8285,10 +8292,10 @@ async function downloadAIPreviewData() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
+
         const totalStocks = history[0]?.total_stocks || history.length;
         showToast(`AI请求历史已下载（${totalStocks}只股票）`, 'success');
-        
+
     } catch (e) {
         console.error('下载AI历史失败:', e);
         showToast(`下载AI历史失败: ${e.message}`, 'error');
@@ -8337,20 +8344,20 @@ async function clearAIAnalysis() {
 async function loadStockStatistics() {
     const container = document.getElementById('ai-analysis-result');
     if (!container) return;
-    
+
     container.innerHTML = `
         <div class="ai-loading">
             <div class="ai-loading-spinner"></div>
             <div style="margin-top: 16px; color: #94a3b8;">正在加载胜率统计...</div>
         </div>
     `;
-    
+
     try {
         const res = await apiFetch(`${API_BASE}/api/trading/statistics/stocks`);
         if (!res.ok) {
             throw new Error('获取胜率统计失败');
         }
-        
+
         const data = await res.json();
         if (data.code === 0 && Array.isArray(data.data)) {
             renderStockStatistics(data.data);
@@ -8430,7 +8437,7 @@ async function loadStockStatistics() {
 // 渲染股票胜率统计
 function renderStockStatistics(stats, sortBy = 'win_rate') {
     const container = document.getElementById('ai-analysis-result');
-    
+
     // 排序逻辑
     let sortedStats = [...stats];
     if (sortBy === 'time') {
@@ -8449,15 +8456,15 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
             return b.total - a.total; // 胜率相同时按总交易数降序
         });
     }
-    
+
     // 格式化时间显示
     const formatTime = (timeStr) => {
         if (!timeStr) return '-';
         try {
             const date = new Date(timeStr);
-            return date.toLocaleString('zh-CN', { 
-                year: 'numeric', 
-                month: '2-digit', 
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
                 day: '2-digit',
                 hour: '2-digit',
                 minute: '2-digit'
@@ -8466,7 +8473,7 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
             return timeStr;
         }
     };
-    
+
     // 返回按钮和排序选择框HTML
     const backButtonId = 'back-to-analysis-btn';
     const sortSelectId = 'stats-sort-select';
@@ -8500,7 +8507,7 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
             </button>
         </div>
     `;
-    
+
     if (!sortedStats || sortedStats.length === 0) {
         container.innerHTML = `
             <div style="position: relative; background: #1e293b; border-radius: 8px; padding: 24px; border: 1px solid #334155;">
@@ -8512,7 +8519,7 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
                 </div>
             </div>
         `;
-        
+
         // 绑定事件
         setTimeout(() => {
             const btn = document.getElementById(backButtonId);
@@ -8530,11 +8537,11 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
         }, 0);
         return;
     }
-    
+
     // 生成表格行HTML
     const tableRows = sortedStats.map(s => {
         const winRateColor = s.win_rate >= 60 ? '#10b981' : s.win_rate >= 50 ? '#f59e0b' : '#ef4444';
-        
+
         return `
             <tr style="border-bottom: 1px solid #334155;">
                 <td style="padding: 10px;">
@@ -8572,7 +8579,7 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
             </tr>
         `;
     }).join('');
-    
+
     const html = `
         <div style="position: relative; background: #1e293b; border-radius: 8px; padding: 24px; border: 1px solid #334155;">
             ${controlsHtml}
@@ -8605,9 +8612,9 @@ function renderStockStatistics(stats, sortBy = 'win_rate') {
             </div>
         </div>
     `;
-    
+
     container.innerHTML = html;
-    
+
     // 绑定事件
     setTimeout(() => {
         const btn = document.getElementById(backButtonId);
@@ -8719,22 +8726,22 @@ function initNews() {
         }, 100);
         return;
     }
-    
+
     newsInitialized = true;
     // 刷新按钮仍然保留，但只在用户主动点击时刷新
     refreshBtn.addEventListener('click', () => {
         console.log('[资讯] 用户主动点击刷新按钮');
         loadNews();
     });
-    
+
     // 如果当前在资讯页且没有数据，主动加载一次（避免页面为空）
     const newsTab = document.getElementById('news-tab');
     const newsListEl = document.getElementById('news-list');
     if (newsTab && newsTab.classList.contains('active')) {
         // 检查是否已有数据（不是占位符或加载提示）
-        const hasData = newsListEl && newsListEl.children.length > 0 && 
-                       !newsListEl.innerHTML.includes('暂无资讯') && 
-                       !newsListEl.innerHTML.includes('加载中');
+        const hasData = newsListEl && newsListEl.children.length > 0 &&
+            !newsListEl.innerHTML.includes('暂无资讯') &&
+            !newsListEl.innerHTML.includes('加载中');
         if (!hasData) {
             console.log('[资讯] 当前在资讯页且无数据，主动加载一次');
             loadNews();
@@ -8752,27 +8759,27 @@ async function loadNews() {
         console.warn('[资讯] 资讯容器不存在');
         return;
     }
-    
+
     // 检查是否在资讯页
     const newsTab = document.getElementById('news-tab');
     if (!newsTab || !newsTab.classList.contains('active')) {
         console.log('[资讯] 当前不在资讯页，跳过加载');
         return;
     }
-    
+
     container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
-    
+
     try {
         console.log('[资讯] 开始加载资讯');
         const response = await apiFetch(`${API_BASE}/api/news/latest`);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.log('[资讯] 收到响应:', result.code, '数据数量:', result.data?.length || 0);
-        
+
         if (result.code === 0) {
             renderNews(result.data || []);
         } else {
@@ -8792,22 +8799,22 @@ let newsIsLoading = false; // 是否正在加载
 
 function renderNews(newsList) {
     const container = document.getElementById('news-list');
-    
+
     if (newsList.length === 0) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">暂无资讯</div>';
         newsAllItems = [];
         newsRenderedCount = 0;
         return;
     }
-    
+
     // 重置状态
     newsAllItems = newsList;
     newsRenderedCount = 0;
     container.innerHTML = '';
-    
+
     // 渲染第一批数据
     renderNewsBatch();
-    
+
     // 添加"加载更多"按钮容器
     let loadMoreContainer = document.getElementById('news-load-more');
     if (!loadMoreContainer) {
@@ -8820,27 +8827,27 @@ function renderNews(newsList) {
         `;
         container.parentNode.appendChild(loadMoreContainer);
     }
-    
+
     console.log(`[资讯] 开始分批渲染，总数: ${newsList.length}`);
 }
 
 // 分批渲染资讯（无限滚动）
 function renderNewsBatch() {
     if (newsIsLoading) return;
-    
+
     const container = document.getElementById('news-list');
     if (!container) return;
-    
+
     const newsTab = document.getElementById('news-tab');
     if (!newsTab || !newsTab.classList.contains('active')) {
         return; // 不在资讯页，不渲染
     }
-    
+
     // 计算本次要渲染的范围
     const start = newsRenderedCount;
     const end = Math.min(start + newsPageSize, newsAllItems.length);
     const batch = newsAllItems.slice(start, end);
-    
+
     if (batch.length === 0) {
         // 已全部渲染完成
         const loadingDiv = container.querySelector('.loading-more');
@@ -8849,13 +8856,13 @@ function renderNewsBatch() {
         }
         return;
     }
-    
+
     // 移除之前的加载提示
     const loadingDiv = container.querySelector('.loading-more');
     if (loadingDiv) {
         loadingDiv.remove();
     }
-    
+
     // 转义HTML特殊字符，避免XSS
     const escapeHtml = (text) => {
         if (!text) return '';
@@ -8863,7 +8870,7 @@ function renderNewsBatch() {
         div.textContent = text;
         return div.innerHTML;
     };
-    
+
     // 渲染本批数据
     batch.forEach((news, batchIndex) => {
         const index = start + batchIndex; // 全局索引
@@ -8873,7 +8880,7 @@ function renderNewsBatch() {
         const displayContent = shouldTruncate ? content.substring(0, 500) : content;
         const contentId = `news-content-${index}`;
         const btnId = `news-expand-btn-${index}`;
-        
+
         const newsItem = document.createElement('div');
         newsItem.className = 'news-item';
         newsItem.innerHTML = `
@@ -8885,12 +8892,12 @@ function renderNewsBatch() {
             </div>
         `;
         container.appendChild(newsItem);
-        
+
         // 绑定展开按钮事件
         if (shouldTruncate) {
             const expandBtn = document.getElementById(btnId);
             if (expandBtn) {
-                expandBtn.addEventListener('click', function() {
+                expandBtn.addEventListener('click', function () {
                     const contentDiv = document.getElementById(contentId);
                     const fullContent = this.getAttribute('data-full-content');
                     if (contentDiv && fullContent) {
@@ -8901,9 +8908,9 @@ function renderNewsBatch() {
             }
         }
     });
-    
+
     newsRenderedCount = end;
-    
+
     // 更新"加载更多"按钮状态
     const loadMoreContainer = document.getElementById('news-load-more');
     if (loadMoreContainer) {
@@ -8917,7 +8924,7 @@ function renderNewsBatch() {
             loadMoreContainer.style.display = 'none';
         }
     }
-    
+
     console.log(`[资讯] 已渲染 ${newsRenderedCount}/${newsAllItems.length} 条资讯`);
 }
 
@@ -8940,7 +8947,7 @@ function initConfig() {
     if (configInitialized) {
         return; // 已经初始化过，避免重复初始化
     }
-    
+
     const saveBtn = document.getElementById('cfg-save-btn');
     if (!saveBtn) {
         console.warn('[配置] 保存按钮不存在，将在DOM加载后重试');
@@ -8952,7 +8959,7 @@ function initConfig() {
     }
 
     configInitialized = true;
-    
+
     // 绑定保存按钮事件，添加错误处理
     saveBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -8965,9 +8972,9 @@ function initConfig() {
             showToast(`保存失败: ${error.message}`, 'error');
         }
     });
-    
+
     console.log('[配置] 保存按钮事件已绑定');
-    
+
     // 如果当前在配置页，立即加载
     const configTab = document.getElementById('config-tab');
     if (configTab && configTab.classList.contains('active')) {
@@ -8978,22 +8985,22 @@ function initConfig() {
     if (testBtn) {
         testBtn.addEventListener('click', testNotifyChannels);
     }
-    
+
     // 绑定修改密码按钮
     const changePasswordBtn = document.getElementById('cfg-change-password-btn');
     if (changePasswordBtn) {
         changePasswordBtn.addEventListener('click', changePassword);
     }
-    
+
     // 绑定AI提示词重置按钮
     const aiPromptResetBtn = document.getElementById('cfg-ai-prompt-reset-btn');
     if (aiPromptResetBtn) {
         aiPromptResetBtn.addEventListener('click', resetAIPromptToDefault);
     }
-    
+
     // 初始化数据备份功能
     initBackup();
-    
+
     // 初始化数据库详情功能
     initDbInfo();
 }
@@ -9010,27 +9017,27 @@ function initDbInfo() {
 async function loadDbInfo() {
     const contentEl = document.getElementById('db-info-content');
     const refreshBtn = document.getElementById('refresh-db-info-btn');
-    
+
     if (!contentEl) return;
-    
+
     try {
         if (refreshBtn) {
             refreshBtn.disabled = true;
             refreshBtn.textContent = '⏳ 加载中...';
         }
-        
+
         contentEl.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 20px;">加载中...</div>';
-        
+
         const response = await apiFetch(`${API_BASE}/api/db/info`);
         const result = await response.json();
-        
+
         if (result.code !== 0) {
             throw new Error(result.message || '获取失败');
         }
-        
+
         const data = result.data;
         const today = new Date().toISOString().split('T')[0];
-        
+
         // 辅助函数：生成状态标签
         function statusTag(isOk, okText, warnText) {
             if (isOk) {
@@ -9039,12 +9046,12 @@ async function loadDbInfo() {
                 return `<span style="background: #f9731620; color: #f97316; padding: 1px 6px; border-radius: 4px; font-size: 11px;">${warnText}</span>`;
             }
         }
-        
+
         // 辅助函数：生成K线统计HTML
         function renderKlineStats(stockData, label, color) {
             let html = `<div style="background: rgba(${color},0.1); border-radius: 8px; padding: 12px; margin-bottom: 8px;">`;
             html += `<div style="font-weight: 600; color: rgb(${color}); margin-bottom: 10px;">${label} (${stockData.total_count}只)</div>`;
-            
+
             // 格式化更新时间的函数
             const formatTime = (timeStr) => {
                 if (!timeStr) return '';
@@ -9055,7 +9062,7 @@ async function loadDbInfo() {
                     return timeStr;
                 }
             };
-            
+
             // 日线
             if (stockData.daily) {
                 const daily = stockData.daily;
@@ -9063,7 +9070,7 @@ async function loadDbInfo() {
                 const isLatest = daily.latest_date === today;
                 const completePct = ((daily.stock_count / stockData.total_count) * 100).toFixed(0);
                 const updateTimeStr = formatTime(daily.latest_update_time);
-                
+
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="color: #334155; font-weight: 600;">📊 日线K线</span>
@@ -9087,7 +9094,7 @@ async function loadDbInfo() {
             } else {
                 html += '<div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">📊 日线K线: 暂无数据</div>';
             }
-            
+
             // 小时线
             html += `<div style="border-top: 1px solid rgba(148,163,184,0.15); margin: 8px 0;"></div>`;
             if (stockData.hourly) {
@@ -9095,7 +9102,7 @@ async function loadDbInfo() {
                 const dist = stockData.hourly_distribution;
                 const completePct = ((hourly.stock_count / stockData.total_count) * 100).toFixed(0);
                 const hourlyUpdateTimeStr = formatTime(hourly.latest_update_time);
-                
+
                 html += `<div style="margin-bottom: 8px;">`;
                 html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="color: #334155; font-weight: 600;">⏰ 小时线K线</span>
@@ -9127,7 +9134,7 @@ async function loadDbInfo() {
             } else {
                 html += '<div style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">⏰ 小时线K线: 暂无数据</div>';
             }
-            
+
             // 指标
             if (stockData.indicators) {
                 const dailyInd = stockData.indicators.daily;
@@ -9137,7 +9144,7 @@ async function loadDbInfo() {
                     html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <span style="color: #334155; font-weight: 600;">📈 技术指标</span>
                     </div>`;
-                    
+
                     if (dailyInd) {
                         const isLatest = dailyInd.latest_date === today;
                         const dailyKlineCount = stockData.daily?.stock_count || 0;
@@ -9172,20 +9179,20 @@ async function loadDbInfo() {
                     }
                 }
             }
-            
+
             html += '</div>';
             return html;
         }
-        
+
         // 构建显示内容
         let html = '<div style="display: flex; flex-direction: column; gap: 4px;">';
-        
+
         // A股数据
         html += renderKlineStats(data.a_stock, '🇨🇳 A股', '59,130,246');
-        
+
         // 港股数据
         html += renderKlineStats(data.hk_stock, '🇭🇰 港股', '239,68,68');
-        
+
         // 异常数据检测结果
         if (data.anomalies && data.anomalies.length > 0) {
             html += `<div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-top: 4px;">`;
@@ -9204,18 +9211,18 @@ async function loadDbInfo() {
                 <span style="color: #22c55e; font-size: 12px;">✅ K线数据质量正常，未检测到异常</span>
             </div>`;
         }
-        
+
         // 指标验证结果
         if (data.indicator_validation) {
             const iv = data.indicator_validation;
             const hasErrors = iv.error_count > 0;
             const hasWarnings = iv.warning_count > 0;
-            
+
             if (hasErrors || hasWarnings) {
                 html += `<div style="background: rgba(251,191,36,0.1); border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 4px;">`;
                 html += `<div style="color: #fbbf24; font-weight: 600; margin-bottom: 8px;">📊 指标数据验证 (${iv.latest_date || ''})</div>`;
                 html += `<div style="font-size: 12px; color: #fcd34d; margin-bottom: 8px;">${iv.summary}</div>`;
-                
+
                 // 显示错误统计
                 if (iv.error_counts && Object.keys(iv.error_counts).length > 0) {
                     html += `<div style="font-size: 11px; color: #fca5a5; margin-bottom: 6px;">错误分布:`;
@@ -9224,7 +9231,7 @@ async function loadDbInfo() {
                     }
                     html += `</div>`;
                 }
-                
+
                 // 显示部分错误详情
                 if (iv.errors && iv.errors.length > 0) {
                     html += `<div style="font-size: 11px; color: #94a3b8; max-height: 80px; overflow-y: auto;">`;
@@ -9242,7 +9249,7 @@ async function loadDbInfo() {
                     <span style="color: #22c55e; font-size: 12px;">✅ ${iv.summary}</span>
                 </div>`;
             }
-            
+
             // 显示 MA_prev 统计
             if (iv.ma_prev_stats) {
                 const mp = iv.ma_prev_stats;
@@ -9252,7 +9259,7 @@ async function loadDbInfo() {
                     const bgColor = allComplete ? 'rgba(34,197,94,0.1)' : 'rgba(59,130,246,0.1)';
                     const borderColor = allComplete ? '#22c55e' : '#3b82f6';
                     const textColor = allComplete ? '#22c55e' : '#60a5fa';
-                    
+
                     html += `<div style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 8px 12px; margin-top: 4px;">`;
                     html += `<div style="color: ${textColor}; font-size: 12px; font-weight: 600; margin-bottom: 4px;">📈 MA_prev 字段统计</div>`;
                     html += `<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #94a3b8;">`;
@@ -9264,11 +9271,11 @@ async function loadDbInfo() {
                 }
             }
         }
-        
+
         html += '</div>';
-        
+
         contentEl.innerHTML = html;
-        
+
     } catch (error) {
         console.error('[数据库详情] 加载失败:', error);
         contentEl.innerHTML = `<div style="color: #ef4444; text-align: center; padding: 20px;">加载失败: ${error.message}</div>`;
@@ -9285,17 +9292,17 @@ function initBackup() {
     const exportBtn = document.getElementById('backup-export-btn');
     const importBtn = document.getElementById('backup-import-btn');
     const fileInput = document.getElementById('backup-file-input');
-    
+
     if (exportBtn) {
         exportBtn.addEventListener('click', exportBackup);
     }
-    
+
     if (importBtn) {
         importBtn.addEventListener('click', () => {
             fileInput?.click();
         });
     }
-    
+
     if (fileInput) {
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files?.[0];
@@ -9305,7 +9312,7 @@ function initBackup() {
             }
         });
     }
-    
+
     console.log('[备份] 数据备份功能已初始化');
 }
 
@@ -9313,14 +9320,14 @@ function initBackup() {
 async function exportBackup() {
     const statusEl = document.getElementById('backup-status');
     const exportBtn = document.getElementById('backup-export-btn');
-    
+
     try {
         if (exportBtn) {
             exportBtn.disabled = true;
             exportBtn.textContent = '导出中...';
         }
         if (statusEl) statusEl.textContent = '正在收集数据...';
-        
+
         // 1. 获取配置页设置
         let configData = {};
         try {
@@ -9332,7 +9339,7 @@ async function exportBackup() {
         } catch (e) {
             console.warn('[备份] 获取配置数据失败:', e);
         }
-        
+
         // 2. 获取自选股列表
         let watchlistData = [];
         try {
@@ -9345,7 +9352,7 @@ async function exportBackup() {
         } catch (e) {
             console.warn('[备份] 获取自选股数据失败:', e);
         }
-        
+
         // 3. 获取选股配置（从服务器配置中提取所有筛选器设置）
         const selectionConfig = {
             selection_max_count: configData.selection_max_count || 30,
@@ -9397,7 +9404,7 @@ async function exportBackup() {
             filter_cci_min: configData.filter_cci_min ?? -100,
             filter_cci_max: configData.filter_cci_max ?? 100,
         };
-        
+
         // 4. 组装备份数据
         const backupData = {
             version: '1.0',
@@ -9408,14 +9415,14 @@ async function exportBackup() {
             // AI自定义提示词
             aiCustomPrompt: configData.ai_custom_prompt || null,
         };
-        
+
         // 5. 保存JSON文件（优先使用文件选择器，让用户选择保存位置）
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const defaultFileName = `行情监控备份_${timestamp}.json`;
         const jsonContent = JSON.stringify(backupData, null, 2);
-        
+
         let savedPath = '';
-        
+
         // 尝试使用 File System Access API（支持选择保存位置）
         if (window.showSaveFilePicker) {
             try {
@@ -9426,11 +9433,11 @@ async function exportBackup() {
                         accept: { 'application/json': ['.json'] }
                     }]
                 });
-                
+
                 const writable = await handle.createWritable();
                 await writable.write(jsonContent);
                 await writable.close();
-                
+
                 savedPath = handle.name;
                 console.log('[备份] 文件已保存:', savedPath);
             } catch (e) {
@@ -9450,10 +9457,10 @@ async function exportBackup() {
             fallbackDownload(jsonContent, defaultFileName);
             savedPath = '下载文件夹';
         }
-        
+
         if (statusEl) statusEl.textContent = `✅ 备份导出成功！已保存到: ${savedPath}，包含配置、选股设置、${watchlistData.length}只自选股`;
         showToast('备份导出成功', 'success');
-        
+
     } catch (error) {
         console.error('[备份] 导出失败:', error);
         if (statusEl) statusEl.textContent = `❌ 导出失败: ${error.message}`;
@@ -9484,14 +9491,14 @@ function fallbackDownload(content, fileName) {
 async function importBackup(file) {
     const statusEl = document.getElementById('backup-status');
     const importBtn = document.getElementById('backup-import-btn');
-    
+
     try {
         if (importBtn) {
             importBtn.disabled = true;
             importBtn.textContent = '导入中...';
         }
         if (statusEl) statusEl.textContent = '正在读取文件...';
-        
+
         // 1. 读取文件内容
         const text = await file.text();
         let backupData;
@@ -9500,17 +9507,17 @@ async function importBackup(file) {
         } catch (e) {
             throw new Error('文件格式错误，请选择有效的JSON备份文件');
         }
-        
+
         // 2. 验证备份数据格式
         if (!backupData.version || !backupData.exportTime) {
             throw new Error('无效的备份文件格式');
         }
-        
+
         console.log('[备份] 读取备份文件成功，版本:', backupData.version, '导出时间:', backupData.exportTime);
-        
+
         let successCount = 0;
         let failCount = 0;
-        
+
         // 3. 恢复配置数据
         if (backupData.config && Object.keys(backupData.config).length > 0) {
             if (statusEl) statusEl.textContent = '正在恢复配置...';
@@ -9524,13 +9531,13 @@ async function importBackup(file) {
                 if (backupData.aiCustomPrompt !== undefined) {
                     configToSave.ai_custom_prompt = backupData.aiCustomPrompt;
                 }
-                
+
                 const configRes = await apiFetch(`${API_BASE}/api/config`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(configToSave)
                 });
-                
+
                 if (configRes.ok) {
                     console.log('[备份] 配置恢复成功');
                     successCount++;
@@ -9543,7 +9550,7 @@ async function importBackup(file) {
                 failCount++;
             }
         }
-        
+
         // 4. 恢复自选股
         if (backupData.watchlist && Array.isArray(backupData.watchlist)) {
             if (statusEl) statusEl.textContent = '正在恢复自选股...';
@@ -9553,7 +9560,7 @@ async function importBackup(file) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ stocks: backupData.watchlist })
                 });
-                
+
                 if (watchlistRes.ok) {
                     console.log('[备份] 自选股恢复成功，共', backupData.watchlist.length, '只');
                     // 更新本地缓存
@@ -9568,10 +9575,10 @@ async function importBackup(file) {
                 failCount++;
             }
         }
-        
+
         // 5. 重新加载配置页面数据
         await loadConfig();
-        
+
         // 6. 显示结果
         const watchlistCount = backupData.watchlist?.length || 0;
         if (failCount === 0) {
@@ -9581,7 +9588,7 @@ async function importBackup(file) {
             if (statusEl) statusEl.textContent = `⚠️ 部分恢复成功（${successCount}成功，${failCount}失败）`;
             showToast(`部分恢复成功（${successCount}成功，${failCount}失败）`, 'warning');
         }
-        
+
     } catch (error) {
         console.error('[备份] 导入失败:', error);
         if (statusEl) statusEl.textContent = `❌ 导入失败: ${error.message}`;
@@ -9601,50 +9608,50 @@ async function loadConfig() {
         console.log('[配置] 当前不在配置页，跳过加载');
         return;
     }
-    
+
     const statusEl = document.getElementById('cfg-status');
     if (statusEl) {
         statusEl.textContent = '加载中...';
     }
-    
+
     try {
         console.log('[配置] 开始加载配置');
         const res = await apiFetch(`${API_BASE}/api/config`);
-        
+
         if (!res.ok) {
             const errorText = await res.text().catch(() => '');
             console.error('[配置] 加载失败:', res.status, errorText);
-            
+
             if (res.status === 401) {
                 throw new Error('需要管理员权限，请重新登录');
             }
             throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
         }
-        
+
         const data = await res.json();
         console.log('[配置] 配置加载成功');
 
         document.getElementById('cfg-collector-interval').value = data.collector_interval_seconds ?? 60;
         document.getElementById('cfg-kline-years').value = data.kline_years ?? 1;
-        
+
         // K线数据源选择
         const klineDataSourceEl = document.getElementById('cfg-kline-data-source');
         if (klineDataSourceEl) {
             klineDataSourceEl.value = data.kline_data_source || 'auto';
         }
-        
+
         // 实时行情数据源选择（A股）
         const spotDataSourceEl = document.getElementById('cfg-spot-data-source');
         if (spotDataSourceEl) {
             spotDataSourceEl.value = data.spot_data_source || 'auto';
         }
-        
+
         // 实时行情数据源选择（港股）
         const hkSpotDataSourceEl = document.getElementById('cfg-hk-spot-data-source');
         if (hkSpotDataSourceEl) {
             hkSpotDataSourceEl.value = data.hk_spot_data_source || 'auto';
         }
-        
+
         // 数据采集配置
         const collectMarketEl = document.getElementById('collect-market-select');
         if (collectMarketEl) {
@@ -9654,10 +9661,10 @@ async function loadConfig() {
         if (collectPeriodEl) {
             collectPeriodEl.value = data.collect_period || 'daily';
         }
-        
+
         // Tushare Token（不回显，只在服务端保存）
         document.getElementById('cfg-tushare-token').value = '';
-        
+
         // AI 配置（API Key 不回显，只在服务端保存）
         document.getElementById('cfg-ai-api-key').value = '';
         document.getElementById('cfg-ai-api-base').value = data.openai_api_base || 'https://openai.qiniu.com/v1';
@@ -9696,11 +9703,11 @@ async function loadConfig() {
         const telegramEnabled = data.notify_telegram_enabled !== false && channels.includes('telegram');
         const emailEnabled = data.notify_email_enabled !== false && channels.includes('email');
         const wechatEnabled = data.notify_wechat_enabled !== false && channels.includes('wechat');
-        
+
         document.getElementById('cfg-notify-telegram').checked = telegramEnabled;
         document.getElementById('cfg-telegram-bot-token').value = data.notify_telegram_bot_token || '';
         document.getElementById('cfg-telegram-chat-id').value = data.notify_telegram_chat_id || '';
-        
+
         document.getElementById('cfg-notify-email').checked = emailEnabled;
         document.getElementById('cfg-email-smtp-host').value = data.notify_email_smtp_host || '';
         document.getElementById('cfg-email-smtp-port').value = data.notify_email_smtp_port || '';
@@ -9708,7 +9715,7 @@ async function loadConfig() {
         // 密码不加载，保持为空（已隐藏）
         document.getElementById('cfg-email-password').value = '';
         document.getElementById('cfg-email-to').value = data.notify_email_to || '';
-        
+
         document.getElementById('cfg-notify-wechat').checked = wechatEnabled;
         document.getElementById('cfg-wechat-webhook-url').value = data.notify_wechat_webhook_url || '';
 
@@ -9730,11 +9737,11 @@ async function loadConfig() {
 
 async function saveConfig() {
     console.log('[配置] saveConfig函数被调用');
-    
+
     try {
         const statusEl = document.getElementById('cfg-status');
         if (statusEl) statusEl.textContent = '保存中...';
-        
+
         // 检查是否在配置页
         const configTab = document.getElementById('config-tab');
         if (!configTab || !configTab.classList.contains('active')) {
@@ -9743,14 +9750,14 @@ async function saveConfig() {
             showToast('请先切换到配置页', 'error');
             return;
         }
-        
+
         const interval = parseInt(document.getElementById('cfg-collector-interval')?.value || '60');
         const klineYears = parseFloat(document.getElementById('cfg-kline-years')?.value || '1');
         const klineDataSource = document.getElementById('cfg-kline-data-source')?.value || 'auto';
         const spotDataSource = document.getElementById('cfg-spot-data-source')?.value || 'auto';
         const hkSpotDataSource = document.getElementById('cfg-hk-spot-data-source')?.value || 'auto';
         const tushareToken = document.getElementById('cfg-tushare-token')?.value?.trim() || null;
-        
+
         // 数据采集配置
         const collectMarket = document.getElementById('collect-market-select')?.value || 'ALL';
         const collectPeriod = document.getElementById('collect-period-select')?.value || 'daily';
@@ -9759,13 +9766,13 @@ async function saveConfig() {
         const telegramEnabled = document.getElementById('cfg-notify-telegram')?.checked ?? false;
         const emailEnabled = document.getElementById('cfg-notify-email')?.checked ?? false;
         const wechatEnabled = document.getElementById('cfg-notify-wechat')?.checked ?? false;
-        
+
         if (telegramEnabled) channels.push('telegram');
         if (emailEnabled) channels.push('email');
         if (wechatEnabled) channels.push('wechat');
 
         console.log('[配置] 准备保存配置', { interval, klineYears, klineDataSource, spotDataSource, hkSpotDataSource, hasTushareToken: !!tushareToken });
-        
+
         const res = await apiFetch(`${API_BASE}/api/config`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -9848,35 +9855,35 @@ async function changePassword() {
     const newPassword = document.getElementById('cfg-new-password').value.trim();
     const confirmPassword = document.getElementById('cfg-confirm-password').value.trim();
     const statusEl = document.getElementById('cfg-password-status');
-    
+
     // 验证输入
     if (!oldPassword) {
         if (statusEl) statusEl.textContent = '请输入当前密码';
         showToast('请输入当前密码', 'error');
         return;
     }
-    
+
     if (!newPassword) {
         if (statusEl) statusEl.textContent = '请输入新密码';
         showToast('请输入新密码', 'error');
         return;
     }
-    
+
     if (newPassword.length < 6) {
         if (statusEl) statusEl.textContent = '新密码至少需要6个字符';
         showToast('新密码至少需要6个字符', 'error');
         return;
     }
-    
+
     if (newPassword !== confirmPassword) {
         if (statusEl) statusEl.textContent = '两次输入的新密码不一致';
         showToast('两次输入的新密码不一致', 'error');
         return;
     }
-    
+
     try {
         if (statusEl) statusEl.textContent = '修改中...';
-        
+
         const res = await apiFetch(`${API_BASE}/api/auth/change-password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -9885,7 +9892,7 @@ async function changePassword() {
                 new_password: newPassword
             }),
         });
-        
+
         if (!res.ok) {
             const errText = await res.text();
             let errorMsg = errText || `HTTP ${res.status}`;
@@ -9897,25 +9904,25 @@ async function changePassword() {
             }
             throw new Error(errorMsg);
         }
-        
+
         const data = await res.json();
-        
+
         if (data.success) {
             if (statusEl) statusEl.textContent = '密码修改成功，需要重新登录';
             showToast('密码修改成功，请重新登录', 'success');
-            
+
             // 清除登录状态（修改密码后登录状态失效）
             localStorage.removeItem('isLoggedIn');
             localStorage.removeItem('apiToken');
             localStorage.removeItem('adminToken');
             apiToken = null;
             adminToken = null;
-            
+
             // 清空输入框
             document.getElementById('cfg-old-password').value = '';
             document.getElementById('cfg-new-password').value = '';
             document.getElementById('cfg-confirm-password').value = '';
-            
+
             // 延迟一下再显示登录界面，让用户看到成功提示
             setTimeout(() => {
                 const loginOverlay = document.getElementById('login-overlay');
@@ -9990,21 +9997,21 @@ let toastTimer = null;
 function showToast(message, type = 'info') {
     const toast = document.getElementById('global-toast');
     if (!toast) return;
-    
+
     // 清除之前的类型类
     toast.classList.remove('success', 'error', 'info');
-    
+
     // 根据类型添加相应的类
     if (type === 'success') {
         toast.classList.add('success');
     } else if (type === 'error') {
         toast.classList.add('error');
     }
-    
+
     toast.textContent = message;
     toast.style.display = 'block';
     toast.classList.add('show');
-    
+
     if (toastTimer) {
         clearTimeout(toastTimer);
     }
@@ -10021,7 +10028,7 @@ function showToast(message, type = 'info') {
 function toggleConfigSection(sectionId) {
     const content = document.getElementById(`content-${sectionId}`);
     const arrow = document.getElementById(`arrow-${sectionId}`);
-    
+
     if (content && arrow) {
         if (content.classList.contains('hidden')) {
             content.classList.remove('hidden');
@@ -10037,7 +10044,7 @@ function toggleConfigSection(sectionId) {
 function toggleConfigSubsection(subsectionId) {
     const content = document.getElementById(`content-${subsectionId}`);
     const arrow = document.getElementById(`arrow-${subsectionId}`);
-    
+
     if (content && arrow) {
         if (content.classList.contains('hidden')) {
             content.classList.remove('hidden');
@@ -10058,7 +10065,7 @@ let marketStatusInterval = null;
 
 function initMarketStatus() {
     console.log('[市场状态] ========== initMarketStatus: 开始初始化市场状态模块 ==========');
-    
+
     try {
         // 清除旧的定时器（如果存在）
         if (marketStatusInterval) {
@@ -10066,20 +10073,20 @@ function initMarketStatus() {
             clearInterval(marketStatusInterval);
             marketStatusInterval = null;
         }
-        
+
         // 检查DOM元素是否存在
         const aStatusEl = document.getElementById('market-status-a');
         const hkStatusEl = document.getElementById('market-status-hk');
-        
-        console.log('[市场状态] DOM元素检查:', { 
-            aStatusEl: !!aStatusEl, 
+
+        console.log('[市场状态] DOM元素检查:', {
+            aStatusEl: !!aStatusEl,
             hkStatusEl: !!hkStatusEl,
             aStatusText: aStatusEl?.textContent,
             hkStatusText: hkStatusEl?.textContent,
             documentReady: document.readyState,
             bodyExists: !!document.body
         });
-        
+
         if (!aStatusEl || !hkStatusEl) {
             console.error('[市场状态] DOM元素未找到！', {
                 aStatusEl: aStatusEl,
@@ -10093,11 +10100,11 @@ function initMarketStatus() {
             }, 500);
             return;
         }
-        
+
         // 立即更新一次（页面加载时获取初始状态）
         console.log('[市场状态] 立即执行第一次更新');
         updateMarketStatus();
-        
+
         // 不再轮询，后续依赖SSE推送市场状态更新
         // SSE会在 handleMarketStatusUpdate 中处理状态更新
         console.log('[市场状态] ========== 初始化完成，后续依赖SSE推送更新 ==========');
@@ -10146,26 +10153,26 @@ function setMarketStatusCache(aStatus, hkStatus) {
 
 async function updateMarketStatus() {
     console.log('[市场状态] ========== updateMarketStatus: 函数被调用 ==========');
-    
+
     // 防止重复更新
     if (isUpdatingMarketStatus) {
         console.log('[市场状态] ⚠️ 正在更新中，跳过重复请求');
         return;
     }
-    
+
     const aStatusEl = document.getElementById('market-status-a');
     const hkStatusEl = document.getElementById('market-status-hk');
-    
-    console.log('[市场状态] 元素查找结果', { 
-        aStatusEl: !!aStatusEl, 
+
+    console.log('[市场状态] 元素查找结果', {
+        aStatusEl: !!aStatusEl,
         hkStatusEl: !!hkStatusEl,
         aStatusText: aStatusEl?.textContent,
         hkStatusText: hkStatusEl?.textContent
     });
-    
+
     if (!aStatusEl || !hkStatusEl) {
-        console.warn('[市场状态] 元素未找到', { 
-            aStatusEl: !!aStatusEl, 
+        console.warn('[市场状态] 元素未找到', {
+            aStatusEl: !!aStatusEl,
             hkStatusEl: !!hkStatusEl,
             documentReady: document.readyState
         });
@@ -10185,17 +10192,17 @@ async function updateMarketStatus() {
         }
         return;
     }
-    
+
     // 重置重试计数
     updateMarketStatus.retryCount = 0;
-    
+
     // 先尝试使用缓存立即显示
     const cached = getMarketStatusCache();
     if (cached) {
         console.log('[市场状态] 使用缓存数据立即显示');
         const aStatus = cached.aStatus;
         const hkStatus = cached.hkStatus;
-        
+
         if (aStatus) {
             let aStatusText = aStatus.status || '未知';
             if (!aStatus.is_trading && aStatus.next_open) {
@@ -10205,7 +10212,7 @@ async function updateMarketStatus() {
             aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
             aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
         }
-        
+
         if (hkStatus) {
             let hkStatusText = hkStatus.status || '未知';
             if (!hkStatus.is_trading && hkStatus.next_open) {
@@ -10226,18 +10233,18 @@ async function updateMarketStatus() {
             hkStatusEl.className = 'market-status-value closed';
         }
     }
-    
+
     isUpdatingMarketStatus = true;
-    
+
     const requestUrl = `${API_BASE}/api/market/status`;
-    console.log('[市场状态] 开始请求市场状态', { 
+    console.log('[市场状态] 开始请求市场状态', {
         url: requestUrl,
         API_BASE: API_BASE,
         hasApiToken: !!apiToken,
         hasAdminToken: !!adminToken,
         apiToken: apiToken ? apiToken.substring(0, 10) + '...' : null
     });
-    
+
     try {
         // 设置超时，避免长时间等待（增加到10秒）
         const controller = new AbortController();
@@ -10245,30 +10252,30 @@ async function updateMarketStatus() {
             console.warn('[市场状态] 请求超时，取消请求');
             controller.abort('市场状态请求超时（10秒）');
         }, 10000); // 10秒超时
-        
+
         console.log('[市场状态] 发送请求到', requestUrl);
         const res = await apiFetch(requestUrl, {
             signal: controller.signal
         });
-        
-        console.log('[市场状态] 收到响应', { 
-            status: res.status, 
+
+        console.log('[市场状态] 收到响应', {
+            status: res.status,
             ok: res.ok,
             statusText: res.statusText,
             headers: Object.fromEntries(res.headers.entries())
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (!res.ok) {
             const errorText = await res.text().catch(() => '');
-            console.error('[市场状态] 获取市场状态失败:', { 
-                status: res.status, 
+            console.error('[市场状态] 获取市场状态失败:', {
+                status: res.status,
                 statusText: res.statusText,
                 errorText: errorText,
                 url: requestUrl
             });
-            
+
             // 显示错误状态
             if (aStatusEl) {
                 aStatusEl.textContent = `错误(${res.status})`;
@@ -10281,23 +10288,23 @@ async function updateMarketStatus() {
             isUpdatingMarketStatus = false;
             return;
         }
-        
+
         const data = await res.json();
         console.log('[市场状态] 响应数据', JSON.stringify(data, null, 2));
         if (data.code === 0 && data.data) {
             const aStatus = data.data.a;
             const hkStatus = data.data.hk;
-            
-            console.log('[市场状态] 更新状态', { 
-                aStatus: aStatus, 
+
+            console.log('[市场状态] 更新状态', {
+                aStatus: aStatus,
                 hkStatus: hkStatus,
                 aStatusText: aStatus.status,
                 hkStatusText: hkStatus.status
             });
-            
+
             // 保存到缓存
             setMarketStatusCache(aStatus, hkStatus);
-            
+
             // 更新A股状态（包含下一个开盘时间）
             let aStatusText = aStatus.status || '未知';
             if (!aStatus.is_trading && aStatus.next_open) {
@@ -10307,7 +10314,7 @@ async function updateMarketStatus() {
             aStatusEl.className = 'market-status-value ' + (aStatus.is_trading ? 'trading' : 'closed');
             aStatusEl.title = aStatus.next_open_full ? `下次开盘: ${aStatus.next_open_full}` : '';
             console.log('[市场状态] A股状态已更新:', aStatusText, aStatus.is_trading ? '交易中' : '已收盘');
-            
+
             // 更新港股状态（包含下一个开盘时间）
             let hkStatusText = hkStatus.status || '未知';
             if (!hkStatus.is_trading && hkStatus.next_open) {
@@ -10317,7 +10324,7 @@ async function updateMarketStatus() {
             hkStatusEl.className = 'market-status-value ' + (hkStatus.is_trading ? 'trading' : 'closed');
             hkStatusEl.title = hkStatus.next_open_full ? `下次开盘: ${hkStatus.next_open_full}` : '';
             console.log('[市场状态] 港股状态已更新:', hkStatusText, hkStatus.is_trading ? '交易中' : '已收盘');
-            
+
             console.log('[市场状态] 状态更新完成');
         } else {
             // 显示错误状态
@@ -10338,7 +10345,7 @@ async function updateMarketStatus() {
             stack: error.stack,
             url: requestUrl
         });
-        
+
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
             console.warn('[市场状态] 获取市场状态超时或被取消');
             // 超时时显示"超时"
@@ -10388,16 +10395,16 @@ async function initAuth() {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     let savedApiToken = localStorage.getItem('apiToken');
     let savedAdminToken = localStorage.getItem('adminToken');
-    
+
     // 过滤掉无效的token值
     if (savedApiToken === 'null' || savedApiToken === '') savedApiToken = null;
     if (savedAdminToken === 'null' || savedAdminToken === '') savedAdminToken = null;
-    
+
     // 如果有token，尝试验证其有效性
     if (isLoggedIn === 'true' || savedApiToken) {
         apiToken = savedApiToken;
         adminToken = savedAdminToken;
-        
+
         // 验证token是否有效（通过尝试访问一个需要认证的接口）
         try {
             const testRes = await apiFetch(`${API_BASE}/api/config`);
