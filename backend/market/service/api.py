@@ -142,7 +142,7 @@ async def search_stocks(
         
         # 先提取输入中的所有数字序列（可能是股票代码）
         import re
-        code_candidates = re.findall(r'\d+', q)
+        code_candidates = re.findall(r'\d+', search_term)
         
         for mkt, data in markets_to_search:
             if not isinstance(data, list):
