@@ -4840,7 +4840,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             const time = item.time;
             const hasValidTime = time != null && time !== undefined && time !== '' && 
                                 (typeof time === 'string' || typeof time === 'number');
-            // 验证价格值
+            // 验证价格值 - 必须是正数
             const open = item.open;
             const high = item.high;
             const low = item.low;
@@ -4848,7 +4848,9 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             const hasValidPrices = open != null && !isNaN(open) && isFinite(open) && open > 0 &&
                                   high != null && !isNaN(high) && isFinite(high) && high > 0 &&
                                   low != null && !isNaN(low) && isFinite(low) && low > 0 &&
-                                  close != null && !isNaN(close) && isFinite(close) && close > 0;
+                                  close != null && !isNaN(close) && isFinite(close) && close > 0 &&
+                                  high >= Math.max(open, close) &&  // high必须大于等于open和close
+                                  low <= Math.min(open, close);     // low必须小于等于open和close
             return hasValidTime && hasValidPrices;
         });
         
@@ -4861,7 +4863,10 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             // 验证成交量值
             const value = item.value;
             const hasValidValue = value != null && !isNaN(value) && isFinite(value) && value >= 0;
-            return hasValidTime && hasValidValue;
+            // 验证颜色值
+            const color = item.color;
+            const hasValidColor = color != null && typeof color === 'string' && color !== '';
+            return hasValidTime && hasValidValue && hasValidColor;
         });
         
         if (finalCandleData.length === 0) {
@@ -5131,7 +5136,7 @@ function updateEMA() {
                 if (validEmaValues.length === 0) {
                     console.warn(`EMA${period}数据验证后为空，跳过绘制`, { originalLength: emaValues.length, sample: emaValues.slice(0, 3) });
                     try {
-                        emaLine.remove();
+                        chart.removeSeries(emaLine);
                     } catch (e) {
                         console.warn('移除EMA线失败:', e);
                     }
@@ -5143,7 +5148,7 @@ function updateEMA() {
                 } catch (e) {
                     console.error(`设置EMA${period}数据失败:`, e, '数据示例:', validEmaValues.slice(0, 3));
                     try {
-                        emaLine.remove();
+                        chart.removeSeries(emaLine);
                     } catch (removeErr) {
                         console.warn('移除EMA线失败:', removeErr);
                     }
