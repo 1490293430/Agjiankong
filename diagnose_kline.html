@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>K线诊断</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #0f172a; color: #e2e8f0; }
+        .test { margin: 10px 0; padding: 10px; border-radius: 4px; }
+        .pass { background: rgba(16, 185, 129, 0.2); border-left: 4px solid #10b981; }
+        .fail { background: rgba(239, 68, 68, 0.2); border-left: 4px solid #ef4444; }
+        pre { background: #1e293b; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>K线图诊断工具</h1>
+    <div id="results"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        const results = document.getElementById('results');
+        
+        function addTest(name, passed, details = '') {
+            const div = document.createElement('div');
+            div.className = `test ${passed ? 'pass' : 'fail'}`;
+            div.innerHTML = `
+                <strong>${passed ? '✅' : '❌'} ${name}</strong>
+                ${details ? `<pre>${details}</pre>` : ''}
+            `;
+            results.appendChild(div);
+        }
+        
+        // 测试1: LightweightCharts库是否加载
+        const hasLib = typeof window.LightweightCharts !== 'undefined';
+        addTest('LightweightCharts库加载', hasLib, hasLib ? 'window.LightweightCharts 存在' : 'window.LightweightCharts 未定义');
+        
+        // 测试2: createChart方法是否存在
+        const hasCreateChart = hasLib && typeof window.LightweightCharts.createChart === 'function';
+        addTest('createChart方法', hasCreateChart);
+        
+        // 测试3: 尝试创建图表
+        if (hasCreateChart) {
+            try {
+                const container = document.createElement('div');
+                container.style.width = '600px';
+                container.style.height = '400px';
+                document.body.appendChild(container);
+                
+                const chart = window.LightweightCharts.createChart(container, {
+                    width: 600,
+                    height: 400
+                });
+                
+                addTest('创建图表实例', true, '图表创建成功');
+                
+                // 测试4: 添加K线系列
+                const candleSeries = chart.addCandlestickSeries();
+                addTest('添加K线系列', true);
+                
+                // 测试5: 设置测试数据
+                const testData = [
+                    { time: '2024-01-01', open: 100, high: 110, low: 95, close: 105 },
+                    { time: '2024-01-02', open: 105, high: 115, low: 100, close: 110 },
+                    { time: '2024-01-03', open: 110, high: 120, low: 105, close: 115 }
+                ];
+                
+                candleSeries.setData(testData);
+                addTest('设置K线数据', true, JSON.stringify(testData, null, 2));
+                
+            } catch (e) {
+                addTest('创建图表实例', false, e.message + '\n' + e.stack);
+            }
+        }
+        
+        // 测试6: 检查API连接
+        fetch('/api/config')
+            .then(res => res.json())
+            .then(data => {
+                addTest('API连接', true, JSON.stringify(data, null, 2));
+            })
+            .catch(e => {
+                addTest('API连接', false, e.message);
+            });
+    </script>
+</body>
+</html>
