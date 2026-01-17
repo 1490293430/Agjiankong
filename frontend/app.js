@@ -4894,6 +4894,14 @@ function renderChartInternal(data, container, containerWidth, containerHeight, p
 
         // 设置数据
         try {
+            console.log('[K线渲染 debug] period:', period);
+            console.log('[K线渲染 debug] finalCandleData[0]:', finalCandleData[0]);
+            console.log('[K线渲染 debug] visible range check:', {
+                from: finalCandleData[0]?.time,
+                to: finalCandleData[finalCandleData.length - 1]?.time,
+                count: finalCandleData.length
+            });
+
             candleSeries.setData(finalCandleData);
             console.log('[K线渲染] K线数据设置完成');
         } catch (e) {

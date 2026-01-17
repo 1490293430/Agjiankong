@@ -58,6 +58,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Startup Event: Fix Database Schema
+@app.on_event("startup")
+async def startup_event():
+    try:
+        from gateway.schema_fix import fix_kline_schema
+        import asyncio
+        # Run in thread pool to avoid blocking asyncio loop
+        await asyncio.to_thread(fix_kline_schema)
+    except Exception as e:
+        logger.error(f"Startup schema fix failed: {e}")
+
 # CORS配置（支持通过环境变量限制来源）
 if settings.api_allowed_origins and settings.api_allowed_origins != "*":
     origins = [
