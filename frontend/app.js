@@ -3476,8 +3476,11 @@ async function handleSearch() {
     // 防抖：300ms后执行搜索
     searchDebounceTimer = setTimeout(async () => {
         try {
+            console.log(`[搜索] 开始搜索: "${keyword}"`);
             const response = await apiFetch(`${API_BASE}/api/market/search?keyword=${encodeURIComponent(keyword)}`);
             const result = await response.json();
+            
+            console.log(`[搜索] API响应:`, { code: result.code, dataLength: result.data?.length, message: result.message });
             
             const tbody = document.getElementById('stock-list');
             if (result.code === 0) {
@@ -3485,8 +3488,13 @@ async function handleSearch() {
                 hasMore = false; // 搜索结果不启用无限加载
                 
                 if (result.data.length === 0) {
+                    console.warn(`[搜索] 未找到匹配的股票: "${keyword}"`);
                     tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">未找到匹配的股票</td></tr>';
                 } else {
+                    console.log(`[搜索] 找到${result.data.length}只股票，开始渲染`);
+                    if (result.data.length > 0) {
+                        console.log(`[搜索] 前3条结果:`, result.data.slice(0, 3).map(s => ({ code: s.code, name: s.name, price: s.price })));
+                    }
                     appendStockList(result.data);
                     
                     // 更新按钮状态（检查是否已在自选）
@@ -4613,8 +4621,8 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
     });
     
     // 转换数据格式并过滤无效数据
-    const candleData = [];
-    const volumeData = [];
+    let candleData = [];
+    let volumeData = [];
     
     // 辅助函数：将日期字符串转换为LightweightCharts支持的时间格式
     const parseTime = (dateStr) => {
