@@ -4664,37 +4664,56 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             return; // 跳过无效日期
         }
         
-        const open = parseFloat(d.open);
-        const high = parseFloat(d.high);
-        const low = parseFloat(d.low);
-        const close = parseFloat(d.close);
-        const volume = parseFloat(d.volume || 0);
+        // 严格过滤：确保所有值都是有效数字，过滤掉 null、undefined、NaN、Infinity
+        const open = d.open != null ? parseFloat(d.open) : NaN;
+        const high = d.high != null ? parseFloat(d.high) : NaN;
+        const low = d.low != null ? parseFloat(d.low) : NaN;
+        const close = d.close != null ? parseFloat(d.close) : NaN;
+        const volume = d.volume != null ? parseFloat(d.volume) : 0;
         
-        // 只添加有效数据（必须有open和close）
-        if (!isNaN(open) && !isNaN(close)) {
-            // 如果high/low缺失，用open/close代替
-            const validHigh = !isNaN(high) ? high : Math.max(open, close);
-            const validLow = !isNaN(low) ? low : Math.min(open, close);
+        // 检查是否为有效数字（不是 NaN、Infinity、-Infinity，允许0和负数）
+        const isValidNumber = (val) => {
+            return typeof val === 'number' && !isNaN(val) && isFinite(val);
+        };
+        
+        // 只添加有效数据（必须有open和close，且都是有效正数）
+        if (isValidNumber(open) && isValidNumber(close)) {
+            // 如果high/low缺失或无效，用open/close代替
+            const validHigh = isValidNumber(high) ? high : Math.max(open, close);
+            const validLow = isValidNumber(low) ? low : Math.min(open, close);
             
-            candleData.push({
-                time: timeValue,
-                open: open,
-                high: validHigh,
-                low: validLow,
-                close: close,
-            });
+            // 确保 high >= max(open, close) 且 low <= min(open, close)
+            const finalHigh = Math.max(validHigh, open, close);
+            const finalLow = Math.min(validLow, open, close);
             
-            volumeData.push({
-                time: timeValue,
-                value: volume || 0,
-                color: close >= open ? '#22c55e' : '#ef4444',
-            });
+            // 确保所有值都是有效数字
+            if (isValidNumber(finalHigh) && isValidNumber(finalLow)) {
+                candleData.push({
+                    time: timeValue,
+                    open: open,
+                    high: finalHigh,
+                    low: finalLow,
+                    close: close,
+                });
+                
+                volumeData.push({
+                    time: timeValue,
+                    value: isValidNumber(volume) ? volume : 0,
+                    color: close >= open ? '#22c55e' : '#ef4444',
+                });
+            } else {
+                skippedCount++;
+                skippedReasons['high/low计算后无效'] = (skippedReasons['high/low计算后无效'] || 0) + 1;
+                if (index < 5) {
+                    console.warn(`跳过无效价格数据[${index}]: high/low计算后无效`, { open, close, finalHigh, finalLow });
+                }
+            }
         } else {
             skippedCount++;
-            const reason = isNaN(open) && isNaN(close) ? 'open和close都无效' : (isNaN(open) ? 'open无效' : 'close无效');
+            const reason = !isValidNumber(open) && !isValidNumber(close) ? 'open和close都无效' : (!isValidNumber(open) ? 'open无效' : 'close无效');
             skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
             if (index < 5) {
-                console.warn(`跳过无效价格数据[${index}]:`, d);
+                console.warn(`跳过无效价格数据[${index}]:`, { open, close, high, low, volume, raw: d });
             }
         }
     });
@@ -4715,7 +4734,21 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         return timeA - timeB;
     });
     
-    console.log('K线数据条数:', candleData.length);
+    // 最终验证：确保所有数据都没有 null/undefined 值
+    candleData = candleData.filter(item => {
+        return item.time != null && 
+               item.open != null && !isNaN(item.open) && isFinite(item.open) &&
+               item.high != null && !isNaN(item.high) && isFinite(item.high) &&
+               item.low != null && !isNaN(item.low) && isFinite(item.low) &&
+               item.close != null && !isNaN(item.close) && isFinite(item.close);
+    });
+    
+    volumeData = volumeData.filter(item => {
+        return item.time != null && 
+               item.value != null && !isNaN(item.value) && isFinite(item.value);
+    });
+    
+    console.log('K线数据条数（最终验证后）:', candleData.length);
     if (candleData.length > 0) {
         console.log('[K线渲染] K线数据示例（前3条）:', candleData.slice(0, 3));
     }
@@ -4801,14 +4834,24 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     if (chart && chart.timeScale() && candleData.length > 0) {
-                        // 默认显示最近3年数据（约750个交易日），如果数据不足则显示全部
-                        const visibleBars = Math.min(750, candleData.length);
-                        const fromIndex = Math.max(0, candleData.length - visibleBars);
-                        
-                        chart.timeScale().setVisibleLogicalRange({
-                            from: fromIndex,
-                            to: candleData.length - 1,
-                        });
+                        try {
+                            // 默认显示最近3年数据（约750个交易日），如果数据不足则显示全部
+                            const visibleBars = Math.min(750, candleData.length);
+                            const fromIndex = Math.max(0, candleData.length - visibleBars);
+                            const toIndex = Math.max(0, candleData.length - 1);
+                            
+                            // 确保索引是有效数字
+                            if (!isNaN(fromIndex) && !isNaN(toIndex) && isFinite(fromIndex) && isFinite(toIndex) && fromIndex >= 0 && toIndex >= fromIndex) {
+                                chart.timeScale().setVisibleLogicalRange({
+                                    from: fromIndex,
+                                    to: toIndex,
+                                });
+                            } else {
+                                console.warn('[K线渲染] 无效的可见范围索引，跳过设置', { fromIndex, toIndex, dataLength: candleData.length });
+                            }
+                        } catch (e) {
+                            console.error('[K线渲染] 设置可见范围失败:', e);
+                        }
                     }
                     console.log('[K线渲染] K线数据设置完成');
                 });
@@ -4977,7 +5020,22 @@ function updateEMA() {
                         autoScale: false,
                     });
                 }
-                emaLine.setData(emaValues);
+                // 最终验证 EMA 数据，确保没有 null 值
+                const validEmaValues = emaValues.filter(item => {
+                    return item != null && 
+                           item.time != null && 
+                           item.value != null && 
+                           !isNaN(item.value) && 
+                           isFinite(item.value);
+                });
+                
+                if (validEmaValues.length === 0) {
+                    console.warn(`EMA${period}数据验证后为空，跳过绘制`);
+                    emaLine.remove();
+                    return;
+                }
+                
+                emaLine.setData(validEmaValues);
                 // 设置数据后，再次确保价格轴禁用自动缩放
                 if (chart && chart.priceScale('right')) {
                     chart.priceScale('right').applyOptions({
@@ -5010,32 +5068,68 @@ function calculateEMA(data, period) {
     
     const result = [];
     let multiplier = 2 / (period + 1);
-    let ema = parseFloat(data[0].close);
     
-    if (isNaN(ema)) {
-        console.error('EMA计算失败: 第一个数据点的close值无效', data[0]);
+    // 找到第一个有效的 close 值
+    let firstValidIndex = -1;
+    let ema = NaN;
+    for (let i = 0; i < data.length; i++) {
+        const close = data[i]?.close != null ? parseFloat(data[i].close) : NaN;
+        if (!isNaN(close) && isFinite(close)) {
+            ema = close;
+            firstValidIndex = i;
+            break;
+        }
+    }
+    
+    if (isNaN(ema) || firstValidIndex === -1) {
+        console.error('EMA计算失败: 找不到有效的close值', data.slice(0, 5));
         return [];
     }
     
-    data.forEach((item, index) => {
-        const close = parseFloat(item.close);
-        if (isNaN(close)) {
-            console.warn(`EMA计算跳过无效数据点: index=${index}`, item);
-            return;
+    // 从第一个有效数据点开始计算
+    for (let index = firstValidIndex; index < data.length; index++) {
+        const item = data[index];
+        if (!item || item.time == null) {
+            continue;
         }
         
-        if (index === 0) {
+        const close = item.close != null ? parseFloat(item.close) : NaN;
+        if (isNaN(close) || !isFinite(close)) {
+            // 如果当前值无效，使用上一个EMA值（保持EMA值不变）
+            if (result.length > 0) {
+                const lastEma = result[result.length - 1].value;
+                if (!isNaN(lastEma) && isFinite(lastEma)) {
+                    result.push({
+                        time: item.time,
+                        value: lastEma
+                    });
+                }
+            }
+            continue;
+        }
+        
+        if (index === firstValidIndex) {
             ema = close;
         } else {
             ema = (close - ema) * multiplier + ema;
         }
-        result.push({
-            time: item.time,
-            value: ema
-        });
-    });
+        
+        // 确保 EMA 值是有效数字
+        if (!isNaN(ema) && isFinite(ema)) {
+            result.push({
+                time: item.time,
+                value: ema
+            });
+        }
+    }
     
-    return result;
+    // 最终验证：确保所有值都是有效数字
+    return result.filter(item => {
+        return item.time != null && 
+               item.value != null && 
+               !isNaN(item.value) && 
+               isFinite(item.value);
+    });
 }
 
 // 自选股模块缓存
