@@ -321,6 +321,48 @@ async def save_watchlist(data: Dict[str, Any] = Body(...), background_tasks: Bac
         return {"code": 1, "data": [], "message": str(e)}
 
 
+@api_router.get("/market/search", dependencies=[])  # 不需要认证，公开接口
+async def search_stocks(keyword: str = Query(..., min_length=1, description="搜索关键词（股票代码或名称）")):
+    """搜索股票（支持代码和名称模糊匹配）"""
+    try:
+        keyword = keyword.strip().upper()
+        if not keyword:
+            return {"code": 1, "data": [], "message": "搜索关键词不能为空"}
+        
+        # 获取A股和港股行情数据
+        a_stocks = get_json("market:a:spot") or []
+        hk_stocks = get_json("market:hk:spot") or []
+        all_stocks = a_stocks + hk_stocks
+        
+        # 搜索匹配（代码或名称包含关键词）
+        results = []
+        for stock in all_stocks:
+            code = str(stock.get("code", "")).upper()
+            name = str(stock.get("name", "")).upper()
+            
+            # 匹配代码或名称
+            if keyword in code or keyword in name:
+                results.append(stock)
+                
+                # 限制返回数量，避免结果过多
+                if len(results) >= 100:
+                    break
+        
+        # 优先显示代码完全匹配的结果
+        results.sort(key=lambda x: (
+            0 if str(x.get("code", "")).upper() == keyword else 1,  # 代码完全匹配优先
+            1 if keyword in str(x.get("code", "")).upper() else 2,  # 代码包含次之
+            len(str(x.get("code", "")))  # 代码长度短的优先
+        ))
+        
+        logger.info(f"[搜索] 关键词='{keyword}'，匹配{len(results)}只股票")
+        return {"code": 0, "data": results, "message": "success"}
+        
+    except Exception as e:
+        logger.error(f"搜索股票失败: {e}", exc_info=True)
+        return {"code": 1, "data": [], "message": str(e)}
+
+
 @api_router.get("/market/status", dependencies=[])  # 不需要认证，公开接口
 async def get_market_status():
     """获取A股和港股的交易状态，包含下一个开盘时间"""
@@ -2280,10 +2322,12 @@ async def analyze_stock_batch_api(
         if not codes:
             return {"code": 1, "data": [], "message": "股票代码列表不能为空"}
 
-        # 获取A股行情快照并构建索引
+        # 获取A股和港股行情快照并构建索引
         a_stocks = get_json("market:a:spot") or []
+        hk_stocks = get_json("market:hk:spot") or []
+        all_stocks = a_stocks + hk_stocks
         stock_map = {
-            str(s.get("code", "")): s for s in a_stocks if s.get("code") is not None
+            str(s.get("code", "")): s for s in all_stocks if s.get("code") is not None
         }
         
         # 获取上证指数数据作为大盘参考（代码1A0001）
@@ -2333,9 +2377,12 @@ async def analyze_stock_batch_api(
                 continue
 
             try:
+                # 判断股票市场（根据代码前缀）
+                market = "HK" if code.startswith(("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")) and len(code) == 5 else "A"
+                
                 # 从数据库获取日线指标
                 from common.db import get_indicator
-                daily_indicators = get_indicator(code, "A", None, "daily")
+                daily_indicators = get_indicator(code, market, None, "daily")
                 
                 if not daily_indicators:
                     results.append({
@@ -2351,12 +2398,13 @@ async def analyze_stock_batch_api(
                 indicators = {k: v for k, v in daily_indicators.items() 
                              if k not in ["code", "market", "date", "period", "update_time"]}
                 
-                # 添加上证指数数据
-                indicators.update(sh_index_info)
+                # 添加上证指数数据（仅A股）
+                if market == "A":
+                    indicators.update(sh_index_info)
                 
                 # 多周期分析：从数据库获取小时线指标
                 if use_multi_timeframe:
-                    hourly_indicators = get_indicator(code, "A", None, "1h")
+                    hourly_indicators = get_indicator(code, market, None, "1h")
                     
                     if hourly_indicators:
                         # 添加小时线指标（带 hourly_ 前缀）
@@ -2440,6 +2488,7 @@ async def analyze_stock_batch_api(
                     results.append({
                         "code": code,
                         "name": stock.get("name"),
+                        "price": stock.get("price"),  # 添加当前价格
                         "success": True,
                         "message": "success",
                         "analysis": analysis,
@@ -2463,6 +2512,7 @@ async def analyze_stock_batch_api(
                     results.append({
                         "code": code,
                         "name": stock.get("name"),
+                        "price": stock.get("price"),  # 添加当前价格
                         "success": False,
                         "message": f"批量分析失败，已启动后台重试任务（最多重试30次，每2分钟一次）",
                         "analysis": None,
@@ -2489,6 +2539,7 @@ async def analyze_stock_batch_api(
                 batch_data[code] = {
                     "code": code,
                     "name": item.get("name"),
+                    "price": item.get("price"),  # 添加当前价格
                     "analysis": item.get("analysis"),
                     "updated_at": now,
                 }

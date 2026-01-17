@@ -1457,6 +1457,7 @@ body.light-mode .kline-controls select option {
     background: #1e293b;
     border-radius: 8px;
     padding: 24px;
+    color: #e2e8f0; /* 浅灰色文字，更清晰 */
 }
 
 .ai-placeholder,

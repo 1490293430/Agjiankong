@@ -3447,49 +3447,71 @@ async function applyFilterAndSort() {
     }
 }
 
+// 搜索防抖定时器
+let searchDebounceTimer = null;
+
 async function handleSearch() {
-    const keyword = document.getElementById('search-input').value;
-    if (keyword.length < 2) {
+    const keyword = document.getElementById('search-input').value.trim();
+    
+    // 清除之前的定时器
+    if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+    }
+    
+    // 如果搜索框为空，重置并加载市场数据
+    if (!keyword) {
         resetAndLoadMarket();
         return;
     }
     
-    try {
-        const response = await apiFetch(`${API_BASE}/api/market/search?keyword=${encodeURIComponent(keyword)}`);
-        const result = await response.json();
-        
-        const tbody = document.getElementById('stock-list');
-        if (result.code === 0) {
-            tbody.innerHTML = '';
-            hasMore = false; // 搜索结果不启用无限加载
-            appendStockList(result.data);
+    // 防抖：300ms后执行搜索
+    searchDebounceTimer = setTimeout(async () => {
+        try {
+            const response = await apiFetch(`${API_BASE}/api/market/search?keyword=${encodeURIComponent(keyword)}`);
+            const result = await response.json();
             
-            // 更新按钮状态（检查是否已在自选）
-            const watchlist = getWatchlist();
-            document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
-                const code = String(btn.getAttribute('data-code') || '').trim();
-                const isInWatchlist = watchlist.some(s => String(s.code).trim() === code);
+            const tbody = document.getElementById('stock-list');
+            if (result.code === 0) {
+                tbody.innerHTML = '';
+                hasMore = false; // 搜索结果不启用无限加载
                 
-                if (isInWatchlist) {
-                    btn.textContent = '已添加';
-                    btn.style.background = '#94a3b8';
-                    btn.disabled = true;
-                    btn.style.cursor = 'not-allowed';
-                    btn.style.opacity = '0.6';
-                    btn.style.pointerEvents = 'none';
+                if (result.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">未找到匹配的股票</td></tr>';
                 } else {
-                    btn.textContent = '加入自选';
-                    btn.style.background = '#10b981';
-                    btn.disabled = false;
-                    btn.style.cursor = 'pointer';
-                    btn.style.opacity = '1';
-                    btn.style.pointerEvents = 'auto';
+                    appendStockList(result.data);
+                    
+                    // 更新按钮状态（检查是否已在自选）
+                    const watchlist = getWatchlist();
+                    document.querySelectorAll('.add-watchlist-btn').forEach(btn => {
+                        const code = String(btn.getAttribute('data-code') || '').trim();
+                        const isInWatchlist = watchlist.some(s => String(s.code).trim() === code);
+                        
+                        if (isInWatchlist) {
+                            btn.textContent = '已添加';
+                            btn.style.background = '#94a3b8';
+                            btn.disabled = true;
+                            btn.style.cursor = 'not-allowed';
+                            btn.style.opacity = '0.6';
+                            btn.style.pointerEvents = 'none';
+                        } else {
+                            btn.textContent = '加入自选';
+                            btn.style.background = '#10b981';
+                            btn.disabled = false;
+                            btn.style.cursor = 'pointer';
+                            btn.style.opacity = '1';
+                            btn.style.pointerEvents = 'auto';
+                        }
+                    });
                 }
-            });
+            } else {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败: ${result.message}</td></tr>`;
+            }
+        } catch (error) {
+            console.error('搜索失败:', error);
+            const tbody = document.getElementById('stock-list');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">搜索失败，请重试</td></tr>';
         }
-    } catch (error) {
-        console.error('搜索失败:', error);
-    }
+    }, 300);
 }
 
 // K线模态弹窗模块
@@ -5738,6 +5760,72 @@ async function removeFromWatchlist(code) {
     }
 }
 
+// 清空所有自选股（带确认）
+async function clearAllWatchlist() {
+    const watchlist = getWatchlist();
+    
+    if (watchlist.length === 0) {
+        alert('自选股列表已经是空的');
+        return;
+    }
+    
+    // 确认对话框
+    const confirmed = confirm(`确定要清空所有自选股吗？\n\n当前共有 ${watchlist.length} 只股票，此操作不可恢复。`);
+    if (!confirmed) {
+        return;
+    }
+    
+    console.log('[自选] 开始清空所有自选股，当前数量:', watchlist.length);
+    
+    // 设置标记，防止SSE同步覆盖
+    _isRemovingFromWatchlist = true;
+    
+    // 立即清空本地缓存
+    localStorage.setItem('watchlist', JSON.stringify([]));
+    
+    // 立即更新UI
+    const container = document.getElementById('watchlist-container');
+    if (container) {
+        container.innerHTML = `
+            <div class="watchlist-placeholder">
+                <div style="font-size: 48px; margin-bottom: 16px;">⭐</div>
+                <div style="font-size: 18px; color: #94a3b8; margin-bottom: 8px;">暂无自选股</div>
+                <div style="font-size: 14px; color: #64748b;">在行情页点击"加入自选"按钮添加股票</div>
+            </div>
+        `;
+    }
+    
+    // 更新计数
+    const countElement = document.getElementById('watchlist-count');
+    if (countElement) {
+        countElement.textContent = '0';
+    }
+    
+    // 触发自选股变化事件
+    window.dispatchEvent(new CustomEvent('watchlistChanged', { detail: { action: 'clear' } }));
+    
+    // 更新按钮状态
+    updateWatchlistButtonStates();
+    
+    // 后台异步保存到服务器
+    try {
+        await saveWatchlist([]);
+        console.log('[自选] 清空操作已同步到服务器');
+        
+        // 延迟清除标记
+        setTimeout(() => {
+            _isRemovingFromWatchlist = false;
+            console.log('[自选] 清空操作完成，已清除删除标记');
+        }, 1000);
+    } catch (error) {
+        console.error('清空自选股同步到服务器失败:', error);
+        _isRemovingFromWatchlist = false;
+        
+        // 静默失败，不打扰用户
+        console.warn('清空操作已应用到本地，但服务器同步失败。将在下次同步时自动修复。');
+    }
+}
+
 // 行情数据缓存管理
 const MARKET_DATA_CACHE_KEY = 'market_data_cache';
 const MARKET_DATA_CACHE_EXPIRY = 30000; // 30秒缓存过期时间
@@ -7695,6 +7783,12 @@ async function renderAIAnalysisBatch(items, pagination = null) {
         const scoreColor = analysis.score >= 0 ? '#10b981' : '#ef4444';
         const confidenceColor = (analysis.confidence || 0) >= 70 ? '#10b981' : (analysis.confidence || 0) >= 50 ? '#f59e0b' : '#ef4444';
         
+        // 当前价格（从item中获取，如果没有则显示-）
+        const currentPrice = item.price || item.current_price || analysis.current_price;
+        const priceHtml = currentPrice 
+            ? `<span style="color: #e5e7eb; font-weight: 600; font-size: 13px;">¥${Number(currentPrice).toFixed(2)}</span>`
+            : '<span style="color: #94a3b8;">-</span>';
+        
         // 交易点位显示
         let tradingPointsHtml = '<span style="color: #94a3b8;">-</span>';
         if ((analysis.signal === '买入' || analysis.signal === '强烈看多') && analysis.buy_price) {
@@ -7723,6 +7817,9 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                 <td style="padding: 8px;">
                     <div class="ai-stock-code">${item.code}</div>
                     <div class="ai-stock-name">${item.name || '-'}</div>
+                </td>
+                <td style="padding: 8px; text-align: center;">
+                    ${priceHtml}
                 </td>
                 <td style="padding: 8px; text-align: center;">
                     <span style="color: ${signalColor}; font-weight: 600; font-size: 13px;">${signal}</span>
@@ -7757,7 +7854,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
     const failedHtml = failedItems.length
         ? `
         <tr style="background: rgba(239, 68, 68, 0.1);">
-            <td colspan="9" style="padding: 8px; color: #ef4444; font-weight: 600;">
+            <td colspan="10" style="padding: 8px; color: #ef4444; font-weight: 600;">
                 ⚠️ 分析失败的股票 (${failedItems.length}只)
             </td>
         </tr>
@@ -7767,7 +7864,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                     <span style="color: #e5e7eb;">${item.code || '-'}</span>
                     ${item.name ? ` <span style="color: #94a3b8;">（${item.name}）</span>` : ''}
                 </td>
-                <td colspan="8" style="padding: 8px; color: #ef4444;">
+                <td colspan="9" style="padding: 8px; color: #ef4444;">
                     ${item.message || '分析失败'}
                 </td>
             </tr>
@@ -7809,6 +7906,7 @@ async function renderAIAnalysisBatch(items, pagination = null) {
                     <thead>
                         <tr>
                             <th style="text-align: left; padding: 8px;">代码/名称</th>
+                            <th style="text-align: center; padding: 8px;">当前价</th>
                             <th style="text-align: center; padding: 8px;">信号</th>
                             <th style="text-align: center; padding: 8px;">趋势</th>
                             <th style="text-align: center; padding: 8px;">风险</th>

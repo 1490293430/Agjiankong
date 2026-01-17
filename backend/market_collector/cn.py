@@ -1183,18 +1183,26 @@ def fetch_a_stock_kline(
             # 小时级别数据：不使用start_date和end_date（stock_zh_a_minute接口不支持这些参数）
             fetch_start = ""
             fetch_mode = "全量（小时级别）"
-        elif start_date:
-            # 使用前端传递的start_date（可能是10年）
-            fetch_start = start_date.replace("-", "") if "-" in start_date else start_date
-            fetch_mode = "全量（按请求日期）"
         else:
-            # 使用配置的 kline_years 年限
+            # 使用配置的 kline_years 年限作为最大请求范围
             from common.runtime_config import get_runtime_config
             config = get_runtime_config()
             years = config.kline_years or 1.0  # 默认1年
-            start_dt = datetime.now() - timedelta(days=int(years * 365))
-            fetch_start = start_dt.strftime("%Y%m%d")
-            fetch_mode = f"全量（{years}年）"
+            config_start_dt = datetime.now() - timedelta(days=int(years * 365))
+            config_start_date = config_start_dt.strftime("%Y%m%d")
+            
+            if start_date:
+                # 前端传递了start_date，但不能超过配置的年限
+                requested_start = start_date.replace("-", "") if "-" in start_date else start_date
+                # 取两者中较晚的日期（不请求超过配置年限的数据）
+                fetch_start = max(requested_start, config_start_date)
+                if fetch_start > requested_start:
+                    logger.info(f"请求的起始日期({requested_start})超过配置年限({years}年)，调整为{fetch_start}")
+                fetch_mode = f"全量（最多{years}年）"
+            else:
+                # 没有传递start_date，使用配置的年限
+                fetch_start = config_start_date
+                fetch_mode = f"全量（{years}年）"
     
     logger.info(f"开始{fetch_mode}获取K线数据 {code}: {fetch_start} 到 {default_end}")
     

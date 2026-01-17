@@ -652,6 +652,19 @@ def fetch_hk_stock_kline(
         start_dt = datetime.now() - timedelta(days=int(years * 365))
         start_date = start_dt.strftime("%Y%m%d")
         logger.debug(f"港股K线采集使用配置年限: {years}年, start_date={start_date}")
+    else:
+        # 前端传递了start_date，但不能超过配置的年限
+        from common.runtime_config import get_runtime_config
+        config = get_runtime_config()
+        years = config.kline_years or 1.0
+        config_start_dt = datetime.now() - timedelta(days=int(years * 365))
+        config_start_date = config_start_dt.strftime("%Y%m%d")
+        
+        requested_start = start_date.replace("-", "") if "-" in start_date else start_date
+        # 取两者中较晚的日期（不请求超过配置年限的数据）
+        if requested_start < config_start_date:
+            logger.info(f"港股K线请求的起始日期({requested_start})超过配置年限({years}年)，调整为{config_start_date}")
+            start_date = config_start_date
     
     # 小时级别数据使用专门的处理逻辑
     is_hourly = period in ['1h', 'hourly', '60']
