@@ -712,6 +712,7 @@ def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "",
                 
                 item = {
                     "code": code,
+                    "market": "A",  # A股数据标记为A
                     "date": original_datetime,  # 保留原始格式，后续处理
                     "open": float(parts[1]),
                     "close": float(parts[2]),
@@ -748,10 +749,11 @@ def fetch_eastmoney_a_kline(code: str, period: str = "daily", adjust: str = "",
         # 按日期过滤
         if start_date:
             start_date_str = start_date.replace("-", "")
-            result = [r for r in result if r["date"] >= start_date_str]
+            # 对于小时数据，item["date"]可能是 "2024-01-01 09:30" 格式，需要提取日期部分
+            result = [r for r in result if r["date"].split(" ")[0].replace("-", "") >= start_date_str]
         if end_date:
             end_date_str = end_date.replace("-", "")
-            result = [r for r in result if r["date"] <= end_date_str]
+            result = [r for r in result if r["date"].split(" ")[0].replace("-", "") <= end_date_str]
         
         logger.info(f"[东方财富K线] {code} 获取成功: {len(result)}条 (周期={period})")
         return result
@@ -953,6 +955,7 @@ def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
                 
                 item = {
                     "code": code,
+                    "market": "HK",  # 港股数据标记为HK
                     "open": float(parts[1]),
                     "close": float(parts[2]),
                     "high": float(parts[3]),
@@ -984,10 +987,11 @@ def fetch_eastmoney_hk_kline(code: str, period: str = "daily", adjust: str = "",
         
         if start_date:
             start_date_str = start_date.replace("-", "")
-            result = [r for r in result if r["date"] >= start_date_str]
+            # 对于小时数据，item["date"]可能是 "2024-01-01 09:30" 格式，需要提取日期部分
+            result = [r for r in result if r["date"].split(" ")[0].replace("-", "") >= start_date_str]
         if end_date:
             end_date_str = end_date.replace("-", "")
-            result = [r for r in result if r["date"] <= end_date_str]
+            result = [r for r in result if r["date"].split(" ")[0].replace("-", "") <= end_date_str]
         
         logger.info(f"[东方财富港股K线] {code} 获取成功: {len(result)}条 (周期={period})")
         return result
