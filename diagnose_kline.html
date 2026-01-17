@@ -2,84 +2,320 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>K线诊断</title>
+    <title>K线诊断工具</title>
     <style>
-        body { font-family: monospace; padding: 20px; background: #0f172a; color: #e2e8f0; }
-        .test { margin: 10px 0; padding: 10px; border-radius: 4px; }
-        .pass { background: rgba(16, 185, 129, 0.2); border-left: 4px solid #10b981; }
-        .fail { background: rgba(239, 68, 68, 0.2); border-left: 4px solid #ef4444; }
-        pre { background: #1e293b; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        body { 
+            font-family: 'Consolas', 'Monaco', monospace; 
+            padding: 20px; 
+            background: #0f172a; 
+            color: #e2e8f0; 
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #60a5fa; margin-bottom: 20px; }
+        h2 { color: #94a3b8; margin-top: 30px; margin-bottom: 15px; font-size: 18px; }
+        .test { 
+            margin: 10px 0; 
+            padding: 12px; 
+            border-radius: 6px; 
+            font-size: 14px;
+        }
+        .pass { background: rgba(16, 185, 129, 0.15); border-left: 4px solid #10b981; }
+        .fail { background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; }
+        .warn { background: rgba(245, 158, 11, 0.15); border-left: 4px solid #f59e0b; }
+        pre { 
+            background: #1e293b; 
+            padding: 12px; 
+            border-radius: 4px; 
+            overflow-x: auto; 
+            font-size: 12px;
+            line-height: 1.5;
+            margin-top: 8px;
+        }
+        .input-group {
+            margin: 20px 0;
+            padding: 15px;
+            background: #1e293b;
+            border-radius: 6px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #94a3b8;
+        }
+        .input-group input {
+            width: 200px;
+            padding: 8px 12px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-family: monospace;
+        }
+        .input-group button {
+            padding: 8px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+            font-weight: 600;
+        }
+        .input-group button:hover {
+            background: #2563eb;
+        }
+        #chart-container {
+            width: 100%;
+            height: 400px;
+            margin-top: 20px;
+            background: #1e293b;
+            border-radius: 6px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
     </style>
 </head>
 <body>
-    <h1>K线图诊断工具</h1>
-    <div id="results"></div>
+    <h1>📊 K线图诊断工具</h1>
     
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <div class="input-group">
+        <label>输入股票代码测试（例如：600089）</label>
+        <input type="text" id="stock-code" value="600089" placeholder="股票代码">
+        <button onclick="testStockData()">测试数据</button>
+    </div>
+    
+    <h2>🔍 基础检查</h2>
+    <div id="basic-results"></div>
+    
+    <h2>📈 数据检查</h2>
+    <div id="data-results"></div>
+    
+    <h2>🎨 渲染测试</h2>
+    <div id="chart-container"></div>
+    
+    <script src="/lightweight-charts.js"></script>
     <script>
-        const results = document.getElementById('results');
+        const basicResults = document.getElementById('basic-results');
+        const dataResults = document.getElementById('data-results');
+        const chartContainer = document.getElementById('chart-container');
         
-        function addTest(name, passed, details = '') {
+        function addTest(container, name, passed, details = '', type = 'test') {
             const div = document.createElement('div');
-            div.className = `test ${passed ? 'pass' : 'fail'}`;
+            div.className = `${type} ${passed === null ? 'warn' : (passed ? 'pass' : 'fail')}`;
+            const icon = passed === null ? '⚠️' : (passed ? '✅' : '❌');
             div.innerHTML = `
-                <strong>${passed ? '✅' : '❌'} ${name}</strong>
+                <strong>${icon} ${name}</strong>
                 ${details ? `<pre>${details}</pre>` : ''}
             `;
-            results.appendChild(div);
+            container.appendChild(div);
         }
         
-        // 测试1: LightweightCharts库是否加载
-        const hasLib = typeof window.LightweightCharts !== 'undefined';
-        addTest('LightweightCharts库加载', hasLib, hasLib ? 'window.LightweightCharts 存在' : 'window.LightweightCharts 未定义');
+        // ========== 基础检查 ==========
         
-        // 测试2: createChart方法是否存在
-        const hasCreateChart = hasLib && typeof window.LightweightCharts.createChart === 'function';
-        addTest('createChart方法', hasCreateChart);
-        
-        // 测试3: 尝试创建图表
-        if (hasCreateChart) {
-            try {
-                const container = document.createElement('div');
-                container.style.width = '600px';
-                container.style.height = '400px';
-                document.body.appendChild(container);
+        // 测试1: LightweightCharts库
+        setTimeout(() => {
+            const hasLib = typeof window.LightweightCharts !== 'undefined';
+            addTest(basicResults, 'LightweightCharts库加载', hasLib, 
+                hasLib ? 'window.LightweightCharts 已加载' : '❌ 库未加载，请检查网络或使用本地文件');
+            
+            if (hasLib) {
+                const hasCreateChart = typeof window.LightweightCharts.createChart === 'function';
+                addTest(basicResults, 'createChart方法', hasCreateChart);
                 
-                const chart = window.LightweightCharts.createChart(container, {
-                    width: 600,
-                    height: 400
-                });
-                
-                addTest('创建图表实例', true, '图表创建成功');
-                
-                // 测试4: 添加K线系列
-                const candleSeries = chart.addCandlestickSeries();
-                addTest('添加K线系列', true);
-                
-                // 测试5: 设置测试数据
-                const testData = [
-                    { time: '2024-01-01', open: 100, high: 110, low: 95, close: 105 },
-                    { time: '2024-01-02', open: 105, high: 115, low: 100, close: 110 },
-                    { time: '2024-01-03', open: 110, high: 120, low: 105, close: 115 }
-                ];
-                
-                candleSeries.setData(testData);
-                addTest('设置K线数据', true, JSON.stringify(testData, null, 2));
-                
-            } catch (e) {
-                addTest('创建图表实例', false, e.message + '\n' + e.stack);
+                // 测试创建图表
+                if (hasCreateChart) {
+                    try {
+                        const testDiv = document.createElement('div');
+                        testDiv.style.width = '100px';
+                        testDiv.style.height = '100px';
+                        testDiv.style.display = 'none';
+                        document.body.appendChild(testDiv);
+                        
+                        const chart = window.LightweightCharts.createChart(testDiv, {
+                            width: 100,
+                            height: 100
+                        });
+                        
+                        const series = chart.addCandlestickSeries();
+                        series.setData([
+                            { time: '2024-01-01', open: 100, high: 110, low: 95, close: 105 }
+                        ]);
+                        
+                        addTest(basicResults, '图表创建和数据设置', true, '测试图表创建成功');
+                        
+                        chart.remove();
+                        testDiv.remove();
+                    } catch (e) {
+                        addTest(basicResults, '图表创建和数据设置', false, `错误: ${e.message}\n${e.stack}`);
+                    }
+                }
             }
-        }
+        }, 500);
         
-        // 测试6: 检查API连接
+        // 测试API连接
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
-                addTest('API连接', true, JSON.stringify(data, null, 2));
+                addTest(basicResults, 'API服务连接', true, 
+                    `配置加载成功\nK线年限: ${data.kline_years || 1}年`);
             })
             .catch(e => {
-                addTest('API连接', false, e.message);
+                addTest(basicResults, 'API服务连接', false, `连接失败: ${e.message}`);
             });
+        
+        // ========== 数据检查函数 ==========
+        
+        window.testStockData = async function() {
+            const code = document.getElementById('stock-code').value.trim();
+            if (!code) {
+                alert('请输入股票代码');
+                return;
+            }
+            
+            dataResults.innerHTML = '<div class="loading">正在检查数据...</div>';
+            chartContainer.innerHTML = '<div class="loading">准备渲染...</div>';
+            
+            try {
+                // 1. 检查数据是否存在
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setFullYear(startDate.getFullYear() - 1);
+                
+                const startDateStr = startDate.toISOString().split('T')[0].replace(/-/g, '');
+                const endDateStr = endDate.toISOString().split('T')[0].replace(/-/g, '');
+                
+                const url = `/api/market/a/kline?code=${code}&period=daily&start_date=${startDateStr}&end_date=${endDateStr}`;
+                
+                dataResults.innerHTML = '';
+                addTest(dataResults, '请求URL', true, url);
+                
+                const response = await fetch(url);
+                addTest(dataResults, 'HTTP响应', response.ok, 
+                    `状态码: ${response.status} ${response.statusText}`);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    addTest(dataResults, '错误详情', false, errorText);
+                    return;
+                }
+                
+                const result = await response.json();
+                addTest(dataResults, 'JSON解析', true, 
+                    `code: ${result.code}\nmessage: ${result.message || 'success'}`);
+                
+                if (result.code !== 0) {
+                    addTest(dataResults, '业务逻辑', false, 
+                        `错误码: ${result.code}\n消息: ${result.message}`);
+                    return;
+                }
+                
+                const data = result.data || [];
+                addTest(dataResults, '数据条数', data.length > 0, 
+                    `共 ${data.length} 条数据`);
+                
+                if (data.length === 0) {
+                    addTest(dataResults, '数据为空', false, 
+                        '可能原因：\n1. 股票代码不存在\n2. 数据尚未采集\n3. 日期范围内无数据');
+                    return;
+                }
+                
+                // 2. 检查数据格式
+                const firstItem = data[0];
+                const lastItem = data[data.length - 1];
+                
+                const requiredFields = ['date', 'open', 'high', 'low', 'close', 'volume'];
+                const missingFields = requiredFields.filter(f => !(f in firstItem));
+                
+                addTest(dataResults, '数据字段完整性', missingFields.length === 0,
+                    missingFields.length === 0 
+                        ? `所有必需字段都存在: ${requiredFields.join(', ')}`
+                        : `缺少字段: ${missingFields.join(', ')}`);
+                
+                // 3. 检查数据有效性
+                const invalidData = data.filter(item => {
+                    return !item.date || 
+                           item.open === null || item.open === undefined ||
+                           item.high === null || item.high === undefined ||
+                           item.low === null || item.low === undefined ||
+                           item.close === null || item.close === undefined;
+                });
+                
+                addTest(dataResults, '数据有效性', invalidData.length === 0,
+                    invalidData.length === 0
+                        ? '所有数据都有效'
+                        : `发现 ${invalidData.length} 条无效数据\n示例: ${JSON.stringify(invalidData[0], null, 2)}`);
+                
+                // 4. 显示数据样本
+                addTest(dataResults, '数据样本', null,
+                    `第一条: ${JSON.stringify(firstItem, null, 2)}\n\n最后一条: ${JSON.stringify(lastItem, null, 2)}`, 'warn');
+                
+                // 5. 尝试渲染
+                if (window.LightweightCharts && data.length > 0) {
+                    try {
+                        chartContainer.innerHTML = '';
+                        
+                        const chart = window.LightweightCharts.createChart(chartContainer, {
+                            width: chartContainer.clientWidth,
+                            height: 400,
+                            layout: {
+                                background: { color: '#1e293b' },
+                                textColor: '#94a3b8'
+                            },
+                            grid: {
+                                vertLines: { color: '#334155' },
+                                horzLines: { color: '#334155' }
+                            }
+                        });
+                        
+                        const candleSeries = chart.addCandlestickSeries({
+                            upColor: '#ef4444',
+                            downColor: '#22c55e',
+                            borderUpColor: '#ef4444',
+                            borderDownColor: '#22c55e',
+                            wickUpColor: '#ef4444',
+                            wickDownColor: '#22c55e'
+                        });
+                        
+                        // 转换数据格式
+                        const chartData = data.map(item => ({
+                            time: item.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
+                            open: parseFloat(item.open),
+                            high: parseFloat(item.high),
+                            low: parseFloat(item.low),
+                            close: parseFloat(item.close)
+                        }));
+                        
+                        candleSeries.setData(chartData);
+                        chart.timeScale().fitContent();
+                        
+                        addTest(dataResults, 'K线图渲染', true, 
+                            `成功渲染 ${chartData.length} 条K线数据`);
+                        
+                    } catch (e) {
+                        addTest(dataResults, 'K线图渲染', false, 
+                            `渲染失败: ${e.message}\n${e.stack}`);
+                        chartContainer.innerHTML = `<div class="loading" style="color: #ef4444;">渲染失败: ${e.message}</div>`;
+                    }
+                } else {
+                    addTest(dataResults, 'K线图渲染', false, 
+                        'LightweightCharts库未加载或数据为空');
+                }
+                
+            } catch (e) {
+                dataResults.innerHTML = '';
+                addTest(dataResults, '测试过程', false, 
+                    `发生错误: ${e.message}\n${e.stack}`);
+            }
+        };
+        
+        // 自动测试默认股票
+        setTimeout(() => {
+            testStockData();
+        }, 1000);
     </script>
 </body>
 </html>
