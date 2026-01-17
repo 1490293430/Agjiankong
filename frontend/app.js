@@ -1,3 +1,9 @@
+// Global Configuration & API Tokens
+const API_BASE = 'http://localhost:8000';
+// Tokens matched from .env file
+const apiToken = '19AC635084E7B2FD';
+const adminToken = 'odtMe7YJQnMR5mA4Hs5GomGBdcqzoj/wOydgu2auGhKlOwaj+8vhE0/BNd2zCTDM';
+
 console.log('[全局] app.js 开始加载...');
 
 console.log('[全局] ========== app.js 开始加载 ==========');
@@ -864,11 +870,8 @@ window.collapseSelectionConfig = collapseSelectionConfig;
 const { createChart, ColorType } = window.LightweightCharts || {};
 console.log('[全局] LightweightCharts 可用:', !!createChart);
 
-const API_BASE = window.location.origin;
 console.log('[全局] API_BASE:', API_BASE);
 
-let apiToken = null;
-let adminToken = null;
 let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
