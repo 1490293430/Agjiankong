@@ -379,11 +379,11 @@ async def search_stocks(keyword: str = Query(..., min_length=1, description="搜
                     matched = True
                     match_type = 0  # 完全匹配
                 elif code_upper.startswith(keyword_upper):
-                    matched = True
-                    match_type = 1  # 开头匹配
-                elif keyword_upper in code_upper:
-                    matched = True
-                    match_type = 2  # 包含匹配
+                    # 开头匹配：但只有当代码长度 >= 关键词长度时才匹配（避免"000777"匹配到"00077"）
+                    if len(code_upper) >= len(keyword_upper):
+                        matched = True
+                        match_type = 1  # 开头匹配
+                # 不进行包含匹配，避免误匹配（如"000777"匹配到"00077"）
                 # 也检查名称是否包含（但优先级较低）
                 elif name and (keyword in name or keyword_upper in name.upper()):
                     matched = True

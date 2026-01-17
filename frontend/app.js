@@ -4820,21 +4820,68 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
             });
         }
         
+        // 最终验证：确保数据中没有任何 null/undefined/NaN 值
+        const finalCandleData = candleData.filter(item => {
+            if (!item || typeof item !== 'object') return false;
+            // 验证时间值（可以是字符串或数字，但不能为 null/undefined/空字符串）
+            const time = item.time;
+            const hasValidTime = time != null && time !== undefined && time !== '' && 
+                                (typeof time === 'string' || typeof time === 'number');
+            // 验证价格值
+            const open = item.open;
+            const high = item.high;
+            const low = item.low;
+            const close = item.close;
+            const hasValidPrices = open != null && !isNaN(open) && isFinite(open) && open > 0 &&
+                                  high != null && !isNaN(high) && isFinite(high) && high > 0 &&
+                                  low != null && !isNaN(low) && isFinite(low) && low > 0 &&
+                                  close != null && !isNaN(close) && isFinite(close) && close > 0;
+            return hasValidTime && hasValidPrices;
+        });
+        
+        const finalVolumeData = volumeData.filter(item => {
+            if (!item || typeof item !== 'object') return false;
+            // 验证时间值
+            const time = item.time;
+            const hasValidTime = time != null && time !== undefined && time !== '' && 
+                                (typeof time === 'string' || typeof time === 'number');
+            // 验证成交量值
+            const value = item.value;
+            const hasValidValue = value != null && !isNaN(value) && isFinite(value) && value >= 0;
+            return hasValidTime && hasValidValue;
+        });
+        
+        if (finalCandleData.length === 0) {
+            console.error('[K线渲染] 最终验证后K线数据为空');
+            container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">K线数据验证失败，所有数据都被过滤<br/>请检查数据源或重新采集K线数据</div>';
+            return;
+        }
+        
+        console.log(`[K线渲染] 最终验证: 原始${candleData.length}条，有效${finalCandleData.length}条`);
+        if (finalCandleData.length > 0) {
+            console.log('[K线渲染] K线数据时间范围:', {
+                first: finalCandleData[0]?.time,
+                last: finalCandleData[finalCandleData.length - 1]?.time,
+                firstPrice: finalCandleData[0]?.close,
+                lastPrice: finalCandleData[finalCandleData.length - 1]?.close
+            });
+        }
+        
         // 设置数据
         try {
-            candleSeries.setData(candleData);
+            candleSeries.setData(finalCandleData);
             console.log('[K线渲染] K线数据设置完成');
         } catch (e) {
-            console.error('[K线渲染] 设置K线数据失败:', e);
+            console.error('[K线渲染] 设置K线数据失败:', e, '数据示例:', finalCandleData.slice(0, 3));
             container.innerHTML = `<div style="text-align: center; padding: 40px; color: #ef4444;">设置K线数据失败: ${e.message || '未知错误'}<br/>请检查浏览器控制台查看详细信息</div>`;
             return;
         }
         
         try {
-            volumeSeries.setData(volumeData);
+            volumeSeries.setData(finalVolumeData);
             console.log('[K线渲染] 成交量数据设置完成');
         } catch (e) {
-            console.error('[K线渲染] 设置成交量数据失败:', e);
+            console.error('[K线渲染] 设置成交量数据失败:', e, '数据示例:', finalVolumeData.slice(0, 3));
             // 成交量失败不影响K线显示，只记录错误
         }
         
@@ -4850,12 +4897,12 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
         setTimeout(() => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    if (chart && chart.timeScale() && candleData.length > 0) {
+                    if (chart && chart.timeScale() && finalCandleData.length > 0) {
                         try {
                             // 默认显示最近3年数据（约750个交易日），如果数据不足则显示全部
-                            const visibleBars = Math.min(750, candleData.length);
-                            const fromIndex = Math.max(0, candleData.length - visibleBars);
-                            const toIndex = Math.max(0, candleData.length - 1);
+                            const visibleBars = Math.min(750, finalCandleData.length);
+                            const fromIndex = Math.max(0, finalCandleData.length - visibleBars);
+                            const toIndex = Math.max(0, finalCandleData.length - 1);
                             
                             // 确保索引是有效数字
                             if (!isNaN(fromIndex) && !isNaN(toIndex) && isFinite(fromIndex) && isFinite(toIndex) && fromIndex >= 0 && toIndex >= fromIndex) {
@@ -4864,7 +4911,7 @@ function renderChartInternal(data, container, containerWidth, containerHeight) {
                                     to: toIndex,
                                 });
                             } else {
-                                console.warn('[K线渲染] 无效的可见范围索引，跳过设置', { fromIndex, toIndex, dataLength: candleData.length });
+                                console.warn('[K线渲染] 无效的可见范围索引，跳过设置', { fromIndex, toIndex, dataLength: finalCandleData.length });
                             }
                         } catch (e) {
                             console.error('[K线渲染] 设置可见范围失败:', e);
@@ -4999,7 +5046,26 @@ function updateEMA() {
         return;
     }
     
-    console.debug(`updateEMA: 开始计算EMA，数据条数=${klineData.length}, EMA配置=`, emaConfig);
+    // 验证K线数据，确保没有 null 值
+    const validKlineData = klineData.filter(item => {
+        if (!item || typeof item !== 'object') return false;
+        return item.time != null && 
+               item.close != null && 
+               !isNaN(item.close) && 
+               isFinite(item.close) && 
+               item.close > 0;
+    });
+    
+    if (validKlineData.length === 0) {
+        console.warn('updateEMA: 验证后K线数据为空');
+        return;
+    }
+    
+    if (validKlineData.length !== klineData.length) {
+        console.warn(`updateEMA: 过滤了${klineData.length - validKlineData.length}条无效K线数据`);
+    }
+    
+    console.debug(`updateEMA: 开始计算EMA，数据条数=${validKlineData.length}, EMA配置=`, emaConfig);
     
     // 计算EMA（根据Pine Script标准EMA计算）
     emaConfig.values.forEach((period, index) => {
@@ -5008,7 +5074,7 @@ function updateEMA() {
             return;
         }
         
-        const emaValues = calculateEMA(klineData, period);
+        const emaValues = calculateEMA(validKlineData, period);
         if (emaValues.length > 0) {
             // 根据Pine Script代码的颜色：black, green, red
             const colors = ['#000000', '#10b981', '#ef4444'];
@@ -5039,20 +5105,37 @@ function updateEMA() {
                 }
                 // 最终验证 EMA 数据，确保没有 null 值
                 const validEmaValues = emaValues.filter(item => {
-                    return item != null && 
-                           item.time != null && 
-                           item.value != null && 
-                           !isNaN(item.value) && 
-                           isFinite(item.value);
+                    if (!item || typeof item !== 'object') return false;
+                    const time = item.time;
+                    const value = item.value;
+                    // 验证时间值（可以是字符串或数字）
+                    const hasValidTime = time != null && time !== '' && time !== undefined;
+                    // 验证数值
+                    const hasValidValue = value != null && !isNaN(value) && isFinite(value) && value > 0;
+                    return hasValidTime && hasValidValue;
                 });
                 
                 if (validEmaValues.length === 0) {
-                    console.warn(`EMA${period}数据验证后为空，跳过绘制`);
-                    emaLine.remove();
+                    console.warn(`EMA${period}数据验证后为空，跳过绘制`, { originalLength: emaValues.length, sample: emaValues.slice(0, 3) });
+                    try {
+                        emaLine.remove();
+                    } catch (e) {
+                        console.warn('移除EMA线失败:', e);
+                    }
                     return;
                 }
                 
-                emaLine.setData(validEmaValues);
+                try {
+                    emaLine.setData(validEmaValues);
+                } catch (e) {
+                    console.error(`设置EMA${period}数据失败:`, e, '数据示例:', validEmaValues.slice(0, 3));
+                    try {
+                        emaLine.remove();
+                    } catch (removeErr) {
+                        console.warn('移除EMA线失败:', removeErr);
+                    }
+                    return;
+                }
                 // 设置数据后，再次确保价格轴禁用自动缩放
                 if (chart && chart.priceScale('right')) {
                     chart.priceScale('right').applyOptions({
@@ -5111,13 +5194,20 @@ function calculateEMA(data, period) {
         }
         
         const close = item.close != null ? parseFloat(item.close) : NaN;
-        if (isNaN(close) || !isFinite(close)) {
+        const timeValue = item.time;
+        
+        // 验证时间值
+        if (timeValue == null || timeValue === undefined || timeValue === '') {
+            continue;
+        }
+        
+        if (isNaN(close) || !isFinite(close) || close <= 0) {
             // 如果当前值无效，使用上一个EMA值（保持EMA值不变）
             if (result.length > 0) {
                 const lastEma = result[result.length - 1].value;
-                if (!isNaN(lastEma) && isFinite(lastEma)) {
+                if (!isNaN(lastEma) && isFinite(lastEma) && lastEma > 0) {
                     result.push({
-                        time: item.time,
+                        time: timeValue,
                         value: lastEma
                     });
                 }
@@ -5132,11 +5222,22 @@ function calculateEMA(data, period) {
         }
         
         // 确保 EMA 值是有效数字
-        if (!isNaN(ema) && isFinite(ema)) {
+        if (!isNaN(ema) && isFinite(ema) && ema > 0) {
             result.push({
-                time: item.time,
+                time: timeValue,
                 value: ema
             });
+        } else {
+            // 如果计算出的EMA无效，使用上一个有效值
+            if (result.length > 0) {
+                const lastValid = result[result.length - 1];
+                if (lastValid && !isNaN(lastValid.value) && isFinite(lastValid.value) && lastValid.value > 0) {
+                    result.push({
+                        time: timeValue,
+                        value: lastValid.value
+                    });
+                }
+            }
         }
     }
     
