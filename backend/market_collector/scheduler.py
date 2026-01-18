@@ -403,9 +403,7 @@ def _collect_hourly_kline_for_market(market: str):
             try:
                 kline_data = future.result()
                 if kline_data:
-                    # 添加market字段
-                    for item in kline_data:
-                        item["market"] = market
+                    # market字段已由数据源函数设置，无需覆盖
                     all_kline_data.extend(kline_data)
                     success_count += 1
                 else:
