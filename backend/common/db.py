@@ -1349,15 +1349,11 @@ def save_indicator(code: str, market: str, date: str, indicators: Dict[str, Any]
             ]]
         )
         
-        # 清理旧指标数据（只保留最近2天：今天和昨天）
-        try:
-            cutoff_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
-            client.execute(
-                "ALTER TABLE indicators DELETE WHERE code = %(code)s AND market = %(market)s AND period = %(period)s AND date < %(cutoff)s",
-                {'code': code, 'market': market.upper(), 'period': period, 'cutoff': cutoff_date}
-            )
-        except Exception as cleanup_err:
-            logger.debug(f"清理旧指标数据失败 {code}: {cleanup_err}")
+        # ⚠️ 已禁用自动清理旧指标数据，避免产生大量mutation导致内存泄漏
+        # 原逻辑：每次计算指标时删除2天前的数据，导致每只股票产生1个mutation
+        # 如果批量计算5000只股票，就会产生5000个mutation，导致内存爆满
+        # 解决方案：indicators表使用ReplacingMergeTree自动去重，无需手动删除旧数据
+        # 如需清理，请手动执行：python backend/scripts/cleanup_and_optimize.py
         
         return True
     except Exception as e:

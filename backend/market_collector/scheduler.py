@@ -512,6 +512,9 @@ def snapshot_to_kline_job():
 def cleanup_old_data_job():
     """定期清理旧数据任务（每天17:30后执行一次）
     
+    ⚠️ 警告：此函数会产生大量mutation，导致内存占用持续增长
+    已禁用自动执行，改为手动执行：python backend/scripts/cleanup_and_optimize.py
+    
     清理内容：
     - 日线K线数据：保留8年（根据配置）
     - 小时线K线数据：保留1年
@@ -519,6 +522,10 @@ def cleanup_old_data_job():
     - 优化表释放空间（每7天执行一次）
     """
     global _last_cleanup_date
+    
+    # 禁用自动清理，避免产生大量mutation导致内存泄漏
+    logger.debug("自动清理任务已禁用，请手动执行: python backend/scripts/cleanup_and_optimize.py")
+    return
     
     try:
         today = datetime.now().strftime("%Y-%m-%d")
