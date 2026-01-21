@@ -346,12 +346,13 @@ def hourly_kline_collect_job():
 
 
 def _collect_hourly_kline_for_market(market: str):
-    """采集指定市场的小时K线数据（并发版本）
+    """采集指定市场的小时K线数据（优化版：降低并发+添加延迟）
     
     Args:
         market: "A" 或 "HK"
     """
     import concurrent.futures
+    import random
     from common.db import save_kline_data, get_clickhouse
     from common.runtime_config import get_runtime_config
     from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
@@ -375,13 +376,16 @@ def _collect_hourly_kline_for_market(market: str):
         logger.warning(f"[{market}] 数据库中无股票数据，跳过小时K线采集")
         return
     
-    logger.info(f"[{market}] 准备并发采集 {len(codes)} 只股票的小时K线")
+    logger.info(f"[{market}] 准备采集 {len(codes)} 只股票的小时K线（降低频率模式）")
     
     start_time = time.time()
     
-    # 定义单个股票的采集函数
+    # 定义单个股票的采集函数（添加随机延迟）
     def fetch_single(code):
         try:
+            # 添加随机延迟 0.3-0.8秒，避免请求过于密集
+            time.sleep(random.uniform(0.3, 0.8))
+            
             if market == "A":
                 return fetch_eastmoney_a_kline(code, period="1h", limit=5)
             else:
@@ -390,12 +394,12 @@ def _collect_hourly_kline_for_market(market: str):
             logger.debug(f"[{market}] {code} 小时K线获取失败: {e}")
             return None
     
-    # 并发采集（最多10个线程）
+    # 并发采集（降低到3个线程，避免触发反爬虫）
     all_kline_data = []
     success_count = 0
     fail_count = 0
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         future_to_code = {executor.submit(fetch_single, code): code for code in codes}
         
         for future in concurrent.futures.as_completed(future_to_code):

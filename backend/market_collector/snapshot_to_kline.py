@@ -118,14 +118,19 @@ def convert_snapshot_to_kline(market: str) -> Dict[str, Any]:
     else:
         from market_collector.eastmoney_source import fetch_eastmoney_hk_kline as fetch_kline
     
-    # 并发获取K线数据
+    # 并发获取K线数据（优化版：降低并发+添加延迟）
     all_kline_data = []
     success_count = 0
     failed_count = 0
     
     def fetch_single(code: str) -> List[Dict]:
-        """获取单只股票的K线"""
+        """获取单只股票的K线（添加延迟控制）"""
         try:
+            import random
+            import time
+            # 添加随机延迟 0.3-0.8秒，避免请求过于密集
+            time.sleep(random.uniform(0.3, 0.8))
+            
             klines = fetch_kline(code, period="daily", limit=5)
             if klines:
                 # 添加market字段
@@ -136,8 +141,8 @@ def convert_snapshot_to_kline(market: str) -> Dict[str, Any]:
             logger.debug(f"[{market}] 获取 {code} K线失败: {e}")
         return []
     
-    # 使用10个线程并发
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    # 降低并发数到3个线程，避免触发反爬虫
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(fetch_single, code): code for code in codes}
         
         for future in concurrent.futures.as_completed(futures):
