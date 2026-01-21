@@ -2460,15 +2460,9 @@ function startApp() {
                 }
             }
         } else if (currentTab === 'watchlist') {
-            // 如果当前是自选页，先显示缓存数据，SSE会推送更新
-            console.log('[自选] 当前是自选页，先显示缓存数据');
-            const cachedData = getCachedWatchlistData();
-            const localWatchlist = getWatchlist();
-            if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
-                renderWatchlistStocks(cachedData, false, true);
-            } else if (localWatchlist.length > 0) {
-                loadWatchlist(false);
-            }
+            // 如果当前是自选页，强制刷新获取最新数据
+            console.log('[自选] 当前是自选页，强制刷新获取最新数据');
+            loadWatchlist(true);
         } else if (currentTab === 'news') {
             // 如果当前是资讯页，主动加载一次数据（避免页面为空）
             console.log('[资讯] 当前是资讯页，主动加载一次数据');
@@ -2604,29 +2598,11 @@ function switchToTab(targetTab, addHistory = true) {
             }
         }
 
-        // 切换到自选页时，先显示缓存数据，通过SSE实时推送更新
+        // 切换到自选页时，强制刷新获取最新数据
         if (targetTab === 'watchlist') {
-            console.log('[自选] 切换到自选页，使用SSE实时推送（SSE已连接，无需重连）');
-
-            // 先使用缓存数据快速显示（如果存在）
-            const cachedData = getCachedWatchlistData();
-            const localWatchlist = getWatchlist();
-
-            if (cachedData && cachedData.length > 0 && localWatchlist.length > 0) {
-                console.log('[自选] 使用缓存数据快速显示，共', cachedData.length, '只股票');
-                // 先渲染缓存数据（无感显示）
-                renderWatchlistStocks(cachedData, false, true);
-            } else if (localWatchlist.length > 0) {
-                // 如果没有缓存但有自选列表，直接加载（不强制同步，避免频繁请求）
-                console.log('[自选] 无缓存数据，直接加载');
-                loadWatchlist(false); // 使用现有数据，通过SSE实时更新
-            } else {
-                // 如果自选列表为空，显示占位符
-                console.log('[自选] 自选列表为空');
-                loadWatchlist(false);
-            }
-
-            // SSE已全局连接，无需重新连接
+            console.log('[自选] 切换到自选页，强制刷新获取最新数据');
+            // 强制刷新，不使用缓存
+            loadWatchlist(true);
         }
 
         // 切换到行情页时，使用SSE实时推送

@@ -26,6 +26,9 @@ HOURLY_KLINE_COLLECT_KEY_HK = "hourly_kline:collected:hk"
 # 记录上次数据清理日期（避免同一天重复清理）
 _last_cleanup_date = None
 
+# 记录上次AI自动分析日期（避免同一天重复分析）
+_last_ai_analysis_date = None
+
 
 def _broadcast_spot_result(a_count: int, hk_count: int, a_time: str, hk_time: str, a_source: str, hk_source: str, a_success: bool, hk_success: bool):
     """广播采集结果到前端顶部状态栏
@@ -659,6 +662,108 @@ def cleanup_old_data_job():
         logger.error(f"定期清理旧数据失败: {e}", exc_info=True)
 
 
+def ai_auto_analysis_job():
+    """AI自动分析任务（根据配置的时间每天执行一次）
+    
+    从配置中读取自动分析时间（格式：HH:MM），在指定时间自动分析自选股
+    """
+    global _last_ai_analysis_date
+    
+    try:
+        from common.runtime_config import get_runtime_config
+        from common.redis import get_json
+        
+        config = get_runtime_config()
+        auto_time = config.ai_auto_analyze_time
+        
+        # 如果未配置自动分析时间，跳过
+        if not auto_time:
+            return
+        
+        # 解析配置的时间（格式：HH:MM）
+        try:
+            hour, minute = map(int, auto_time.split(':'))
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                logger.warning(f"AI自动分析时间配置无效: {auto_time}，应为HH:MM格式")
+                return
+        except Exception as e:
+            logger.warning(f"AI自动分析时间配置解析失败: {auto_time}，错误: {e}")
+            return
+        
+        # 检查当前时间是否匹配
+        from common.trading_hours import TZ_SHANGHAI
+        now = datetime.now(TZ_SHANGHAI)
+        today = now.strftime("%Y-%m-%d")
+        
+        # 检查今天是否已经分析过
+        if _last_ai_analysis_date == today:
+            return
+        
+        # 检查当前时间是否匹配配置的时间（精确到分钟）
+        if now.hour != hour or now.minute != minute:
+            return
+        
+        logger.info(f"开始执行AI自动分析任务（配置时间: {auto_time}）...")
+        
+        # 从Redis获取自选股列表
+        watchlist = get_json("watchlist") or []
+        
+        if not watchlist:
+            logger.info("自选股列表为空，跳过AI自动分析")
+            _last_ai_analysis_date = today
+            return
+        
+        # 提取股票代码
+        codes = []
+        for item in watchlist:
+            if isinstance(item, dict):
+                code = item.get("code")
+            else:
+                code = item
+            if code:
+                codes.append(str(code).strip())
+        
+        if not codes:
+            logger.info("自选股列表中无有效代码，跳过AI自动分析")
+            _last_ai_analysis_date = today
+            return
+        
+        logger.info(f"准备分析 {len(codes)} 只自选股: {', '.join(codes[:5])}{'...' if len(codes) > 5 else ''}")
+        
+        # 调用AI分析接口
+        try:
+            from ai.analyzer import analyze_stocks_batch
+            
+            results = analyze_stocks_batch(codes)
+            
+            if results:
+                success_count = sum(1 for r in results if r.get("success"))
+                logger.info(f"AI自动分析完成: 成功={success_count}/{len(codes)}")
+                
+                # 发送通知（如果配置了通知渠道）
+                try:
+                    from notify.dispatcher import send_ai_analysis_notification
+                    
+                    # 筛选出买入信号的股票
+                    buy_signals = [r for r in results if r.get("success") and r.get("data", {}).get("signal") == "买入"]
+                    
+                    if buy_signals:
+                        send_ai_analysis_notification(buy_signals, auto_triggered=True)
+                        logger.info(f"已发送AI分析通知，包含 {len(buy_signals)} 个买入信号")
+                except Exception as e:
+                    logger.warning(f"发送AI分析通知失败: {e}")
+                
+                _last_ai_analysis_date = today
+            else:
+                logger.warning("AI自动分析返回空结果")
+                
+        except Exception as e:
+            logger.error(f"AI自动分析执行失败: {e}", exc_info=True)
+            
+    except Exception as e:
+        logger.error(f"AI自动分析任务失败: {e}", exc_info=True)
+
+
 def main():
     """主函数"""
     logger.info("行情采集调度器启动（实时判断交易时间）...")
@@ -696,6 +801,9 @@ def main():
             # 采集小时K线（在特定时间点采集，A股和港股分开）
             hourly_kline_collect_job()
             
+            # 检查AI自动分析任务（每分钟检查一次）
+            ai_auto_analysis_job()
+            
             # 采集完成后，广播市场状态更新（通过SSE）
             try:
                 from market.service.sse import broadcast_market_status_update
@@ -711,6 +819,9 @@ def main():
             
             # 不在交易时间内，也检查小时K线采集（处理收盘后的采集时间点）
             hourly_kline_collect_job()
+            
+            # 检查AI自动分析任务（每分钟检查一次）
+            ai_auto_analysis_job()
             
             # 不在交易时间内，检查是否需要执行收盘后任务
             
