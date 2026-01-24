@@ -699,8 +699,10 @@ def ai_auto_analysis_job():
         if _last_ai_analysis_date == today:
             return
         
-        # 检查当前时间是否匹配配置的时间（精确到分钟）
-        if now.hour != hour or now.minute != minute:
+        # 检查当前时间是否已到达或超过配置的时间（使用时间范围判断，避免错过）
+        target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # 如果当前时间在目标时间之前，或者已经超过目标时间2小时，则跳过
+        if now < target_time or (now - target_time).total_seconds() > 7200:
             return
         
         logger.info(f"开始执行AI自动分析任务（配置时间: {auto_time}）...")
