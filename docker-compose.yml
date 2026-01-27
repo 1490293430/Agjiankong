@@ -2,6 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: stock_redis
+    cpus: "0.7"
     # 🔒 安全配置：Redis 仅允许 Docker 内部访问，不暴露到公网
     # 移除了 ports 映射，Redis 只能通过 Docker 内部网络访问
     # Docker 网络内的其他服务（stock_api、stock_collector）可以通过服务名 "redis" 访问
@@ -41,6 +42,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: stock_clickhouse
+    cpus: "0.7"
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -60,6 +62,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: stock_collector
+    cpus: "0.7"
     command: python -m market_collector.scheduler
     depends_on:
       - redis
@@ -81,6 +84,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: stock_api
+    cpus: "0.7"
     command: uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
