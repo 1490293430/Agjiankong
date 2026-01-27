@@ -54,8 +54,6 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
       TZ: Asia/Shanghai
     restart: "no"  # 临时禁用自动重启，防止CPU爆满
-    profiles:
-      - disabled  # 默认不启动
 
   collector:
     build:
