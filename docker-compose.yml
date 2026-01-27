@@ -53,7 +53,7 @@ services:
       # 默认密码为弱口令，仅用于本地开发环境，生产环境务必通过环境变量覆盖
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
       TZ: Asia/Shanghai
-    restart: "no"  # 临时禁用自动重启，防止CPU爆满
+    restart: unless-stopped
 
   collector:
     build:
