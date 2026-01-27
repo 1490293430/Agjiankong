@@ -54,6 +54,12 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
       TZ: Asia/Shanghai
     restart: always
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
   collector:
     build:
@@ -85,8 +91,10 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - clickhouse
+      redis:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
     volumes:
       # 挂载代码目录，修改代码后无需重建镜像，--reload 参数会自动重载代码
       - ./backend:/app

@@ -58,16 +58,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Startup Event: Fix Database Schema
-@app.on_event("startup")
-async def startup_event():
-    try:
-        from gateway.schema_fix import fix_kline_schema
-        import asyncio
-        # Run in thread pool to avoid blocking asyncio loop
-        await asyncio.to_thread(fix_kline_schema)
-    except Exception as e:
-        logger.error(f"Startup schema fix failed: {e}")
+# Removed duplicate startup event - consolidated below
 
 # CORS配置（支持通过环境变量限制来源）
 if settings.api_allowed_origins and settings.api_allowed_origins != "*":
@@ -4886,16 +4877,41 @@ else:
 
 @app.on_event("startup")
 async def startup_event():
-    """启动事件"""
+    """启动事件 - 带重试机制的数据库初始化"""
     logger.info("API服务启动中...")
-    try:
-        # 初始化数据库表
-        init_tables()
-        logger.info("数据库表初始化完成")
-    except Exception as e:
-        logger.warning(f"数据库初始化失败（可能是ClickHouse未启动）: {e}")
     
-    # 初始化交易日历
+    # 1. 初始化数据库表（带重试）
+    max_retries = 10
+    retry_delay = 2
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"尝试连接ClickHouse... (第{attempt}/{max_retries}次)")
+            
+            # 先执行schema修复
+            try:
+                from gateway.schema_fix import fix_kline_schema
+                await asyncio.to_thread(fix_kline_schema)
+                logger.info("Schema修复完成")
+            except Exception as e:
+                logger.warning(f"Schema修复失败: {e}")
+            
+            # 初始化数据库表
+            init_tables()
+            logger.info("✓ 数据库表初始化完成")
+            break
+            
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(f"数据库连接失败 (第{attempt}次): {e}")
+                logger.info(f"等待 {retry_delay} 秒后重试...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 1.5, 10)  # 指数退避，最多10秒
+            else:
+                logger.error(f"数据库初始化失败（已重试{max_retries}次）: {e}")
+                logger.warning("⚠️ API服务将继续启动，但数据库功能可能不可用")
+    
+    # 2. 初始化交易日历
     try:
         from common.trading_hours import init_trading_calendar
         init_trading_calendar()
