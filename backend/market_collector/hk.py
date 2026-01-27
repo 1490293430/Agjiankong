@@ -333,11 +333,12 @@ def _save_hk_spot_to_redis(result: List[Dict[str, Any]]) -> None:
     get_redis().set("market:hk:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
     
     # 保存快照到ClickHouse数据库（持久化存储）
-    try:
-        from common.db import save_snapshot_data
-        save_snapshot_data(result, "HK")
-    except Exception as e:
-        logger.warning(f"保存港股快照到数据库失败（不影响Redis缓存）: {e}")
+    # 已禁用：实时快照数据已在Redis中，无需写入数据库，避免CPU占用过高
+    # try:
+    #     from common.db import save_snapshot_data
+    #     save_snapshot_data(result, "HK")
+    # except Exception as e:
+    #     logger.warning(f"保存港股快照到数据库失败（不影响Redis缓存）: {e}")
     
     # 写入差分数据
     diff_payload = {

@@ -7,18 +7,108 @@ from common.config import settings
 from common.logger import get_logger
 from common.runtime_config import get_runtime_config
 from typing import List, Dict, Any
+import threading
+from queue import Queue, Empty
 
 logger = get_logger(__name__)
 
 _client: Client = None
 
+# 连接池配置
+_connection_pool = Queue(maxsize=5)  # 最多5个连接
+_pool_lock = threading.Lock()
+_pool_initialized = False
 
-def _create_clickhouse_client() -> Client:
-    """创建独立的ClickHouse连接（用于多线程环境，避免连接冲突）
+
+def _init_connection_pool():
+    """初始化连接池"""
+    global _pool_initialized
+    
+    with _pool_lock:
+        if _pool_initialized:
+            return
+        
+        logger.info("初始化ClickHouse连接池...")
+        for i in range(3):  # 预创建3个连接
+            try:
+                client = Client(
+                    host=settings.clickhouse_host,
+                    port=settings.clickhouse_port,
+                    database=settings.clickhouse_db,
+                    user=settings.clickhouse_user,
+                    password=settings.clickhouse_password,
+                    connect_timeout=10,
+                    send_receive_timeout=30
+                )
+                # 测试连接
+                client.execute("SELECT 1")
+                
+                # 设置线程限制
+                client.execute("SET max_threads = 3")
+                client.execute("SET max_final_threads = 2")
+                client.execute("SET max_parsing_threads = 2")
+                
+                _connection_pool.put(client)
+                logger.info(f"连接池：已创建连接 {i+1}/3")
+            except Exception as e:
+                logger.error(f"连接池：创建连接失败: {e}")
+        
+        _pool_initialized = True
+        logger.info("ClickHouse连接池初始化完成")
+
+
+def _get_connection_from_pool(timeout=5) -> Client:
+    """从连接池获取连接
+    
+    Args:
+        timeout: 获取超时时间（秒）
     
     Returns:
         ClickHouse Client实例
     """
+    if not _pool_initialized:
+        _init_connection_pool()
+    
+    try:
+        # 尝试从池中获取连接
+        client = _connection_pool.get(timeout=timeout)
+        
+        # 测试连接是否有效
+        try:
+            client.execute("SELECT 1")
+            return client
+        except Exception:
+            # 连接失效，创建新连接
+            logger.warning("连接池：连接已失效，创建新连接")
+            return _create_new_connection()
+    
+    except Empty:
+        # 池中无可用连接，创建新连接
+        logger.debug("连接池：无可用连接，创建临时连接")
+        return _create_new_connection()
+
+
+def _return_connection_to_pool(client: Client):
+    """归还连接到连接池
+    
+    Args:
+        client: ClickHouse Client实例
+    """
+    try:
+        if _connection_pool.qsize() < 5:
+            _connection_pool.put_nowait(client)
+        else:
+            # 池已满，关闭连接
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _create_new_connection() -> Client:
+    """创建新的数据库连接"""
     client = Client(
         host=settings.clickhouse_host,
         port=settings.clickhouse_port,
@@ -26,18 +116,29 @@ def _create_clickhouse_client() -> Client:
         user=settings.clickhouse_user,
         password=settings.clickhouse_password,
         connect_timeout=10,
-        send_receive_timeout=30  # 增加超时时间，避免高并发时超时
+        send_receive_timeout=30
     )
     
-    # 设置线程限制，降低CPU占用
+    # 设置线程限制
     try:
-        client.execute("SET max_threads = 4")
+        client.execute("SET max_threads = 3")
         client.execute("SET max_final_threads = 2")
         client.execute("SET max_parsing_threads = 2")
     except Exception:
-        pass  # 忽略设置失败，不影响使用
+        pass
     
     return client
+
+
+def _create_clickhouse_client() -> Client:
+    """创建独立的ClickHouse连接（用于多线程环境，避免连接冲突）
+    
+    已废弃：建议使用连接池
+    
+    Returns:
+        ClickHouse Client实例
+    """
+    return _create_new_connection()
 
 
 def _create_low_priority_clickhouse_client() -> Client:
@@ -88,10 +189,10 @@ def get_clickhouse() -> Client:
             
             # 设置线程限制，降低CPU占用
             try:
-                _client.execute("SET max_threads = 4")
+                _client.execute("SET max_threads = 3")
                 _client.execute("SET max_final_threads = 2")
                 _client.execute("SET max_parsing_threads = 2")
-                logger.info("ClickHouse线程限制已设置: max_threads=4, max_final_threads=2, max_parsing_threads=2")
+                logger.info("ClickHouse线程限制已设置: max_threads=3, max_final_threads=2, max_parsing_threads=2")
             except Exception as e:
                 logger.warning(f"设置ClickHouse线程限制失败（不影响使用）: {e}")
             
@@ -595,7 +696,7 @@ def get_kline_earliest_date(code: str, period: str = "daily") -> str | None:
 
 
 def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> bool:
-    """将K线数据保存到ClickHouse数据库
+    """将K线数据保存到ClickHouse数据库（使用连接池和分批写入）
     
     Args:
         kline_data: K线数据列表，每个元素包含 code, date, open, high, low, close, volume, amount
@@ -623,27 +724,10 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
     if not kline_data:
         return True
     
+    client = None
     try:
-        # 创建新连接，避免多线程并发冲突
-        # 不使用全局连接，因为ClickHouse driver不支持单连接并发查询
-        # 优化：减少超时时间，提高响应速度
-        client = Client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            database=settings.clickhouse_db,
-            user=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            connect_timeout=3,  # 减少到3秒
-            send_receive_timeout=8  # 减少到8秒
-        )
-        
-        # 设置线程限制，降低CPU占用
-        try:
-            client.execute("SET max_threads = 4")
-            client.execute("SET max_final_threads = 2")
-            client.execute("SET max_parsing_threads = 2")
-        except Exception:
-            pass  # 忽略设置失败，不影响数据保存
+        # 使用连接池获取连接
+        client = _get_connection_from_pool()
         
         # 标准化period字段（统一格式）
         period_normalized = period
@@ -794,53 +878,59 @@ def save_kline_data(kline_data: List[Dict[str, Any]], period: str = "daily") -> 
         if not data_to_insert:
             return True
         
-        # 直接使用INSERT批量插入，ReplacingMergeTree会自动去重
-        # 不再使用ALTER TABLE DELETE，避免产生大量mutation导致"Too many unfinished mutations"错误
-        # ClickHouse driver的execute方法支持直接传入数据列表
-        try:
-            client.execute(
-                "INSERT INTO kline (code, market, period, date, time, open, high, low, close, volume, amount) VALUES",
-                data_to_insert
-            )
-            logger.info(f"K线数据保存成功: {len(data_to_insert)}条（周期: {period_normalized}），涉及{len(codes)}只股票")
-        except Exception as insert_error:
-            # 如果表还没有time字段（旧表），尝试兼容插入
-            error_msg = str(insert_error)
-            if "time" in error_msg.lower() and "column" in error_msg.lower():
-                logger.warning(f"表结构可能未更新（缺少time字段），尝试兼容模式插入")
-                # 移除time字段，使用旧格式插入
-                # data_to_insert 结构: (code, market, period, date, time, open, high, low, close, volume, amount)
-                # 索引:                  0      1       2      3     4     5     6     7      8      9      10
-                data_without_time = [(d[0], d[1], d[2], d[3], d[5], d[6], d[7], d[8], d[9], d[10]) for d in data_to_insert]
-                try:
-                    client.execute(
-                        "INSERT INTO kline (code, market, period, date, open, high, low, close, volume, amount) VALUES",
-                        data_without_time
-                    )
-                    logger.info(f"K线数据保存成功（兼容模式）: {len(data_without_time)}条（周期: {period_normalized}）")
-                    logger.warning("⚠️ 小时线数据可能因缺少time字段而被去重，建议执行迁移脚本")
-                except Exception as compat_error:
-                    logger.error(f"兼容模式插入也失败: {compat_error}", exc_info=True)
+        # 分批写入，每批最多800条，降低单次写入压力
+        batch_size = 800
+        total_batches = (len(data_to_insert) + batch_size - 1) // batch_size
+        
+        if total_batches > 1:
+            logger.info(f"K线数据分批写入: 总计{len(data_to_insert)}条，分{total_batches}批，每批{batch_size}条")
+        
+        for i in range(0, len(data_to_insert), batch_size):
+            batch = data_to_insert[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            
+            try:
+                client.execute(
+                    "INSERT INTO kline (code, market, period, date, time, open, high, low, close, volume, amount) VALUES",
+                    batch
+                )
+                if total_batches > 1:
+                    logger.debug(f"K线数据批次 {batch_num}/{total_batches} 写入成功: {len(batch)}条")
+            except Exception as insert_error:
+                # 如果表还没有time字段（旧表），尝试兼容插入
+                error_msg = str(insert_error)
+                if "time" in error_msg.lower() and "column" in error_msg.lower():
+                    logger.warning(f"表结构可能未更新（缺少time字段），尝试兼容模式插入")
+                    # 移除time字段，使用旧格式插入
+                    data_without_time = [(d[0], d[1], d[2], d[3], d[5], d[6], d[7], d[8], d[9], d[10]) for d in batch]
+                    try:
+                        client.execute(
+                            "INSERT INTO kline (code, market, period, date, open, high, low, close, volume, amount) VALUES",
+                            data_without_time
+                        )
+                        if total_batches > 1:
+                            logger.debug(f"K线数据批次 {batch_num}/{total_batches} 写入成功（兼容模式）: {len(data_without_time)}条")
+                        logger.warning("⚠️ 小时线数据可能因缺少time字段而被去重，建议执行迁移脚本")
+                    except Exception as compat_error:
+                        logger.error(f"兼容模式插入也失败: {compat_error}", exc_info=True)
+                        raise
+                elif "period" in error_msg.lower() or "column" in error_msg.lower():
+                    logger.warning(f"表结构可能未更新，尝试兼容模式插入: {error_msg}")
                     raise
-            elif "period" in error_msg.lower() or "column" in error_msg.lower():
-                logger.warning(f"表结构可能未更新，尝试兼容模式插入: {error_msg}")
-                raise
-            else:
-                logger.error(f"保存K线数据失败: {error_msg}", exc_info=True)
-                raise
+                else:
+                    logger.error(f"保存K线数据失败: {error_msg}", exc_info=True)
+                    raise
         
-        # 注意：不再在每次保存时清理旧数据，避免产生大量mutation
-        # 如需清理旧数据，建议使用定期任务批量处理，或使用TTL自动清理
-        # 临时禁用自动清理，避免mutation堆积
-        # for code in codes:
-        #     cleanup_old_kline_data(code, period_normalized)
+        logger.info(f"K线数据保存成功: {len(data_to_insert)}条（周期: {period_normalized}），涉及{len(codes)}只股票")
         
-        # 关闭临时连接
-        client.disconnect()
         return True
     except Exception as e:
         logger.error(f"保存K线数据失败: {e}", exc_info=True)
         return False
+    finally:
+        # 归还连接到连接池
+        if client:
+            _return_connection_to_pool(client)
 
 
 def cleanup_old_kline_data(code: str, period: str = "daily") -> None:

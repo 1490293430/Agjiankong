@@ -22,7 +22,7 @@ KLINE_COLLECTED_KEY_HK = "kline:collected:hk"
 
 # 收盘后执行时间
 A_STOCK_COLLECT_TIME = time(15, 12)
-HK_STOCK_COLLECT_TIME = time(16, 22)
+HK_STOCK_COLLECT_TIME = time(16, 30)
 
 
 def _get_collected_date(market: str) -> str | None:
@@ -51,7 +51,7 @@ def should_convert_snapshot(market: str) -> bool:
     
     条件：
     1. 今天是交易日
-    2. 当前时间已过收盘延迟时间
+    2. 当前时间已过收盘延迟时间（带10分钟窗口期）
     3. 今天还没有采集过
     """
     tz = TZ_SHANGHAI if market == "A" else TZ_HONGKONG
@@ -63,7 +63,12 @@ def should_convert_snapshot(market: str) -> bool:
         return False
     
     collect_time = A_STOCK_COLLECT_TIME if market == "A" else HK_STOCK_COLLECT_TIME
-    if now.time() < collect_time:
+    # 使用时间范围判断，避免因调度器延迟错过（10分钟窗口期）
+    current_minutes = now.hour * 60 + now.minute
+    collect_minutes = collect_time.hour * 60 + collect_time.minute
+    
+    # 必须在采集时间之后，且在当天23:59之前
+    if current_minutes < collect_minutes:
         return False
     
     collected_date = _get_collected_date(market)

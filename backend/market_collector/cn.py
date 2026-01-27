@@ -434,11 +434,12 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
             get_redis().set("market:a:time", datetime.now().isoformat(), ex=30 * 24 * 3600)
 
             # 2.5 保存快照到ClickHouse数据库（持久化存储）
-            try:
-                from common.db import save_snapshot_data
-                save_snapshot_data(result, "A")
-            except Exception as e:
-                logger.warning(f"保存A股快照到数据库失败（不影响Redis缓存）: {e}")
+            # 已禁用：实时快照数据已在Redis中，无需写入数据库，避免CPU占用过高
+            # try:
+            #     from common.db import save_snapshot_data
+            #     save_snapshot_data(result, "A")
+            # except Exception as e:
+            #     logger.warning(f"保存A股快照到数据库失败（不影响Redis缓存）: {e}")
 
             # 3. 同时写入一份差分数据，供前端或WebSocket按需使用
             diff_payload = {

@@ -232,8 +232,8 @@ def hourly_kline_collect_job():
     """小时K线采集任务
     
     采集时间：
-    - A股：12:00后采集上午的小时K线，16:15后采集下午的小时K线
-    - 港股：12:00后采集上午的小时K线，16:15后采集下午的小时K线
+    - A股：17:00后采集全天的小时K线
+    - 港股：17:50后采集全天的小时K线
     - 使用Redis记录状态，避免重复采集和程序重启后状态丢失
     """
     from common.trading_hours import TZ_SHANGHAI, TZ_HONGKONG, is_trading_day
@@ -246,17 +246,15 @@ def hourly_kline_collect_job():
     
     redis_client = get_redis()
     
-    # 定义采集时间点：上午12:00，下午16:15
-    morning_hour, morning_minute = 12, 0
-    afternoon_hour, afternoon_minute = 16, 15
+    # 定义采集时间点：A股17:00，港股17:50
+    collect_hour_a, collect_minute_a = 17, 0
+    collect_hour_hk, collect_minute_hk = 17, 50
     
-    # 判断是否应该采集上午数据（12:00后，且今天还没采集过上午数据）
-    should_collect_morning_a = False
-    should_collect_morning_hk = False
-    should_collect_afternoon_a = False
-    should_collect_afternoon_hk = False
+    # 判断是否应该采集
+    should_collect_a = False
+    should_collect_hk = False
     
-    # 获取A股和港股的采集状态（只读取一次Redis）
+    # 获取A股和港股的采集状态
     last_collected_a_raw = redis_client.get(HOURLY_KLINE_COLLECT_KEY_A)
     last_collected_hk_raw = redis_client.get(HOURLY_KLINE_COLLECT_KEY_HK)
     
@@ -268,84 +266,43 @@ def hourly_kline_collect_job():
     if last_collected_hk_raw:
         last_collected_hk = last_collected_hk_raw.decode('utf-8') if isinstance(last_collected_hk_raw, bytes) else last_collected_hk_raw
     
-    # A股采集判断
-    morning_key_a = f"{today_sh}_morning"
-    afternoon_key_a = f"{today_sh}_afternoon"
+    # A股采集判断（17:00后，10分钟内都可以触发）
+    collect_key_a = f"{today_sh}_collected"
+    is_after_collect_time_a = now_sh.hour > collect_hour_a or (now_sh.hour == collect_hour_a and now_sh.minute >= collect_minute_a)
+    is_before_deadline_a = (now_sh.hour == collect_hour_a and now_sh.minute < collect_minute_a + 10) or (now_sh.hour == collect_hour_a and collect_minute_a >= 50)  # 10分钟窗口
     
-    # 判断是否过了采集时间点
-    is_after_morning_a = now_sh.hour > morning_hour or (now_sh.hour == morning_hour and now_sh.minute >= morning_minute)
-    is_after_afternoon_a = now_sh.hour > afternoon_hour or (now_sh.hour == afternoon_hour and now_sh.minute >= afternoon_minute)
+    if is_after_collect_time_a and (now_sh.hour == collect_hour_a or is_before_deadline_a) and is_trading_day("A", now_sh.date()):
+        if not last_collected_a or last_collected_a != collect_key_a:
+            should_collect_a = True
     
-    # 如果过了12:00且还没采集过上午，则采集上午
-    if is_after_morning_a:
-        if not last_collected_a or last_collected_a != morning_key_a:
-            # 只有在还没采集过下午的情况下才采集上午（避免下午时间采集上午）
-            if not is_after_afternoon_a or not last_collected_a or not last_collected_a.startswith(today_sh):
-                should_collect_morning_a = True
+    # 港股采集判断（17:50后，10分钟内都可以触发）
+    collect_key_hk = f"{today_hk}_collected"
+    is_after_collect_time_hk = now_hk.hour > collect_hour_hk or (now_hk.hour == collect_hour_hk and now_hk.minute >= collect_minute_hk)
+    is_before_deadline_hk = (now_hk.hour == collect_hour_hk and now_hk.minute < collect_minute_hk + 10) or (now_hk.hour == collect_hour_hk and collect_minute_hk >= 50)  # 10分钟窗口
     
-    # 如果过了16:15且已采集过上午但还没采集过下午，则采集下午
-    if is_after_afternoon_a:
-        if not last_collected_a or last_collected_a != afternoon_key_a:
-            # 如果已经采集过上午，或者没有任何记录，则采集下午
-            if last_collected_a == morning_key_a or not last_collected_a or not last_collected_a.startswith(today_sh):
-                should_collect_afternoon_a = True
+    if is_after_collect_time_hk and (now_hk.hour == collect_hour_hk or is_before_deadline_hk) and is_trading_day("HK", now_hk.date()):
+        if not last_collected_hk or last_collected_hk != collect_key_hk:
+            should_collect_hk = True
     
-    # 港股采集判断
-    morning_key_hk = f"{today_hk}_morning"
-    afternoon_key_hk = f"{today_hk}_afternoon"
+    # 采集A股小时K线
+    if should_collect_a:
+        try:
+            logger.info(f"[A股] 开始采集全天小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+            _collect_hourly_kline_for_market("A")
+            redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, collect_key_a, ex=86400 * 2)  # 保留2天
+            logger.info(f"[A股] 小时K线采集完成并已记录状态")
+        except Exception as e:
+            logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
     
-    is_after_morning_hk = now_hk.hour > morning_hour or (now_hk.hour == morning_hour and now_hk.minute >= morning_minute)
-    is_after_afternoon_hk = now_hk.hour > afternoon_hour or (now_hk.hour == afternoon_hour and now_hk.minute >= afternoon_minute)
-    
-    # 如果过了12:00且还没采集过上午，则采集上午
-    if is_after_morning_hk:
-        if not last_collected_hk or last_collected_hk != morning_key_hk:
-            if not is_after_afternoon_hk or not last_collected_hk or not last_collected_hk.startswith(today_hk):
-                should_collect_morning_hk = True
-    
-    # 如果过了16:15且已采集过上午但还没采集过下午，则采集下午
-    if is_after_afternoon_hk:
-        if not last_collected_hk or last_collected_hk != afternoon_key_hk:
-            if last_collected_hk == morning_key_hk or not last_collected_hk or not last_collected_hk.startswith(today_hk):
-                should_collect_afternoon_hk = True
-    
-    # 采集A股小时K线（优先上午，如果已经过了上午时间且已采集过上午，则采集下午）
-    if is_trading_day("A", now_sh.date()):
-        if should_collect_morning_a:
-            try:
-                logger.info(f"[A股] 开始采集上午小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
-                _collect_hourly_kline_for_market("A")
-                redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, morning_key_a, ex=86400 * 2)  # 保留2天
-                logger.info(f"[A股] 上午小时K线采集完成并已记录状态")
-            except Exception as e:
-                logger.error(f"[A股] 上午小时K线采集失败: {e}", exc_info=True)
-        elif should_collect_afternoon_a:
-            try:
-                logger.info(f"[A股] 开始采集下午小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
-                _collect_hourly_kline_for_market("A")
-                redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, afternoon_key_a, ex=86400 * 2)  # 保留2天
-                logger.info(f"[A股] 下午小时K线采集完成并已记录状态")
-            except Exception as e:
-                logger.error(f"[A股] 下午小时K线采集失败: {e}", exc_info=True)
-    
-    # 采集港股小时K线（优先上午，如果已经过了上午时间且已采集过上午，则采集下午）
-    if is_trading_day("HK", now_hk.date()):
-        if should_collect_morning_hk:
-            try:
-                logger.info(f"[港股] 开始采集上午小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
-                _collect_hourly_kline_for_market("HK")
-                redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, morning_key_hk, ex=86400 * 2)  # 保留2天
-                logger.info(f"[港股] 上午小时K线采集完成并已记录状态")
-            except Exception as e:
-                logger.error(f"[港股] 上午小时K线采集失败: {e}", exc_info=True)
-        elif should_collect_afternoon_hk:
-            try:
-                logger.info(f"[港股] 开始采集下午小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
-                _collect_hourly_kline_for_market("HK")
-                redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, afternoon_key_hk, ex=86400 * 2)  # 保留2天
-                logger.info(f"[港股] 下午小时K线采集完成并已记录状态")
-            except Exception as e:
-                logger.error(f"[港股] 下午小时K线采集失败: {e}", exc_info=True)
+    # 采集港股小时K线
+    if should_collect_hk:
+        try:
+            logger.info(f"[港股] 开始采集全天小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
+            _collect_hourly_kline_for_market("HK")
+            redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, collect_key_hk, ex=86400 * 2)  # 保留2天
+            logger.info(f"[港股] 小时K线采集完成并已记录状态")
+        except Exception as e:
+            logger.error(f"[港股] 小时K线采集失败: {e}", exc_info=True)
 
 
 def _collect_hourly_kline_for_market(market: str):
@@ -701,8 +658,8 @@ def ai_auto_analysis_job():
         
         # 检查当前时间是否已到达或超过配置的时间（使用时间范围判断，避免错过）
         target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        # 如果当前时间在目标时间之前，或者已经超过目标时间2小时，则跳过
-        if now < target_time or (now - target_time).total_seconds() > 7200:
+        # 如果当前时间在目标时间之前，或者已经超过目标时间10分钟，则跳过
+        if now < target_time or (now - target_time).total_seconds() > 600:
             return
         
         logger.info(f"开始执行AI自动分析任务（配置时间: {auto_time}）...")
@@ -827,8 +784,8 @@ def main():
             
             # 不在交易时间内，检查是否需要执行收盘后任务
             
-            # A股收盘后立即转换（15:12后，一直检查直到采集完成）
-            if current_hour_a > 15 or (current_hour_a == 15 and current_minute_a >= 12):
+            # A股收盘后立即转换（15:12-15:22，10分钟窗口）
+            if current_hour_a == 15 and 12 <= current_minute_a < 22:
                 try:
                     from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
                     if should_convert_snapshot("A"):
@@ -838,8 +795,8 @@ def main():
                 except Exception as e:
                     logger.error(f"[A股] 快照转K线失败: {e}")
             
-            # 港股收盘后立即转换（16:22后，一直检查直到采集完成）
-            if current_hour_hk > 16 or (current_hour_hk == 16 and current_minute_hk >= 22):
+            # 港股收盘后立即转换（16:30-16:40，10分钟窗口）
+            if current_hour_hk == 16 and 30 <= current_minute_hk < 40:
                 try:
                     from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
                     if should_convert_snapshot("HK"):
@@ -849,8 +806,8 @@ def main():
                 except Exception as e:
                     logger.error(f"[港股] 快照转K线失败: {e}")
             
-            # 17:00 执行批量计算指标（使用上海时区）
-            if current_hour_a == 17 and current_minute_a >= 0:
+            # 18:30 执行批量计算指标（使用上海时区）
+            if current_hour_a == 18 and 30 <= current_minute_a < 40:
                 
                 # 判断A股今天是否有交易
                 a_has_traded_today = False
@@ -928,17 +885,17 @@ def main():
                     batch_compute_indicators_job("HK")
             
             # 不在交易时间内，不采集数据，延长等待时间
-            # 但如果还没到17:30，需要短间隔检查以确保17:00的指标计算能触发
-            if current_hour_a < 17 or (current_hour_a == 17 and current_minute_a < 30):
-                # 17:30之前，每5分钟检查一次，确保17:00的任务能触发
-                logger.info(f"当前时间 {current_hour_a}:{current_minute_a:02d}，17:30前保持短间隔检查（5分钟）")
+            # 但如果还没到22:00，需要短间隔检查以确保收盘后任务能触发
+            if current_hour_a < 22:
+                # 22:00之前，每5分钟检查一次，确保收盘后任务能触发
+                logger.info(f"当前时间 {current_hour_a}:{current_minute_a:02d}，22:00前保持短间隔检查（5分钟）")
                 time.sleep(300)
             else:
-                # 17:30之后，执行定期清理任务（每天执行一次）
-                if current_hour_a == 17 and current_minute_a >= 30:
+                # 22:00之后，执行定期清理任务（每天执行一次）
+                if current_hour_a == 22 and current_minute_a < 10:
                     cleanup_old_data_job()
                 
-                # 17:30之后，可以长时间睡眠到下一个交易日
+                # 22:00之后，可以长时间睡眠到下一个交易日
                 next_a_start = get_next_trading_start_time("A")
                 next_hk_start = get_next_trading_start_time("HK")
                 next_start = min(next_a_start, next_hk_start)
@@ -953,7 +910,7 @@ def main():
                 
                 wait_seconds = max(300, int((next_start - now_tz).total_seconds()))
                 
-                logger.info(f"当前不在交易时间内且已过17:30，等待 {wait_seconds // 60} 分钟后重新检查（估算下次交易时间: {next_start.strftime('%Y-%m-%d %H:%M:%S')}）")
+                logger.info(f"当前不在交易时间内且已过22:00，等待 {wait_seconds // 60} 分钟后重新检查（估算下次交易时间: {next_start.strftime('%Y-%m-%d %H:%M:%S')}）")
                 time.sleep(min(wait_seconds, 3600))  # 最多等待1小时，然后重新检查
 
 
