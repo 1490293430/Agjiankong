@@ -48,13 +48,17 @@ services:
       - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse-config:/etc/clickhouse-server/config.d
+      # - ./clickhouse-config:/etc/clickhouse-server/config.d
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-stock}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       # 默认密码为弱口令，仅用于本地开发环境，生产环境务必通过环境变量覆盖
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-changeme}
       TZ: Asia/Shanghai
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
     restart: unless-stopped
 
   collector:
