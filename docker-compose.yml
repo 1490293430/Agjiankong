@@ -67,6 +67,13 @@ services:
       dockerfile: backend/Dockerfile
     container_name: stock_collector
     cpus: "0.3"
+    blkio_config:
+      weight: 300
+      device_write_bps:
+        - path: /dev/sda
+          rate: 10mb
+        - path: /dev/vda
+          rate: 10mb
     command: python -m market_collector.scheduler
     depends_on:
       - redis
