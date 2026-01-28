@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <clickhouse>
     <!-- 内存限制配置 - 适用于低内存服务器 -->
-    <!-- 提高内存限制，避免启动失败 -->
-    <max_server_memory_usage>1610612736</max_server_memory_usage>  <!-- 1.5GB -->
-    <max_server_memory_usage_to_ram_ratio>0.6</max_server_memory_usage_to_ram_ratio>
+    <!-- 降低内存限制，适配 2.4GB 总内存的服务器 -->
+    <max_server_memory_usage>1073741824</max_server_memory_usage>  <!-- 1GB -->
+    <max_server_memory_usage_to_ram_ratio>0.45</max_server_memory_usage_to_ram_ratio>
     <mark_cache_size>52428800</mark_cache_size>  <!-- 50MB -->
     <uncompressed_cache_size>0</uncompressed_cache_size>
     
