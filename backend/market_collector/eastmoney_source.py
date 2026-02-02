@@ -211,8 +211,11 @@ def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:
     max_pages = 30  # 最多30页
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "http://quote.eastmoney.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Connection": "close"  # 关键：每次请求后关闭连接，不复用
     }
     
     # 先获取总数
