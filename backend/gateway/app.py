@@ -4357,25 +4357,49 @@ async def collect_kline_data_api(
                 "message": f"已开始后台同时采集A股和港股的{period_desc}K线数据，请稍后查看结果"
             }
         
-        # 获取股票列表（单个市场）- 使用自动切换数据源
+        # 获取股票列表（单个市场）- 优先从数据库，失败时使用数据源
         if market.upper() == "HK":
+            # 先尝试从数据库获取港股列表
             try:
-                all_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+                from common.db import get_clickhouse
+                client = get_clickhouse()
+                query = "SELECT DISTINCT code, name FROM stock_info WHERE market = 'HK' ORDER BY code"
+                result = client.execute(query)
+                if result and len(result) > 0:
+                    all_stocks_raw = [{"code": row[0], "name": row[1], "sec_type": "stock", "market": "HK"} for row in result]
+                    logger.info(f"从数据库获取港股列表: {len(all_stocks_raw)}只")
+                else:
+                    raise Exception("数据库中无港股数据")
             except Exception as e:
-                logger.warning(f"东方财富获取港股列表失败: {e}，尝试其他数据源")
-                # 港股回退到其他数据源
-                from market_collector.hk import fetch_hk_stock_spot
-                all_stocks_raw, _ = fetch_hk_stock_spot(source="auto")
+                logger.warning(f"从数据库获取港股列表失败: {e}，尝试数据源")
+                try:
+                    all_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+                except Exception as e2:
+                    logger.warning(f"东方财富获取港股列表失败: {e2}，尝试其他数据源")
+                    from market_collector.hk import fetch_hk_stock_spot
+                    all_stocks_raw, _ = fetch_hk_stock_spot(source="auto")
             # 过滤非股票数据
             all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
             fetch_kline_func = fetch_hk_stock_kline
         else:
+            # 先尝试从数据库获取A股列表
             try:
-                all_stocks_raw = fetch_eastmoney_a_stock_spot()
+                from common.db import get_clickhouse
+                client = get_clickhouse()
+                query = "SELECT DISTINCT code, name FROM stock_info WHERE market = 'A' ORDER BY code"
+                result = client.execute(query)
+                if result and len(result) > 0:
+                    all_stocks_raw = [{"code": row[0], "name": row[1], "sec_type": "stock", "market": "A"} for row in result]
+                    logger.info(f"从数据库获取A股列表: {len(all_stocks_raw)}只")
+                else:
+                    raise Exception("数据库中无A股数据")
             except Exception as e:
-                logger.warning(f"东方财富获取A股列表失败: {e}，尝试其他数据源")
-                # A股回退到自动切换数据源（会尝试Tushare等）
-                all_stocks_raw = fetch_a_stock_spot(max_retries=1)
+                logger.warning(f"从数据库获取A股列表失败: {e}，尝试数据源")
+                try:
+                    all_stocks_raw = fetch_eastmoney_a_stock_spot()
+                except Exception as e2:
+                    logger.warning(f"东方财富获取A股列表失败: {e2}，尝试其他数据源")
+                    all_stocks_raw = fetch_a_stock_spot(max_retries=1)
             # 过滤非股票数据，保留上证指数
             all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock" or 
                          (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001")]
