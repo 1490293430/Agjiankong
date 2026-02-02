@@ -294,15 +294,15 @@ def hourly_kline_collect_job():
         except Exception as e:
             logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
     
-    # 采集港股小时K线
-    if should_collect_hk:
-        try:
-            logger.info(f"[港股] 开始采集全天小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
-            _collect_hourly_kline_for_market("HK")
-            redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, collect_key_hk, ex=86400 * 2)  # 保留2天
-            logger.info(f"[港股] 小时K线采集完成并已记录状态")
-        except Exception as e:
-            logger.error(f"[港股] 小时K线采集失败: {e}", exc_info=True)
+    # 采集港股小时K线 - 已禁用
+    # if should_collect_hk:
+    #     try:
+    #         logger.info(f"[港股] 开始采集全天小时K线数据 (时间: {now_hk.strftime('%H:%M')})")
+    #         _collect_hourly_kline_for_market("HK")
+    #         redis_client.set(HOURLY_KLINE_COLLECT_KEY_HK, collect_key_hk, ex=86400 * 2)  # 保留2天
+    #         logger.info(f"[港股] 小时K线采集完成并已记录状态")
+    #     except Exception as e:
+    #         logger.error(f"[港股] 小时K线采集失败: {e}", exc_info=True)
 
 
 def _collect_hourly_kline_for_market(market: str):
@@ -795,94 +795,94 @@ def main():
                 except Exception as e:
                     logger.error(f"[A股] 快照转K线失败: {e}")
             
-            # 港股收盘后立即转换（16:30-16:40，10分钟窗口）
-            if current_hour_hk == 16 and 30 <= current_minute_hk < 40:
-                try:
-                    from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
-                    if should_convert_snapshot("HK"):
-                        logger.info("[港股] 收盘后执行快照转K线（日K线采集）")
-                        result = convert_snapshot_to_kline("HK")
-                        logger.info(f"[港股] 快照转K线完成: {result}")
-                except Exception as e:
-                    logger.error(f"[港股] 快照转K线失败: {e}")
+            # 港股收盘后立即转换（16:30-16:40，10分钟窗口）- 已禁用
+            # if current_hour_hk == 16 and 30 <= current_minute_hk < 40:
+            #     try:
+            #         from market_collector.snapshot_to_kline import should_convert_snapshot, convert_snapshot_to_kline
+            #         if should_convert_snapshot("HK"):
+            #             logger.info("[港股] 收盘后执行快照转K线（日K线采集）")
+            #             result = convert_snapshot_to_kline("HK")
+            #             logger.info(f"[港股] 快照转K线完成: {result}")
+            #     except Exception as e:
+            #         logger.error(f"[港股] 快照转K线失败: {e}")
             
-            # 18:30 执行批量计算指标（使用上海时区）
-            if current_hour_a == 18 and 30 <= current_minute_a < 40:
-                
-                # 判断A股今天是否有交易
-                a_has_traded_today = False
-                try:
-                    from common.redis import get_redis
-                    from common.trading_hours import TZ_SHANGHAI
-                    
-                    redis_client = get_redis()
-                    a_time_key = "market:a:time"
-                    a_update_time_str = redis_client.get(a_time_key)
-                    
-                    if a_update_time_str:
-                        if isinstance(a_update_time_str, bytes):
-                            a_update_time_str = a_update_time_str.decode('utf-8')
-                        
-                        if isinstance(a_update_time_str, str):
-                            if 'T' in a_update_time_str:
-                                a_update_time = datetime.fromisoformat(a_update_time_str.replace('Z', '+00:00'))
-                            else:
-                                a_update_time = datetime.fromisoformat(a_update_time_str)
-                        else:
-                            a_update_time = a_update_time_str
-                        
-                        if a_update_time.tzinfo is None:
-                            a_update_time = TZ_SHANGHAI.localize(a_update_time)
-                        else:
-                            a_update_time = a_update_time.astimezone(TZ_SHANGHAI)
-                        
-                        now_sh = datetime.now(TZ_SHANGHAI)
-                        today_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0)
-                        
-                        if a_update_time >= today_start:
-                            a_has_traded_today = True
-                except Exception as e:
-                    logger.debug(f"检查A股今日交易状态失败: {e}")
-                
-                # 判断港股今天是否有交易
-                hk_has_traded_today = False
-                try:
-                    from common.trading_hours import TZ_HONGKONG
-                    
-                    hk_time_key = "market:hk:time"
-                    update_time_str = redis_client.get(hk_time_key)
-                    
-                    if update_time_str:
-                        if isinstance(update_time_str, bytes):
-                            update_time_str = update_time_str.decode('utf-8')
-                        
-                        if isinstance(update_time_str, str):
-                            if 'T' in update_time_str:
-                                update_time = datetime.fromisoformat(update_time_str.replace('Z', '+00:00'))
-                            else:
-                                update_time = datetime.fromisoformat(update_time_str)
-                        else:
-                            update_time = update_time_str
-                        
-                        if update_time.tzinfo is None:
-                            update_time = TZ_HONGKONG.localize(update_time)
-                        else:
-                            update_time = update_time.astimezone(TZ_HONGKONG)
-                        
-                        now_hk = datetime.now(TZ_HONGKONG)
-                        today_start = now_hk.replace(hour=0, minute=0, second=0, microsecond=0)
-                        
-                        if update_time >= today_start:
-                            hk_has_traded_today = True
-                except Exception as e:
-                    logger.debug(f"检查港股今日交易状态失败: {e}")
-                
-                # 计算指标（batch_compute_indicators_job 内部会检查是否已计算过，防止重复）
-                if a_has_traded_today:
-                    batch_compute_indicators_job("A")
-                
-                if hk_has_traded_today:
-                    batch_compute_indicators_job("HK")
+            # 18:30 执行批量计算指标（使用上海时区）- 已禁用
+            # if current_hour_a == 18 and 30 <= current_minute_a < 40:
+            #     
+            #     # 判断A股今天是否有交易
+            #     a_has_traded_today = False
+            #     try:
+            #         from common.redis import get_redis
+            #         from common.trading_hours import TZ_SHANGHAI
+            #         
+            #         redis_client = get_redis()
+            #         a_time_key = "market:a:time"
+            #         a_update_time_str = redis_client.get(a_time_key)
+            #         
+            #         if a_update_time_str:
+            #             if isinstance(a_update_time_str, bytes):
+            #                 a_update_time_str = a_update_time_str.decode('utf-8')
+            #             
+            #             if isinstance(a_update_time_str, str):
+            #                 if 'T' in a_update_time_str:
+            #                     a_update_time = datetime.fromisoformat(a_update_time_str.replace('Z', '+00:00'))
+            #                 else:
+            #                     a_update_time = datetime.fromisoformat(a_update_time_str)
+            #             else:
+            #                 a_update_time = a_update_time_str
+            #             
+            #             if a_update_time.tzinfo is None:
+            #                 a_update_time = TZ_SHANGHAI.localize(a_update_time)
+            #             else:
+            #                 a_update_time = a_update_time.astimezone(TZ_SHANGHAI)
+            #             
+            #             now_sh = datetime.now(TZ_SHANGHAI)
+            #             today_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0)
+            #             
+            #             if a_update_time >= today_start:
+            #                 a_has_traded_today = True
+            #     except Exception as e:
+            #         logger.debug(f"检查A股今日交易状态失败: {e}")
+            #     
+            #     # 判断港股今天是否有交易
+            #     hk_has_traded_today = False
+            #     try:
+            #         from common.trading_hours import TZ_HONGKONG
+            #         
+            #         hk_time_key = "market:hk:time"
+            #         update_time_str = redis_client.get(hk_time_key)
+            #         
+            #         if update_time_str:
+            #             if isinstance(update_time_str, bytes):
+            #                 update_time_str = update_time_str.decode('utf-8')
+            #             
+            #             if isinstance(update_time_str, str):
+            #                 if 'T' in update_time_str:
+            #                     update_time = datetime.fromisoformat(update_time_str.replace('Z', '+00:00'))
+            #                 else:
+            #                     update_time = datetime.fromisoformat(update_time_str)
+            #             else:
+            #                 update_time = update_time_str
+            #             
+            #             if update_time.tzinfo is None:
+            #                 update_time = TZ_HONGKONG.localize(update_time)
+            #             else:
+            #                 update_time = update_time.astimezone(TZ_HONGKONG)
+            #             
+            #             now_hk = datetime.now(TZ_HONGKONG)
+            #             today_start = now_hk.replace(hour=0, minute=0, second=0, microsecond=0)
+            #             
+            #             if update_time >= today_start:
+            #                 hk_has_traded_today = True
+            #     except Exception as e:
+            #         logger.debug(f"检查港股今日交易状态失败: {e}")
+            #     
+            #     # 计算指标（batch_compute_indicators_job 内部会检查是否已计算过，防止重复）
+            #     if a_has_traded_today:
+            #         batch_compute_indicators_job("A")
+            #     
+            #     if hk_has_traded_today:
+            #         batch_compute_indicators_job("HK")
             
             # 不在交易时间内，不采集数据，延长等待时间
             # 但如果还没到22:00，需要短间隔检查以确保收盘后任务能触发
