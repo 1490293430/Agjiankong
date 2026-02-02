@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """
 更新股票列表到数据库
-直接在宿主机上运行，获取A股和港股的完整列表并保存到ClickHouse
+在Docker容器内运行，获取A股和港股的完整列表并保存到ClickHouse
 """
 import sys
 import os
 
-# 添加项目路径
-sys.path.insert(0, '/opt/Agjiankong/backend')
-os.chdir('/opt/Agjiankong/backend')
-
-# 加载环境变量
-from dotenv import load_dotenv
-load_dotenv('/opt/Agjiankong/.env')
+# 检测运行环境
+if os.path.exists('/app'):
+    # Docker容器内
+    sys.path.insert(0, '/app')
+    os.chdir('/app')
+else:
+    # 宿主机
+    sys.path.insert(0, '/opt/Agjiankong/backend')
+    os.chdir('/opt/Agjiankong/backend')
+    # 加载环境变量
+    from dotenv import load_dotenv
+    load_dotenv('/opt/Agjiankong/.env')
 
 import requests
 import json
