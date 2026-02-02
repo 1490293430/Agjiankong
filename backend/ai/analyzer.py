@@ -20,6 +20,89 @@ AI_REQUEST_HISTORY_KEY = "ai:request:history"
 MAX_REQUEST_HISTORY = 1
 
 
+def get_realtime_kline_and_indicators(code: str, market: str = "A") -> Tuple[Optional[Dict], Optional[Dict]]:
+    """实时获取K线数据并计算指标（不从数据库读取）
+    
+    Args:
+        code: 股票代码
+        market: 市场（A或HK）
+    
+    Returns:
+        (kline_data, indicators) 元组
+    """
+    try:
+        from market_collector.eastmoney_source import fetch_eastmoney_a_kline, fetch_eastmoney_hk_kline
+        from market.indicator.ta import calculate_all_indicators
+        from common.runtime_config import get_runtime_config
+        
+        config = get_runtime_config()
+        
+        # 获取配置的K线周期
+        ai_periods = config.ai_data_period or ["daily"]
+        if isinstance(ai_periods, str):
+            ai_periods = [ai_periods]
+        
+        # 获取日K线历史数量
+        daily_count = config.ai_daily_history_count or 30  # 默认30天，确保有足够数据计算指标
+        hourly_count = config.ai_hourly_history_count or 60  # 默认60小时
+        
+        # 选择数据源
+        if market == "A":
+            fetch_kline = fetch_eastmoney_a_kline
+        else:
+            fetch_kline = fetch_eastmoney_hk_kline
+        
+        # 获取日K线数据
+        logger.info(f"[实时获取] {code} 开始获取日K线数据（最近{daily_count}天）")
+        daily_klines = fetch_kline(code, period="daily", limit=daily_count)
+        
+        if not daily_klines or len(daily_klines) < 20:
+            logger.warning(f"[实时获取] {code} 日K线数据不足: {len(daily_klines) if daily_klines else 0}条")
+            return None, None
+        
+        # 计算日线指标
+        logger.info(f"[实时获取] {code} 开始计算日线指标")
+        daily_indicators = calculate_all_indicators(daily_klines, period="daily")
+        
+        if not daily_indicators:
+            logger.warning(f"[实时获取] {code} 日线指标计算失败")
+            return None, None
+        
+        # 基础指标使用日线
+        indicators = {k: v for k, v in daily_indicators.items() 
+                     if k not in ["code", "market", "date", "period", "update_time"]}
+        
+        # 如果配置了小时线，也获取小时线数据
+        if "1h" in ai_periods:
+            try:
+                logger.info(f"[实时获取] {code} 开始获取小时K线数据（最近{hourly_count}小时）")
+                hourly_klines = fetch_kline(code, period="1h", limit=hourly_count)
+                
+                if hourly_klines and len(hourly_klines) >= 20:
+                    logger.info(f"[实时获取] {code} 开始计算小时线指标")
+                    hourly_indicators = calculate_all_indicators(hourly_klines, period="1h")
+                    
+                    if hourly_indicators:
+                        # 添加小时线指标（带 hourly_ 前缀）
+                        for key, value in hourly_indicators.items():
+                            if key not in ["code", "market", "date", "period", "update_time"]:
+                                indicators[f"hourly_{key}"] = value
+                        logger.info(f"[实时获取] {code} 小时线指标计算完成")
+                    else:
+                        logger.warning(f"[实时获取] {code} 小时线指标计算失败")
+                else:
+                    logger.warning(f"[实时获取] {code} 小时K线数据不足: {len(hourly_klines) if hourly_klines else 0}条")
+            except Exception as e:
+                logger.warning(f"[实时获取] {code} 获取小时线失败: {e}")
+        
+        logger.info(f"[实时获取] {code} 数据获取和指标计算完成")
+        return daily_klines, indicators
+        
+    except Exception as e:
+        logger.error(f"[实时获取] {code} 获取K线和计算指标失败: {e}", exc_info=True)
+        return None, None
+
+
 def _save_ai_request_history(request_data: Dict[str, Any]):
     """保存AI请求数据到Redis（只保留最近1次完整分析）
     

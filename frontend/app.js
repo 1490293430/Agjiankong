@@ -9693,6 +9693,8 @@ async function loadConfig() {
             aiDataPeriods = [aiDataPeriods];
         }
         const aiBatchSize = data.ai_batch_size || 5;
+        const aiDailyHistoryCount = data.ai_daily_history_count || 180;
+        const aiHourlyHistoryCount = data.ai_hourly_history_count || 180;
 
         const aiNotifyTelegramEl = document.getElementById('cfg-ai-notify-telegram');
         const aiNotifyEmailEl = document.getElementById('cfg-ai-notify-email');
@@ -9701,6 +9703,8 @@ async function loadConfig() {
         const aiDataPeriodDailyEl = document.getElementById('cfg-ai-data-period-daily');
         const aiDataPeriodHourlyEl = document.getElementById('cfg-ai-data-period-hourly');
         const aiBatchSizeEl = document.getElementById('cfg-ai-batch-size');
+        const aiDailyHistoryCountEl = document.getElementById('cfg-ai-daily-history-count');
+        const aiHourlyHistoryCountEl = document.getElementById('cfg-ai-hourly-history-count');
 
         if (aiNotifyTelegramEl) aiNotifyTelegramEl.checked = aiNotifyTelegram;
         if (aiNotifyEmailEl) aiNotifyEmailEl.checked = aiNotifyEmail;
@@ -9709,6 +9713,8 @@ async function loadConfig() {
         if (aiDataPeriodDailyEl) aiDataPeriodDailyEl.checked = aiDataPeriods.includes('daily');
         if (aiDataPeriodHourlyEl) aiDataPeriodHourlyEl.checked = aiDataPeriods.includes('1h');
         if (aiBatchSizeEl) aiBatchSizeEl.value = aiBatchSize;
+        if (aiDailyHistoryCountEl) aiDailyHistoryCountEl.value = aiDailyHistoryCount;
+        if (aiHourlyHistoryCountEl) aiHourlyHistoryCountEl.value = aiHourlyHistoryCount;
 
         // 通知渠道配置
         const channels = data.notify_channels || [];
@@ -9810,6 +9816,8 @@ async function saveConfig() {
                     return periods.length > 0 ? periods : ['daily'];
                 })(),
                 ai_batch_size: Math.max(1, parseInt(document.getElementById('cfg-ai-batch-size')?.value || '5')),
+                ai_daily_history_count: Math.max(180, Math.min(500, parseInt(document.getElementById('cfg-ai-daily-history-count')?.value || '180'))),
+                ai_hourly_history_count: Math.max(180, Math.min(500, parseInt(document.getElementById('cfg-ai-hourly-history-count')?.value || '180'))),
                 ai_notify_telegram: document.getElementById('cfg-ai-notify-telegram')?.checked ?? false,
                 ai_notify_email: document.getElementById('cfg-ai-notify-email')?.checked ?? false,
                 ai_notify_wechat: document.getElementById('cfg-ai-notify-wechat')?.checked ?? false,

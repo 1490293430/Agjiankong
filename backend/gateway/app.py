@@ -2079,36 +2079,28 @@ async def analyze_stock_api(
         description="是否启用多周期分析（日线+小时线），默认启用",
     ),
 ):
-    """分析股票"""
+    """分析股票（实时获取K线数据并计算指标）"""
     try:
-        # 获取配置
-        from common.runtime_config import get_runtime_config
-        config = get_runtime_config()
-        ai_periods = config.ai_data_period or ["daily"]
-        # 兼容旧配置（字符串）
-        if isinstance(ai_periods, str):
-            ai_periods = [ai_periods]
-        
-        # 获取股票行情
+        # 获取股票行情（从Redis获取基本信息）
         a_stocks = get_json("market:a:spot") or []
         stock = next((s for s in a_stocks if str(s.get("code", "")) == code), None)
         
         if not stock:
             return {"code": 1, "data": {}, "message": "股票不存在"}
         
-        # 获取上证指数数据作为大盘参考（代码1A0001）
+        # 实时获取K线数据并计算指标
+        from ai.analyzer import get_realtime_kline_and_indicators
+        
+        logger.info(f"[AI分析] {code} 开始实时获取K线数据并计算指标")
+        kline_data, indicators = get_realtime_kline_and_indicators(code, "A")
+        
+        if not indicators:
+            return {"code": 1, "data": {}, "message": "无法获取K线数据或计算指标失败"}
+        
+        logger.info(f"[AI分析] {code} 数据获取完成，开始AI分析")
+        
+        # 获取上证指数数据作为大盘参考
         sh_index = next((s for s in a_stocks if str(s.get("code", "")) == "1A0001" and s.get("sec_type") == "index"), None)
-        
-        # 从数据库获取日线指标
-        from common.db import get_indicator
-        daily_indicators = get_indicator(code, "A", None, "daily")
-        
-        if not daily_indicators:
-            return {"code": 1, "data": {}, "message": "日线指标数据不存在，请先运行指标计算任务"}
-        
-        # 使用日线指标作为基础
-        indicators = {k: v for k, v in daily_indicators.items() 
-                     if k not in ["code", "market", "date", "period", "update_time"]}
         
         # 添加上证指数数据
         if sh_index:
@@ -2124,24 +2116,6 @@ async def analyze_stock_api(
                 indicators["market_sentiment"] = "偏弱"
             else:
                 indicators["market_sentiment"] = "弱势"
-        
-        # 多周期分析：如果配置了多个周期或启用了 multi_timeframe
-        use_multi_timeframe = multi_timeframe or (len(ai_periods) > 1 and "1h" in ai_periods)
-        if use_multi_timeframe:
-            # 从数据库获取小时线指标
-            hourly_indicators = get_indicator(code, "A", None, "1h")
-            
-            if hourly_indicators:
-                # 添加小时线指标（带 hourly_ 前缀）
-                for key, value in hourly_indicators.items():
-                    if key not in ["code", "market", "date", "period", "update_time"]:
-                        indicators[f"hourly_{key}"] = value
-                
-                # 不再进行趋势预判，只提供数值数据，让AI自己判断
-                # 移除了 daily_trend_direction, hourly_trend_direction, multi_tf_signal, multi_tf_resonance
-            else:
-                # 数据库没有小时线指标，记录警告但继续使用日线指标
-                logger.warning(f"股票 {code} 没有小时线指标数据，仅使用日线指标")
         
         # 更新动态参数优化器的市场状态
         try:

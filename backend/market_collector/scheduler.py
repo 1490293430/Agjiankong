@@ -232,8 +232,8 @@ def hourly_kline_collect_job():
     """小时K线采集任务
     
     采集时间：
-    - A股：17:00后采集全天的小时K线
-    - 港股：17:50后采集全天的小时K线
+    - A股：16:00后采集全天的小时K线
+    - 港股：17:50后采集全天的小时K线（已禁用）
     - 使用Redis记录状态，避免重复采集和程序重启后状态丢失
     """
     from common.trading_hours import TZ_SHANGHAI, TZ_HONGKONG, is_trading_day
@@ -246,8 +246,8 @@ def hourly_kline_collect_job():
     
     redis_client = get_redis()
     
-    # 定义采集时间点：A股17:00，港股17:50
-    collect_hour_a, collect_minute_a = 17, 0
+    # 定义采集时间点：A股16:00，港股17:50
+    collect_hour_a, collect_minute_a = 16, 0
     collect_hour_hk, collect_minute_hk = 17, 50
     
     # 判断是否应该采集
@@ -284,15 +284,15 @@ def hourly_kline_collect_job():
         if not last_collected_hk or last_collected_hk != collect_key_hk:
             should_collect_hk = True
     
-    # 采集A股小时K线
-    if should_collect_a:
-        try:
-            logger.info(f"[A股] 开始采集全天小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
-            _collect_hourly_kline_for_market("A")
-            redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, collect_key_a, ex=86400 * 2)  # 保留2天
-            logger.info(f"[A股] 小时K线采集完成并已记录状态")
-        except Exception as e:
-            logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
+    # 采集A股小时K线 - 已禁用
+    # if should_collect_a:
+    #     try:
+    #         logger.info(f"[A股] 开始采集全天小时K线数据 (时间: {now_sh.strftime('%H:%M')})")
+    #         _collect_hourly_kline_for_market("A")
+    #         redis_client.set(HOURLY_KLINE_COLLECT_KEY_A, collect_key_a, ex=86400 * 2)  # 保留2天
+    #         logger.info(f"[A股] 小时K线采集完成并已记录状态")
+    #     except Exception as e:
+    #         logger.error(f"[A股] 小时K线采集失败: {e}", exc_info=True)
     
     # 采集港股小时K线 - 已禁用
     # if should_collect_hk:
