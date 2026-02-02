@@ -40,8 +40,8 @@ def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
             
             all_results = []
             
-            # 并发请求各市场数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            # 并发请求各市场数据（降低并发数，避免Docker网络问题）
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {
                     executor.submit(_fetch_eastmoney_market, name, fs): name 
                     for name, fs in markets
@@ -126,8 +126,8 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
             pages = min(pages, 50)  # 最多50页，避免请求过多
             logger.info(f"[东方财富] 港股总数: {total}，需要 {pages} 页")
             
-            # 并发请求各页数据
-            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            # 并发请求各页数据（降低并发数，避免Docker网络问题）
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {
                     executor.submit(_fetch_eastmoney_hk_page, page, page_size): page 
                     for page in range(1, pages + 1)
@@ -213,6 +213,12 @@ def _fetch_sh_index() -> Dict[str, Any] | None:
 
 def _fetch_eastmoney_market(market_name: str, fs: str) -> List[Dict[str, Any]]:
     """获取单个市场的数据（支持分页）"""
+    import time
+    import random
+    
+    # 添加随机延迟，避免请求过快
+    time.sleep(random.uniform(0.1, 0.3))
+    
     all_results = []
     page = 1
     page_size = 5000  # 请求5000条，实际可能返回更少
