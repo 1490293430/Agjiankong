@@ -4303,7 +4303,11 @@ async def collect_kline_data_api(
                 from common.db import save_stock_info_batch
                 # 先采集A股
                 try:
-                    a_stocks_raw = fetch_eastmoney_a_stock_spot()
+                    try:
+                        a_stocks_raw = fetch_eastmoney_a_stock_spot()
+                    except Exception as e:
+                        logger.warning(f"东方财富获取A股列表失败: {e}，尝试其他数据源")
+                        a_stocks_raw = fetch_a_stock_spot(max_retries=1)
                     # 过滤非股票数据（ETF/指数/基金等），保留上证指数
                     a_stocks = [s for s in a_stocks_raw if s.get("sec_type") == "stock" or 
                                (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001")]
@@ -4323,7 +4327,12 @@ async def collect_kline_data_api(
                 
                 # 再采集港股
                 try:
-                    hk_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+                    try:
+                        hk_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+                    except Exception as e:
+                        logger.warning(f"东方财富获取港股列表失败: {e}，尝试其他数据源")
+                        from market_collector.hk import fetch_hk_stock_spot
+                        hk_stocks_raw, _ = fetch_hk_stock_spot(source="auto")
                     # 过滤非股票数据
                     hk_stocks = [s for s in hk_stocks_raw if s.get("sec_type") == "stock"]
                     logger.info(f"港股列表：原始{len(hk_stocks_raw)}只，过滤后{len(hk_stocks)}只股票")
@@ -4348,14 +4357,25 @@ async def collect_kline_data_api(
                 "message": f"已开始后台同时采集A股和港股的{period_desc}K线数据，请稍后查看结果"
             }
         
-        # 获取股票列表（单个市场）
+        # 获取股票列表（单个市场）- 使用自动切换数据源
         if market.upper() == "HK":
-            all_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+            try:
+                all_stocks_raw, _ = fetch_eastmoney_hk_stock_spot()
+            except Exception as e:
+                logger.warning(f"东方财富获取港股列表失败: {e}，尝试其他数据源")
+                # 港股回退到其他数据源
+                from market_collector.hk import fetch_hk_stock_spot
+                all_stocks_raw, _ = fetch_hk_stock_spot(source="auto")
             # 过滤非股票数据
             all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock"]
             fetch_kline_func = fetch_hk_stock_kline
         else:
-            all_stocks_raw = fetch_eastmoney_a_stock_spot()
+            try:
+                all_stocks_raw = fetch_eastmoney_a_stock_spot()
+            except Exception as e:
+                logger.warning(f"东方财富获取A股列表失败: {e}，尝试其他数据源")
+                # A股回退到自动切换数据源（会尝试Tushare等）
+                all_stocks_raw = fetch_a_stock_spot(max_retries=1)
             # 过滤非股票数据，保留上证指数
             all_stocks = [s for s in all_stocks_raw if s.get("sec_type") == "stock" or 
                          (s.get("sec_type") == "index" and str(s.get("code", "")) == "1A0001")]

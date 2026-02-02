@@ -51,16 +51,17 @@ def reset_tushare_api():
 
 
 def fetch_stock_list_tushare() -> List[Dict[str, Any]]:
-    """从 Tushare 获取 A 股股票列表"""
+    """从 Tushare 获取 A 股股票列表（只返回股票，不包含ETF/基金/指数）"""
     api = get_tushare_api()
     if not api:
         return []
     
     try:
         # 获取股票基本信息
+        # stock_basic接口只返回股票，不包含ETF、基金、指数等
         df = api.stock_basic(
             exchange='',
-            list_status='L',  # 上市状态
+            list_status='L',  # 上市状态：L=上市，D=退市，P=暂停上市
             fields='ts_code,symbol,name,area,industry,market,list_date'
         )
         
@@ -72,16 +73,23 @@ def fetch_stock_list_tushare() -> List[Dict[str, Any]]:
         for _, row in df.iterrows():
             # ts_code 格式: 000001.SZ -> 转换为 000001
             code = row['symbol']
+            name = row['name']
+            
+            # 额外过滤：排除退市、ST等特殊股票（可选）
+            # 如果名称包含"退"、"PT"等，跳过
+            if '退' in name or name.startswith('PT'):
+                continue
+            
             stocks.append({
                 'code': code,
-                'name': row['name'],
+                'name': name,
                 'industry': row.get('industry', ''),
                 'area': row.get('area', ''),
                 'market': row.get('market', ''),
                 'list_date': row.get('list_date', ''),
             })
         
-        logger.info(f"从 Tushare 获取到 {len(stocks)} 只 A 股")
+        logger.info(f"从 Tushare 获取到 {len(stocks)} 只 A 股（已过滤退市股票）")
         return stocks
     except Exception as e:
         logger.error(f"Tushare 获取股票列表失败: {e}")

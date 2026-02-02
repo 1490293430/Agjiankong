@@ -495,6 +495,8 @@ def fetch_a_stock_spot(max_retries: int = 3) -> List[Dict[str, Any]]:
                                 stock.setdefault('price', 0)
                                 stock.setdefault('pct', 0)
                                 stock.setdefault('volume', 0)
+                                # 添加sec_type字段，使用分类函数
+                                stock['sec_type'] = _classify_security(stock.get('code', ''), stock.get('name', ''))
                             logger.info(f"Tushare 获取股票列表成功: {len(tushare_stocks)}只")
                             # 注意：这只是股票列表，不是实时行情，但可以避免完全没有数据
                             return tushare_stocks
