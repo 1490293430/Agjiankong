@@ -40,22 +40,15 @@ def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
             
             all_results = []
             
-            # 并发请求各市场数据（降低并发数，避免Docker网络问题）
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                futures = {
-                    executor.submit(_fetch_eastmoney_market, name, fs): name 
-                    for name, fs in markets
-                }
-                
-                for future in concurrent.futures.as_completed(futures, timeout=120):
-                    market_name = futures[future]
-                    try:
-                        results = future.result()
-                        if results:
-                            all_results.extend(results)
-                            logger.info(f"[东方财富] {market_name}获取成功: {len(results)}只")
-                    except Exception as e:
-                        logger.warning(f"[东方财富] {market_name}获取失败: {e}")
+            # 串行请求各市场数据（避免Docker网络并发问题）
+            for name, fs in markets:
+                try:
+                    results = _fetch_eastmoney_market(name, fs)
+                    if results:
+                        all_results.extend(results)
+                        logger.info(f"[东方财富] {name}获取成功: {len(results)}只")
+                except Exception as e:
+                    logger.warning(f"[东方财富] {name}获取失败: {e}")
             
             if all_results:
                 # 去重（按code）
@@ -126,22 +119,15 @@ def fetch_eastmoney_hk_stock_spot(max_retries: int = 2) -> Tuple[List[Dict[str, 
             pages = min(pages, 50)  # 最多50页，避免请求过多
             logger.info(f"[东方财富] 港股总数: {total}，需要 {pages} 页")
             
-            # 并发请求各页数据（降低并发数，避免Docker网络问题）
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                futures = {
-                    executor.submit(_fetch_eastmoney_hk_page, page, page_size): page 
-                    for page in range(1, pages + 1)
-                }
-                
-                for future in concurrent.futures.as_completed(futures, timeout=120):
-                    page = futures[future]
-                    try:
-                        results = future.result()
-                        if results:
-                            all_results.extend(results)
-                            logger.debug(f"[东方财富] 港股第{page}页获取成功: {len(results)}只")
-                    except Exception as e:
-                        logger.warning(f"[东方财富] 港股第{page}页获取失败: {e}")
+            # 串行请求各页数据（避免Docker网络并发问题）
+            for page in range(1, pages + 1):
+                try:
+                    results = _fetch_eastmoney_hk_page(page, page_size)
+                    if results:
+                        all_results.extend(results)
+                        logger.debug(f"[东方财富] 港股第{page}页获取成功: {len(results)}只")
+                except Exception as e:
+                    logger.warning(f"[东方财富] 港股第{page}页获取失败: {e}")
             
             if all_results:
                 # 去重（按code）
