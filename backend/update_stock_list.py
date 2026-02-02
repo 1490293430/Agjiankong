@@ -22,6 +22,13 @@ else:
 import requests
 import json
 from datetime import datetime
+import socket
+import urllib3
+
+# 强制使用 IPv4，解决 Docker 环境下 IPv6 连接超时问题
+def allowed_gai_family():
+    return socket.AF_INET
+urllib3.util.connection.allowed_gai_family = allowed_gai_family
 
 # 导入东方财富的分类函数（与K线采集使用相同的过滤逻辑）
 from market_collector.eastmoney_source import _classify_a_stock, _classify_hk_stock

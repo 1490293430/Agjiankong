@@ -13,6 +13,13 @@ logger = get_logger(__name__)
 # 东方财富行情接口
 EASTMONEY_API_URL = "http://push2.eastmoney.com/api/qt/clist/get"
 
+# 强制使用 IPv4，解决 Docker 环境下 IPv6 连接超时问题
+import socket
+import urllib3
+def allowed_gai_family():
+    return socket.AF_INET
+urllib3.util.connection.allowed_gai_family = allowed_gai_family
+
 
 def fetch_eastmoney_a_stock_spot(max_retries: int = 2) -> List[Dict[str, Any]]:
     """
